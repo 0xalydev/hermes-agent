@@ -2,6 +2,7 @@ import type { GatewayWsUrlResult } from '@hermes/shared'
 import type { TranslucencyState } from '@hermes/shared/translucency'
 
 import type { WakeIndicatorState } from './lib/wake-indicator'
+import type { IntroRevealBeatPush } from './store/intro-reveal'
 import type {
   PetOverlayBounds,
   PetOverlayControl,
@@ -86,12 +87,27 @@ declare global {
         onState: (callback: (payload: PetOverlayStatePayload) => void) => () => void
         onControl: (callback: (payload: PetOverlayControl) => void) => () => void
       }
+      // Intro reveal: the full-screen first-run brand sequence. The main
+      // renderer owns the clock; the overlay window (`?win=intro`) renders
+      // particles + type and plays sound locally.
+      introReveal?: {
+        open: () => Promise<{ ok: boolean }>
+        close: () => Promise<{ ok: boolean }>
+        pushBeat: (payload: IntroRevealBeatPush) => void
+        skip: () => void
+        onBeat: (callback: (payload: IntroRevealBeatPush) => void) => () => void
+        onSkip: (callback: () => void) => () => void
+        onClosed: (callback: () => void) => () => void
+      }
       // HUD mode: the chrome-free floating chat. A FULL app renderer with its
       // own gateway (like an instance window), sized and skinned as a floating
       // bar — so it mounts the real composer rather than a lookalike. Main
       // owns the window; `onChanged` keeps every window's toggle truthful.
       hud?: {
-        open: (request?: { sessionId?: null | string; profile?: null | string }) => Promise<{ ok: boolean }>
+        open: (request?: {
+          sessionId?: null | string
+          profile?: null | string
+        }) => Promise<{ ok: boolean }>
         close: () => Promise<{ ok: boolean }>
         setIgnoreMouse: (ignore: boolean) => void
         moveBy: (delta: { x: number; y: number; width: number; height: number }) => void
