@@ -3,6 +3,7 @@ import type { TranslucencyState } from '@hermes/shared/translucency'
 
 import type { WakeIndicatorState } from './lib/wake-indicator'
 import type { IntroRevealBeatPush } from './store/intro-reveal'
+import type { OnboardingWizardOutcome } from './store/onboarding-wizard'
 import type {
   PetOverlayBounds,
   PetOverlayControl,
@@ -91,12 +92,22 @@ declare global {
       // renderer owns the clock; the overlay window (`?win=intro`) renders
       // particles + type and plays sound locally.
       introReveal?: {
-        open: () => Promise<{ ok: boolean }>
-        close: () => Promise<{ ok: boolean }>
+        open: (payload?: { hideMain?: boolean }) => Promise<{ ok: boolean }>
+        close: (payload?: { showMain?: boolean }) => Promise<{ ok: boolean }>
         pushBeat: (payload: IntroRevealBeatPush) => void
         skip: () => void
         onBeat: (callback: (payload: IntroRevealBeatPush) => void) => () => void
         onSkip: (callback: () => void) => () => void
+        onClosed: (callback: () => void) => () => void
+      }
+      // Onboarding wizard: the Dia-style first-run setup in its OWN OS window
+      // (`?win=onboarding`) — the main app window stays hidden until it
+      // finishes, so setup never reads as an overlay on the app.
+      onboardingWizard?: {
+        open: (payload?: { needsProvider?: boolean }) => Promise<{ ok: boolean }>
+        ready: () => void
+        done: (payload: OnboardingWizardOutcome) => void
+        onDone: (callback: (payload: OnboardingWizardOutcome) => void) => () => void
         onClosed: (callback: () => void) => () => void
       }
       // HUD mode: the chrome-free floating chat. A FULL app renderer with its

@@ -98,6 +98,33 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
       return () => ipcRenderer.removeListener('hermes:intro-reveal:closed', listener)
     }
   },
+  // Onboarding wizard: the Dia-style first-run setup in its OWN OS window
+  // (`?win=onboarding`) — the main app window stays hidden until it finishes,
+  // so setup never reads as an overlay on the app.
+  onboardingWizard: {
+    // Main renderer asks for the window ({ needsProvider }); main hides the app.
+    open: payload => ipcRenderer.invoke('hermes:onboarding-wizard:open', payload),
+    // Wizard window signals its surface has painted — main reveals the OS
+    // window only now (ready-to-show fires on the empty shell = a blank blip).
+    ready: () => ipcRenderer.send('hermes:onboarding-wizard:ready'),
+    // Wizard window reports the outcome ({ completed, providerReady }); main
+    // closes it, shows the app, and forwards the payload to the main renderer.
+    done: payload => ipcRenderer.send('hermes:onboarding-wizard:done', payload),
+    // Main renderer learns the outcome to commit answers + start the chat.
+    onDone: callback => {
+      const listener = (_event, payload) => callback(payload)
+      ipcRenderer.on('hermes:onboarding-wizard:done', listener)
+
+      return () => ipcRenderer.removeListener('hermes:onboarding-wizard:done', listener)
+    },
+    // Main renderer learns the window closed without an outcome (⌘W).
+    onClosed: callback => {
+      const listener = () => callback()
+      ipcRenderer.on('hermes:onboarding-wizard:closed', listener)
+
+      return () => ipcRenderer.removeListener('hermes:onboarding-wizard:closed', listener)
+    }
+  },
   // HUD mode: the chrome-free floating chat. A full app renderer (own gateway)
   // sized as a floating bar, so it mounts the real composer. Main owns the
   // window; `onChanged` keeps every window's toggle truthful.

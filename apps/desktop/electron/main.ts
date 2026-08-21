@@ -11528,6 +11528,9 @@ function openIntroReveal() {
   introRevealWatchdog = setTimeout(() => {
     introRevealWatchdog = null
     closeIntroReveal()
+    // The renderer never ended the sequence — the first-run chain is broken,
+    // so bring the (possibly hidden) app back rather than leave a bare desktop.
+    showMainAfterOnboarding()
   }, INTRO_REVEAL_WATCHDOG_MS)
 
   if (introRevealWindow && !introRevealWindow.isDestroyed()) {
@@ -11573,14 +11576,29 @@ function closeIntroReveal() {
   }
 }
 
-ipcMain.handle('hermes:intro-reveal:open', async () => {
+ipcMain.handle('hermes:intro-reveal:open', async (_event, payload) => {
   openIntroReveal()
+
+  // First-run chain: the cinematic (and the wizard after it) own the screen —
+  // the app hides so the sequence plays over the bare desktop. The flag is
+  // shared with the wizard window so whichever surface ends the chain
+  // restores the app exactly once.
+  if (payload?.hideMain && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+    onboardingFlowHidMain = true
+    mainWindow.hide()
+  }
 
   return { ok: true }
 })
 
-ipcMain.handle('hermes:intro-reveal:close', async () => {
+ipcMain.handle('hermes:intro-reveal:close', async (_event, payload) => {
   closeIntroReveal()
+
+  // Replays (and skips with no wizard following) hand the screen straight
+  // back; the first-run chain keeps the app hidden for the wizard window.
+  if (payload?.showMain) {
+    showMainAfterOnboarding()
+  }
 
   return { ok: true }
 })
@@ -11596,6 +11614,178 @@ ipcMain.on('hermes:intro-reveal:beat', (_event, payload) => {
 ipcMain.on('hermes:intro-reveal:skip', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('hermes:intro-reveal:skip')
+  }
+})
+
+
+// ── Onboarding wizard window ────────────────────────────────────────────────
+//
+// The Dia-style first-run setup lives in its OWN frameless window, centered
+// over the user's desktop — the main app window stays HIDDEN for the whole
+// video → wizard chain so onboarding never reads as an overlay on the app.
+// The wizard renderer (`?win=onboarding`) is gateway-less like the intro
+// overlay; answers persist through the shared origin localStorage, and the
+// outcome rides one IPC back through here to the main renderer, which commits
+// the picks and starts the first chat.
+
+let onboardingWizardWindow = null
+// Reveal controller for the wizard window. Reveal rides the renderer's
+// explicit ready IPC, not `ready-to-show`: under the dev server that event
+// fires on the empty HTML shell's first paint (before React mounts), which
+// composites a blank window — a visible blip before the card's entrance.
+let onboardingWizardReveal = null
+// Whether the first-run chain (intro video and/or wizard window) hid the main
+// window — whichever surface ends the chain restores it exactly once.
+let onboardingFlowHidMain = false
+
+function onboardingWizardUrl(needsProvider) {
+  const query = `?win=onboarding${needsProvider ? '&providers=1' : ''}`
+
+  if (DEV_SERVER) {
+    return `${DEV_SERVER.endsWith('/') ? DEV_SERVER.slice(0, -1) : DEV_SERVER}/${query}#/`
+  }
+
+  return `${pathToFileURL(resolveRendererIndex()).toString()}${query}#/`
+}
+
+function showMainAfterOnboarding() {
+  if (!onboardingFlowHidMain) {
+    return
+  }
+
+  onboardingFlowHidMain = false
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return
+  }
+
+  // Fade the app back in instead of popping it — the finale card dissolves
+  // over the desktop, then the app rises out of it. setOpacity is a no-op on
+  // Linux, where the window simply shows at full opacity.
+  const FADE_MS = 450
+  const started = Date.now()
+
+  mainWindow.setOpacity(0)
+  mainWindow.show()
+  mainWindow.focus()
+
+  const timer = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      clearInterval(timer)
+      return
+    }
+
+    const t = Math.min(1, (Date.now() - started) / FADE_MS)
+
+    // Ease-out: fast rise, soft landing.
+    mainWindow.setOpacity(t * (2 - t))
+
+    if (t >= 1) {
+      clearInterval(timer)
+    }
+  }, 16)
+}
+
+function spawnOnboardingWizardWindow(needsProvider) {
+  const display = screen.getPrimaryDisplay()
+  const { workArea } = display
+  // The window IS the modal card — no stage, no backdrop. The desktop sits
+  // directly behind a small floating panel, exactly the Dia shape.
+  const width = Math.min(720, workArea.width - 120)
+  const height = Math.min(500, workArea.height - 120)
+
+  const win = new BrowserWindow({
+    x: Math.round(workArea.x + (workArea.width - width) / 2),
+    y: Math.round(workArea.y + (workArea.height - height) / 2),
+    width,
+    height,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    show: false,
+    hasShadow: true,
+    // Transparent host: the card's own CSS radius is the window shape.
+    backgroundColor: '#00000000',
+    webPreferences: chatWindowWebPreferences(PRELOAD_PATH)
+  })
+
+  wireCommonWindowHandlers(win, zoomWiringForWindowKind('petOverlay'))
+
+  // Show-on-renderer-ready: the wizard surface signals after mount + paint
+  // (double rAF in wizard-root.tsx), so the first composited frame is the
+  // card's entrance — never the blank pre-mount shell. did-finish-load arms
+  // the standard fallback so a hung renderer can't leave an invisible window.
+  const revealController = createWindowRevealController({
+    isDestroyed: () => win.isDestroyed(),
+    isVisible: () => win.isVisible(),
+    show: () => win.show()
+  })
+
+  onboardingWizardReveal = revealController
+  win.webContents.once('did-finish-load', revealController.scheduleFallback)
+  installWindowRendererLifecycle(win, { kind: 'overlay', callbacks: { log: rememberLog } })
+
+  win.on('closed', () => {
+    revealController.dispose()
+
+    if (onboardingWizardReveal === revealController) {
+      onboardingWizardReveal = null
+    }
+
+    if (onboardingWizardWindow === win) {
+      onboardingWizardWindow = null
+    }
+
+    // No matter how the window went away (outcome, ⌘W, crash), the app must
+    // come back — an invisible main window is unrecoverable for the user.
+    showMainAfterOnboarding()
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('hermes:onboarding-wizard:closed')
+    }
+  })
+
+  attachRendererConsoleCapture(win, 'onboarding-wizard', rememberLog)
+  loadWindowUrl(win, onboardingWizardUrl(needsProvider), 'Onboarding wizard')
+
+  return win
+}
+
+ipcMain.on('hermes:onboarding-wizard:ready', () => {
+  onboardingWizardReveal?.reveal()
+})
+
+ipcMain.handle('hermes:onboarding-wizard:open', async (_event, payload) => {
+  if (!onboardingWizardWindow || onboardingWizardWindow.isDestroyed()) {
+    onboardingWizardWindow = spawnOnboardingWizardWindow(Boolean(payload?.needsProvider))
+  } else {
+    onboardingWizardWindow.focus()
+  }
+
+  // Setup owns the screen: the app waits, hidden, until the outcome IPC.
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+    onboardingFlowHidMain = true
+    mainWindow.hide()
+  }
+
+  return { ok: true }
+})
+
+// Wizard window → main renderer, via main: the outcome. Close the wizard,
+// bring the app back, and forward the payload so the renderer commits + kicks
+// off the first chat.
+ipcMain.on('hermes:onboarding-wizard:done', (_event, payload) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('hermes:onboarding-wizard:done', payload ?? {})
+  }
+
+  showMainAfterOnboarding()
+
+  if (onboardingWizardWindow && !onboardingWizardWindow.isDestroyed()) {
+    onboardingWizardWindow.close()
   }
 })
 
