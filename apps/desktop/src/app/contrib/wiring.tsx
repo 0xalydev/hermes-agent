@@ -13,6 +13,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { type CSSProperties, lazy, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 
+import { PROMPT_SUBMIT_REQUEST_TIMEOUT_MS } from '@/api/client'
 import { graftRefreshedTailOntoBackfill } from '@/app/chat/transcript-backfill'
 import { formatRefValue } from '@/components/assistant-ui/directive-text'
 import { BootFailureOverlay } from '@/components/boot-failure-overlay'
@@ -23,6 +24,7 @@ import { GatewayConnectingOverlay } from '@/components/gateway-connecting-overla
 import { IntroRevealGate } from '@/components/intro-reveal'
 import { NotificationStack } from '@/components/notifications'
 import { DesktopOnboardingOverlay } from '@/components/onboarding'
+import { OnboardingWizardGate } from '@/components/onboarding-wizard'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
 import { RemoteDisplayBanner } from '@/components/remote-display-banner'
@@ -39,6 +41,7 @@ import { requestVoiceConversationStart } from '@/store/composer'
 import { $activeConnectionId } from '@/store/connections'
 import { $cronReviewRequest, setCronFocusJobId } from '@/store/cron'
 import { $pinnedSessionIds, pinSession, restoreWorktree, unpinSession } from '@/store/layout'
+import { $wizardAnswers, buildKickoffPrompt } from '@/store/onboarding-wizard'
 import { $previewTarget } from '@/store/preview'
 import {
   $activeGatewayProfile,
@@ -582,6 +585,36 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     }
   }, [startSessionInWorkspace, startWorkSessionRequest])
 
+  // Onboarding-wizard handoff: the first chat starts itself. Create the
+  // session, then submit a HIDDEN prompt seeded with the wizard's answers
+  // (display_kind=hidden — never rendered) so Hermes speaks first and the
+  // transcript opens with its greeting, not ours.
+  const kickoffFirstChat = useCallback(() => {
+    void (async () => {
+      const runtimeId = await createBackendSessionForSend(null)
+
+      if (!runtimeId) {
+        return
+      }
+
+      setAwaitingResponse(true)
+      setBusy(true)
+
+      await requestGateway(
+        'prompt.submit',
+        {
+          display_kind: 'hidden',
+          session_id: runtimeId,
+          text: buildKickoffPrompt($wizardAnswers.get())
+        },
+        PROMPT_SUBMIT_REQUEST_TIMEOUT_MS
+      ).catch(() => {
+        setAwaitingResponse(false)
+        setBusy(false)
+      })
+    })()
+  }, [createBackendSessionForSend, requestGateway])
+
   const composer = useComposerActions({ activeSessionId, currentCwd, requestGateway })
 
   const branchInNewChat = useCallback(
@@ -1082,6 +1115,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
       <RemoteDisplayBanner />
       {!isAuxiliaryWindow() && <DesktopInstallOverlay />}
       {!isAuxiliaryWindow() && <IntroRevealGate enabled={gatewayState === 'open'} />}
+      {!isAuxiliaryWindow() && <OnboardingWizardGate enabled={gatewayState === 'open'} onKickoff={kickoffFirstChat} />}
       {!isAuxiliaryWindow() && (
         <DesktopOnboardingOverlay
           enabled={gatewayState === 'open'}

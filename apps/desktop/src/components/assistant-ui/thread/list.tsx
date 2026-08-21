@@ -557,9 +557,17 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // traffic lights.
   const secondaryTitlebarGap = 'calc(var(--titlebar-height) + 0.75rem)'
 
+  // Hermes-speaks-first sessions (the onboarding kickoff's hidden seeded
+  // turn) have no user bubble above the opening assistant turn, so the first
+  // painted row is the assistant's thought/text flush against the pane
+  // chrome. Give the greeting some air.
+  const assistantOpensThread = hiddenCount === 0 && groups[0]?.kind === 'standalone'
+
   const threadContentTopPad = secondaryWindow
     ? 'pt-[calc(var(--titlebar-height)+0.75rem)]'
-    : 'pt-[calc(var(--titlebar-height)-0.5rem)]'
+    : assistantOpensThread
+      ? 'pt-[calc(var(--titlebar-height)+1rem)]'
+      : 'pt-[calc(var(--titlebar-height)-0.5rem)]'
 
   useEffect(() => setThreadAtBottom(isAtBottom), [isAtBottom])
   useEffect(() => () => resetThreadScroll(), [])

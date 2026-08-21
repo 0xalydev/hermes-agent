@@ -12,6 +12,8 @@ import { isProviderSetupErrorMessage } from '@/lib/provider-setup-errors'
 import { cn } from '@/lib/utils'
 import { $desktopBoot, type DesktopBootState } from '@/store/boot'
 import { $instantAccount, instantSuppressesOnboarding } from '@/store/instant-account'
+import { $introReveal, shouldPlayFirstRunIntro } from '@/store/intro-reveal'
+import { $onboardingWizard, shouldResumeOnboardingWizard } from '@/store/onboarding-wizard'
 import {
   $desktopOnboarding,
   clearPendingProviderOAuth,
@@ -190,6 +192,8 @@ export function DesktopOnboardingOverlay({
   const onboarding = useStore($desktopOnboarding)
   const boot = useStore($desktopBoot)
   const instantAccount = useStore($instantAccount)
+  const introReveal = useStore($introReveal)
+  const wizard = useStore($onboardingWizard)
   const ctxRef = useRef<OnboardingContext>({ requestGateway, onCompleted, profile })
   ctxRef.current = { requestGateway, onCompleted, profile }
 
@@ -284,6 +288,20 @@ export function DesktopOnboardingOverlay({
   // way on every subsequent launch — they re-enter via Settings → Providers
   // (manual mode), which sets manual=true and bypasses this gate.
   if (onboarding.firstRunSkipped && !onboarding.manual) {
+    return null
+  }
+
+  // The cinematic + wizard own first run while the intro-reveal build flag is
+  // on: this classic overlay is demoted to manual-only for the whole window
+  // between "intro should play" and "wizard finished". The wizard's provider
+  // step re-enters through startManualOnboarding (manual=true, wins above).
+  if (
+    !onboarding.manual &&
+    (introReveal.phase !== 'hidden' ||
+      wizard.phase === 'active' ||
+      shouldPlayFirstRunIntro(onboarding.configured, onboarding.firstRunSkipped) ||
+      shouldResumeOnboardingWizard())
+  ) {
     return null
   }
 
@@ -638,13 +656,6 @@ export function ApiKeyForm({
 
   return (
     <div className="grid gap-4">
-      {canGoBack ? (
-        <Button className="-mt-1 self-start font-medium" onClick={onBack} size="xs" type="button" variant="text">
-          <ChevronLeft className="size-3" />
-          {t.onboarding.backToSignIn}
-        </Button>
-      ) : null}
-
       <div className="grid max-h-[42dvh] gap-2 overflow-y-auto p-1 sm:grid-cols-2">
         {options.map(o => (
           <button
@@ -700,7 +711,13 @@ export function ApiKeyForm({
       </div>
 
       <div className="flex items-center justify-between gap-3">
-        <div>
+        <div className="flex items-center gap-2">
+          {canGoBack ? (
+            <Button className="font-medium" onClick={onBack} size="xs" type="button" variant="text">
+              <ChevronLeft className="size-3" />
+              {t.onboarding.backToSignIn}
+            </Button>
+          ) : null}
           {alreadySet && onClear ? (
             <Button onClick={() => onClear(option.envKey)} size="sm" variant="ghost">
               {t.common.remove}

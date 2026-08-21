@@ -67,6 +67,11 @@ function markSeen(): void {
   writeKey(SEEN_KEY, '1')
 }
 
+/** Forget the seen-key so the cinematic replays as a true first run (dev). */
+export function clearIntroRevealSeen(): void {
+  writeKey(SEEN_KEY, null)
+}
+
 /** True when the first-run reveal should mount ahead of the provider picker. */
 /** The whole feature's off switch: no autoplay, no replay row, no overlay —
  *  the intro does not exist unless the build was baked with
@@ -115,7 +120,9 @@ export function startIntroReveal(replay: boolean): void {
     startedAt: Date.now()
   })
 
-  void bridge()?.open?.().catch(() => undefined)
+  // The cinematic owns the screen: the app window hides so the sequence plays
+  // over the bare desktop (replays included — close() hands the screen back).
+  void bridge()?.open?.({ hideMain: true }).catch(() => undefined)
   pushBeat()
 }
 
@@ -153,14 +160,24 @@ export function finishIntroReveal(): void {
 
   markSeen()
   $introReveal.set(INITIAL)
-  void bridge()?.close?.().catch(() => undefined)
 
-  // First-run handoff: the cinematic ends, the setup wizard begins. Replays
-  // return to the app untouched. Skipping the cinematic still lands here
-  // (skip routes through leave → finish), so setup is never lost with it.
-  if (!wasReplay) {
-    void import('./onboarding-wizard').then(({ startOnboardingWizard }) => startOnboardingWizard())
-  }
+  // First-run handoff: the cinematic ends, the setup wizard begins — the app
+  // window STAYS hidden between the two (no flash of the shell mid-chain).
+  // The wizard starts BEFORE the overlay closes so its window is already
+  // spawning while the cinematic dissolves — the card's slide-up entrance
+  // then reads as one continuous motion instead of a gap between windows.
+  // Replays and already-onboarded skips hand the screen straight back.
+  void import('./onboarding-wizard').then(({ hasCompletedOnboardingWizard, startOnboardingWizard }) => {
+    const startWizard = !wasReplay && !hasCompletedOnboardingWizard()
+
+    if (startWizard) {
+      startOnboardingWizard()
+    }
+
+    void bridge()
+      ?.close?.({ showMain: !startWizard })
+      .catch(() => undefined)
+  })
 }
 
 /** The overlay window reports a skip (Esc/click inside it) or closed itself. */
