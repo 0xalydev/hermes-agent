@@ -62,7 +62,7 @@ export const DEFAULT_ANSWERS: WizardAnswers = {
   connectors: [],
   focus: [],
   keepInDock: true,
-  layout: 'focus',
+  layout: 'basic',
   name: '',
   openAtLogin: false,
   theme: 'nous'
@@ -285,6 +285,28 @@ export function buildKickoffPrompt(answers: WizardAnswers): string {
   return parts.join(' ')
 }
 
+/** The hidden seed for IN-CHAT onboarding — the conversational twin of the
+ *  wizard window. Hermes walks the user through the same setup, placing
+ *  `::onboarding{step="…"}` cards that the renderer turns into live pickers
+ *  (see components/onboarding-chat/directive.tsx). */
+export function buildChatOnboardingPrompt(): string {
+  return [
+    'You are welcoming a brand-new user inside Hermes Desktop, and you are their setup guide.',
+    'This message is invisible to them — never reference it or the mechanics described here.',
+    'Walk them through setup conversationally, ONE step per turn, in this order:',
+    '1. Greet them briefly and warmly as Hermes (two short sentences) and ask what you should call them.',
+    '2. After they answer: ask what they want help with, and include the line ::onboarding{step="focus"}',
+    '3. Then the tools they already use, so Hermes can connect to them later: one short sentence, and include the line ::onboarding{step="connectors"}',
+    '4. Then their color: one short sentence, and include the line ::onboarding{step="look"}',
+    '5. Then their layout: one short sentence, and include the line ::onboarding{step="layout"}',
+    '6. Close in two or three sentences: use their name if they gave one, and suggest one concrete first thing to try based on what they said they want help with.',
+    'Rules for the ::onboarding lines: emit each EXACTLY as written above, alone as its own paragraph with nothing else on that line.',
+    'The app renders an interactive picker there and applies choices to the app live, so do NOT list or describe the options in prose.',
+    'Their picks arrive as invisible messages prefixed [setup] — acknowledge each in a few words and move to the next step.',
+    'Keep every turn short. This is a chat, not a form. No headers, no bullet lists, no emoji.'
+  ].join(' ')
+}
+
 /** Hard reset for tests. */
 export function resetOnboardingWizardForTests(): void {
   $onboardingWizard.set(INITIAL)
@@ -293,10 +315,13 @@ export function resetOnboardingWizardForTests(): void {
 
 // ── Dev hooks (installed by the gate in dev builds only) ─────────────────────
 
-/** Stage baked by the `npm run dev:{movie,onboarding,kickoff,full}` entry
- *  points (VITE_ONBOARDING_STAGE). The gate auto-launches it on boot;
- *  'wizard' also pauses the finale so its animation can be iterated on. */
-export type OnboardingDevStage = 'full' | 'kickoff' | 'movie' | 'wizard'
+/** Stage baked by the `npm run dev:{movie,onboarding,kickoff,chat,full}`
+ *  entry points (VITE_ONBOARDING_STAGE). The gate auto-launches it on boot;
+ *  'wizard' also pauses the finale so its animation can be iterated on;
+ *  'chat' is the in-chat guided setup experiment. */
+export type OnboardingDevStage = 'chat' | 'full' | 'kickoff' | 'movie' | 'wizard'
+
+const DEV_STAGES: readonly string[] = ['chat', 'full', 'kickoff', 'movie', 'wizard']
 
 export function onboardingDevStage(): OnboardingDevStage | null {
   if (!import.meta.env.DEV) {
@@ -305,7 +330,7 @@ export function onboardingDevStage(): OnboardingDevStage | null {
 
   const stage: unknown = import.meta.env.VITE_ONBOARDING_STAGE
 
-  return stage === 'full' || stage === 'kickoff' || stage === 'movie' || stage === 'wizard' ? stage : null
+  return typeof stage === 'string' && DEV_STAGES.includes(stage) ? (stage as OnboardingDevStage) : null
 }
 
 /** Force-start at any step, bypassing the build flag and the done-key.

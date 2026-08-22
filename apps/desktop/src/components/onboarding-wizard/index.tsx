@@ -23,6 +23,7 @@
 import { useStore } from '@nanostores/react'
 import { lazy, Suspense, useCallback, useEffect, useRef } from 'react'
 
+import { startChatOnboardingSolo } from '@/components/onboarding-chat/assembly'
 import type { LayoutNode } from '@/components/pane-shell/tree/model'
 import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import { registry } from '@/contrib/registry'
@@ -56,8 +57,10 @@ let devStageLaunched = false
 
 export interface OnboardingWizardGateProps {
   enabled: boolean
-  /** Start the first chat (hidden seeded turn). Called after commit. */
-  onKickoff: () => void
+  /** Start the first chat (hidden seeded turn). Called after commit.
+   *  'greet' (default) seeds the wizard's answers; 'guide' runs the whole
+   *  setup in-chat via ::onboarding cards instead of the wizard window. */
+  onKickoff: (kind?: 'greet' | 'guide') => void
 }
 
 export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGateProps) {
@@ -66,6 +69,16 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
   const { setTheme } = useTheme()
   // One open request per active run — effects re-fire on unrelated renders.
   const openRequested = useRef(false)
+
+  // dev:chat strips to solo IMMEDIATELY on mount — before the gateway opens —
+  // so the persisted layout's sidebar never flashes in the small window while
+  // the connection comes up. The kickoff effect below re-calls this; it's
+  // idempotent.
+  useEffect(() => {
+    if (onboardingDevStage() === 'chat') {
+      startChatOnboardingSolo()
+    }
+  }, [])
 
   // Mid-flow restart: intro already seen, wizard unfinished — pick it back up.
   // Unless a dev entry point baked a stage: the stage owns the boot (e.g.
@@ -156,10 +169,11 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
   }, [wizard.phase])
 
   // Dev entry points — `npm run dev:movie` / `dev:onboarding` / `dev:kickoff` /
-  // `dev:full` bake a stage and land straight in it on boot:
+  // `dev:chat` / `dev:full` bake a stage and land straight in it on boot:
   //   movie    the cinematic alone (replay: hands the screen back after)
   //   wizard   the onboarding steps, with the finale PAUSED for iteration
   //   kickoff  straight to the app, Hermes prompting first
+  //   chat     straight to the app, the WHOLE setup guided in-chat
   //   full     the real first-run chain: video → wizard → kickoff
   useEffect(() => {
     const stage = onboardingDevStage()
@@ -176,6 +190,8 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
       devStartOnboardingWizard()
     } else if (stage === 'kickoff') {
       onKickoff()
+    } else if (stage === 'chat') {
+      onKickoff('guide')
     } else {
       devResetOnboardingFlow()
       startIntroReveal(false)
@@ -186,6 +202,7 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
   //   __onboarding.start('appearance')  jump straight to a step
   //   __onboarding.finale()             the cinematic close
   //   __onboarding.kickoff()            the hidden-seeded first chat
+  //   __onboarding.chat()               the in-chat guided setup
   //   __onboarding.movie()              the FULL chain: video → wizard → kickoff
   //   __onboarding.reset()              forget seen/done/answers (full replay)
   useEffect(() => {
@@ -194,6 +211,7 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
     }
 
     const hooks = {
+      chat: () => onKickoff('guide'),
       finale: () => devStartOnboardingWizard('finale'),
       kickoff: () => onKickoff(),
       // Replay the real first-run chain on a configured machine: reset the

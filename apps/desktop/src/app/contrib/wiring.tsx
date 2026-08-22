@@ -24,6 +24,7 @@ import { GatewayConnectingOverlay } from '@/components/gateway-connecting-overla
 import { IntroRevealGate } from '@/components/intro-reveal'
 import { NotificationStack } from '@/components/notifications'
 import { DesktopOnboardingOverlay } from '@/components/onboarding'
+import { $chatOnboardingThreadIds, startChatOnboardingSolo } from '@/components/onboarding-chat/assembly'
 import { OnboardingWizardGate } from '@/components/onboarding-wizard'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
@@ -41,7 +42,7 @@ import { requestVoiceConversationStart } from '@/store/composer'
 import { $activeConnectionId } from '@/store/connections'
 import { $cronReviewRequest, setCronFocusJobId } from '@/store/cron'
 import { $pinnedSessionIds, pinSession, restoreWorktree, unpinSession } from '@/store/layout'
-import { $wizardAnswers, buildKickoffPrompt } from '@/store/onboarding-wizard'
+import { $wizardAnswers, buildChatOnboardingPrompt, buildKickoffPrompt } from '@/store/onboarding-wizard'
 import { $previewTarget } from '@/store/preview'
 import {
   $activeGatewayProfile,
@@ -585,35 +586,55 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     }
   }, [startSessionInWorkspace, startWorkSessionRequest])
 
-  // Onboarding-wizard handoff: the first chat starts itself. Create the
-  // session, then submit a HIDDEN prompt seeded with the wizard's answers
-  // (display_kind=hidden — never rendered) so Hermes speaks first and the
-  // transcript opens with its greeting, not ours.
-  const kickoffFirstChat = useCallback(() => {
-    void (async () => {
-      const runtimeId = await createBackendSessionForSend(null)
-
-      if (!runtimeId) {
-        return
+  // Onboarding handoff: the first chat starts itself. Create the session,
+  // then submit a HIDDEN prompt (display_kind=hidden — never rendered) so
+  // Hermes speaks first and the transcript opens with its greeting, not ours.
+  // 'greet' seeds the wizard's answers; 'guide' runs the whole setup IN the
+  // chat instead (the ::onboarding card walk — no wizard window at all).
+  const kickoffFirstChat = useCallback(
+    (kind: 'greet' | 'guide' = 'greet') => {
+      if (kind === 'guide') {
+        // Solo mode: chat-only layout, no statusbar — the app assembles
+        // around the conversation when the layout card is answered.
+        startChatOnboardingSolo()
       }
 
-      setAwaitingResponse(true)
-      setBusy(true)
+      void (async () => {
+        const runtimeId = await createBackendSessionForSend(null)
 
-      await requestGateway(
-        'prompt.submit',
-        {
-          display_kind: 'hidden',
-          session_id: runtimeId,
-          text: buildKickoffPrompt($wizardAnswers.get())
-        },
-        PROMPT_SUBMIT_REQUEST_TIMEOUT_MS
-      ).catch(() => {
-        setAwaitingResponse(false)
-        setBusy(false)
-      })
-    })()
-  }, [createBackendSessionForSend, requestGateway])
+        if (!runtimeId) {
+          return
+        }
+
+        if (kind === 'guide') {
+          // Mark this thread as the guided one (transcript treatment, no git
+          // strip). Both ids: the thread list keys by the STORED session id
+          // (that's what the route and sidebar select), the composer by the
+          // runtime id.
+          const storedId = $selectedStoredSessionId.get()
+
+          $chatOnboardingThreadIds.set(storedId ? [storedId, runtimeId] : [runtimeId])
+        }
+
+        setAwaitingResponse(true)
+        setBusy(true)
+
+        await requestGateway(
+          'prompt.submit',
+          {
+            display_kind: 'hidden',
+            session_id: runtimeId,
+            text: kind === 'guide' ? buildChatOnboardingPrompt() : buildKickoffPrompt($wizardAnswers.get())
+          },
+          PROMPT_SUBMIT_REQUEST_TIMEOUT_MS
+        ).catch(() => {
+          setAwaitingResponse(false)
+          setBusy(false)
+        })
+      })()
+    },
+    [createBackendSessionForSend, requestGateway]
+  )
 
   const composer = useComposerActions({ activeSessionId, currentCwd, requestGateway })
 
