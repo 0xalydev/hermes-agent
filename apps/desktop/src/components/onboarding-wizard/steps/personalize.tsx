@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Blurb, Chip, StepControls } from '@/components/wizard-shell'
 import { $wizardAnswers, setWizardAnswers } from '@/store/onboarding-wizard'
 
-const FOCUS_OPTIONS = ['Coding', 'Writing', 'Research', 'Automation', 'Messaging', 'Just exploring']
+import { FOCUS_OPTIONS } from '../options'
 
 export function PersonalizeStep() {
   const answers = useStore($wizardAnswers)
