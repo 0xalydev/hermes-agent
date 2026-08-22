@@ -11790,6 +11790,33 @@ ipcMain.on('hermes:onboarding-wizard:done', (_event, payload) => {
 })
 
 
+// In-chat onboarding assembly: grow the main window OUTWARD by per-edge pixel
+// deltas — the minimum the picked layout needs — so the chat stays roughly
+// put while the app assembles around it. Animated on macOS (setBounds's
+// native glide); the arriving panes run their own entrance animation on top.
+// Clamped into the display's work area; the clamp shifts position only when
+// the grown frame would leave the screen.
+ipcMain.on('hermes:chat-onboarding:grow', (event, deltas) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    return
+  }
+
+  const clampDelta = value => Math.max(0, Math.min(4000, Math.round(Number(value) || 0)))
+  const left = clampDelta(deltas?.left)
+  const top = clampDelta(deltas?.top)
+  const right = clampDelta(deltas?.right)
+  const bottom = clampDelta(deltas?.bottom)
+  const b = mainWindow.getBounds()
+  const area = screen.getDisplayMatching(b).workArea
+
+  const width = Math.min(b.width + left + right, area.width)
+  const height = Math.min(b.height + top + bottom, area.height)
+  const x = Math.max(area.x, Math.min(b.x - left, area.x + area.width - width))
+  const y = Math.max(area.y, Math.min(b.y - top, area.y + area.height - height))
+
+  mainWindow.setBounds({ height, width, x, y }, true)
+})
+
 // ── HUD mode ────────────────────────────────────────────────────────────────
 //
 // The chrome-free floating chat: a transparent, frameless, always-on-top
@@ -12432,8 +12459,23 @@ function closeQuickEntryWindow() {
 function createWindow() {
   const icon = getAppIconPath()
   const savedWindowState = readWindowState()
+  // dev:chat boots the in-chat guided onboarding: the window is BORN small and
+  // centered (the solo chat), then grows outward when the user picks a layout
+  // (see 'hermes:chat-onboarding:grow'). Sized to the conversation alone — the
+  // onboarding cards are max-w-md plus the thread's px-6; anything wider is
+  // dead margin before assembly. Dev-only: the var rides the npm script's
+  // cross-env, so packaged builds never see it.
+  const chatOnboardingBoot = process.env.VITE_ONBOARDING_STAGE === 'chat' ? { height: 640, width: 600 } : null
+  const windowOptions = computeWindowOptions(savedWindowState, screen.getAllDisplays())
+
+  if (chatOnboardingBoot) {
+    delete windowOptions.x
+    delete windowOptions.y
+  }
+
   mainWindow = new BrowserWindow({
-    ...computeWindowOptions(savedWindowState, screen.getAllDisplays()),
+    ...windowOptions,
+    ...chatOnboardingBoot,
     minWidth: WINDOW_MIN_WIDTH,
     minHeight: WINDOW_MIN_HEIGHT,
     title: 'Hermes',

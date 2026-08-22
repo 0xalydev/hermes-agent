@@ -125,6 +125,12 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
       return () => ipcRenderer.removeListener('hermes:onboarding-wizard:closed', listener)
     }
   },
+  // In-chat onboarding assembly: the guided chat asks main to grow the window
+  // outward by per-edge pixel deltas, so the chat pane (and the composer under
+  // the user's cursor) keeps its screen rect while the app assembles around it.
+  chatOnboarding: {
+    grow: deltas => ipcRenderer.send('hermes:chat-onboarding:grow', deltas)
+  },
   // HUD mode: the chrome-free floating chat. A full app renderer (own gateway)
   // sized as a floating bar, so it mounts the real composer. Main owns the
   // window; `onChanged` keeps every window's toggle truthful.

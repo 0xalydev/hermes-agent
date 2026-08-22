@@ -110,6 +110,12 @@ declare global {
         onDone: (callback: (payload: OnboardingWizardOutcome) => void) => () => void
         onClosed: (callback: () => void) => () => void
       }
+      // In-chat onboarding assembly: grow the main window outward by per-edge
+      // pixel deltas so the chat pane keeps its exact screen rect while the
+      // app assembles around it (see onboarding-chat/assembly.ts).
+      chatOnboarding?: {
+        grow: (deltas: { bottom: number; left: number; right: number; top: number }) => void
+      }
       // HUD mode: the chrome-free floating chat. A FULL app renderer with its
       // own gateway (like an instance window), sized and skinned as a floating
       // bar — so it mounts the real composer rather than a lookalike. Main
