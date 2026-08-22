@@ -9,6 +9,7 @@
 import { useStore } from '@nanostores/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { $chatOnboardingSolo } from '@/components/onboarding-chat/assembly'
 import { PaneTab, PaneTabLabel, PaneTabStrip } from '@/components/ui/pane-tab'
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
@@ -24,6 +25,11 @@ import { paneChrome } from './track-model'
 
 export function NarrowOverlays() {
   const narrow = useStore($narrowViewport)
+  // Guided onboarding's solo window is narrower than the collapse breakpoint,
+  // and its chat-solo tree ADOPTS every pane as an invisible tab — without
+  // this gate the edge strips would hover-reveal panes the flow deliberately
+  // hasn't introduced yet.
+  const solo = useStore($chatOnboardingSolo)
   const tree = useStore($layoutTree)
   const panes = useContributions('panes')
   const hiddenPanes = useStore($hiddenTreePanes)
@@ -47,7 +53,7 @@ export function NarrowOverlays() {
   // ⌘B / ⌘G's narrow branch dispatches the app's toggle-reveal event with the
   // REAL pane id — accept those via each contribution's revealAliases.
   useEffect(() => {
-    if (!narrow) {
+    if (!narrow || solo) {
       setReveal(null)
 
       return
@@ -99,9 +105,9 @@ export function NarrowOverlays() {
       window.removeEventListener(PANE_TOGGLE_REVEAL_EVENT, onToggle)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [narrow])
+  }, [narrow, solo])
 
-  if (!narrow || collapsibles.length === 0) {
+  if (!narrow || solo || collapsibles.length === 0) {
     return null
   }
 

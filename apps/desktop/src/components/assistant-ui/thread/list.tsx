@@ -17,6 +17,7 @@ import {
 } from 'react'
 import { type GetTargetScrollTop, useStickToBottom } from 'use-stick-to-bottom'
 
+import { $chatOnboardingThreadIds } from '@/components/onboarding-chat/assembly'
 import { usePaneLifecycle } from '@/components/pane-shell/pane-visibility'
 import { useI18n } from '@/i18n'
 import { messagePaintWeight } from '@/lib/render-weight'
@@ -563,6 +564,12 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // chrome. Give the greeting some air.
   const assistantOpensThread = hiddenCount === 0 && groups[0]?.kind === 'standalone'
 
+  // The guided-setup thread reads larger (~16px body vs the app's 14px) — a
+  // conversation, not a work surface. Marked with data-thread-type so the
+  // scaling itself lives in styles.css as a plain override.
+  const onboardingThreadIds = useStore($chatOnboardingThreadIds)
+  const threadType = sessionKey && onboardingThreadIds.includes(sessionKey) ? 'onboarding' : undefined
+
   const threadContentTopPad = secondaryWindow
     ? 'pt-[calc(var(--titlebar-height)+0.75rem)]'
     : assistantOpensThread
@@ -780,6 +787,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
           <div
             className={cn('mx-auto flex w-full max-w-(--composer-width) min-w-0 flex-col px-6', threadContentTopPad)}
             data-slot="aui_thread-content"
+            data-thread-type={threadType}
             ref={contentRef as React.RefCallback<HTMLDivElement>}
           >
             {(hiddenCount > 0 || olderAvailable) && (

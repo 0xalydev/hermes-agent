@@ -4,6 +4,7 @@ import { type ClipboardEvent, type FormEvent, type KeyboardEvent, useCallback, u
 
 import { useHudComposerDrag } from '@/app/hud/composer-drag'
 import { composerFill, composerFloatingStrip, composerSurfaceGlass } from '@/components/chat/composer-dock'
+import { $chatOnboardingSolo, $chatOnboardingThreadIds } from '@/components/onboarding-chat/assembly'
 import { Button } from '@/components/ui/button'
 import { Slot as ContribSlot } from '@/contrib/react/slot'
 import { useI18n } from '@/i18n'
@@ -168,6 +169,13 @@ export function ChatBar({
   // session id — gateway events and process.list both speak that id. Only the
   // queue uses the stored-session fallback key (prompts can queue pre-resume).
   const statusSessionId = sessionId ?? null
+
+  // The guided-onboarding conversation never shows the git strip — branch,
+  // ±, worktrees are exactly the machinery that first run is hiding. Solo
+  // covers the moments before the session ids are known.
+  const onboardingThreadIds = useStore($chatOnboardingThreadIds)
+  const chatOnboardingSolo = useStore($chatOnboardingSolo)
+  const hideCodingRow = chatOnboardingSolo || (sessionId != null && onboardingThreadIds.includes(sessionId))
 
   // Coarse edge: re-renders ChatBar only when the stack shows/hides, NOT on
   // every per-item status mutation or other sessions' churn (see the hook).
@@ -1265,18 +1273,20 @@ export function ChatBar({
                     composerSurfaceGlass
                   )}
                 />
-                <CodingStatusRow
-                  onBranchOff={handleBranchOff}
-                  onConvertBranch={handleConvertBranch}
-                  onListBranches={handleListBranches}
-                  // A tile's rail reviews ITS worktree: pin the pane's scope to
-                  // this surface's cwd. Main keeps the classic follow-the-
-                  // active-session scope (null).
-                  onOpen={() => toggleReview(scope.target === 'main' ? null : (cwd ?? null), scope.target)}
-                  onOpenWorktree={openInWorktree}
-                  onSwitchBranch={handleSwitchBranch}
-                  repoPath={cwd}
-                />
+                {!hideCodingRow && (
+                  <CodingStatusRow
+                    onBranchOff={handleBranchOff}
+                    onConvertBranch={handleConvertBranch}
+                    onListBranches={handleListBranches}
+                    // A tile's rail reviews ITS worktree: pin the pane's scope to
+                    // this surface's cwd. Main keeps the classic follow-the-
+                    // active-session scope (null).
+                    onOpen={() => toggleReview(scope.target === 'main' ? null : (cwd ?? null), scope.target)}
+                    onOpenWorktree={openInWorktree}
+                    onSwitchBranch={handleSwitchBranch}
+                    repoPath={cwd}
+                  />
+                )}
                 <div
                   className={cn(
                     'relative z-1 flex min-h-0 w-full flex-col gap-(--composer-row-gap) overflow-hidden rounded-[inherit] px-(--composer-surface-pad-x) py-(--composer-surface-pad-y) transition-opacity duration-200 ease-out',
