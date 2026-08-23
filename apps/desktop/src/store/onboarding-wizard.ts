@@ -23,6 +23,7 @@ import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
 import { $instantAccount, instantSuppressesOnboarding } from './instant-account'
 import { clearIntroRevealSeen, hasSeenIntroReveal, isIntroRevealEnabled } from './intro-reveal'
 import { $desktopOnboarding } from './onboarding'
+import { setOnboardingSurfaceActive } from './onboarding-presence'
 
 const DONE_KEY = 'hermes-onboarding-wizard-done-v1'
 const ANSWERS_KEY = 'hermes-onboarding-wizard-answers-v1'
@@ -109,6 +110,9 @@ const INITIAL: OnboardingWizardState = {
 }
 
 export const $onboardingWizard = atom<OnboardingWizardState>(INITIAL)
+
+// Presence mirror — see onboarding-presence.ts (update toast stands down).
+$onboardingWizard.subscribe(state => setOnboardingSurfaceActive('wizard', state.phase !== 'hidden'))
 
 function loadAnswers(): WizardAnswers {
   const raw = readJson<Partial<WizardAnswers>>(ANSWERS_KEY)

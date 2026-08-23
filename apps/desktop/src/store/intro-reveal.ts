@@ -24,6 +24,8 @@ import { atom } from 'nanostores'
 
 import { readKey, writeKey } from '@/lib/storage'
 
+import { setOnboardingSurfaceActive } from './onboarding-presence'
+
 const SEEN_KEY = 'hermes-intro-reveal-seen-v1'
 
 export type IntroRevealPhase =
@@ -58,6 +60,11 @@ const INITIAL: IntroRevealState = {
 }
 
 export const $introReveal = atom<IntroRevealState>(INITIAL)
+
+// Presence mirror: ambient chrome (the update toast) stands down while the
+// cinematic owns the screen. Module-scope subscribe so no start/finish path
+// can forget to raise or lower it.
+$introReveal.subscribe(state => setOnboardingSurfaceActive('intro', state.phase !== 'hidden'))
 
 export function hasSeenIntroReveal(): boolean {
   return readKey(SEEN_KEY) === '1'

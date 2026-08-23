@@ -15,19 +15,22 @@
  *    so its arrival doesn't lift the composer.
  */
 
-import type { CSSProperties } from 'react'
-
 import { atom } from 'nanostores'
+import type { CSSProperties } from 'react'
 
 import { allPaneIds, group, type LayoutNode } from '@/components/pane-shell/tree/model'
 import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import { $layoutTree, dismissTreePane, isCollapsePane } from '@/components/pane-shell/tree/store'
 import { setSidebarOpen } from '@/store/layout'
+import { setOnboardingSurfaceActive } from '@/store/onboarding-presence'
 import { onboardingDevStage } from '@/store/onboarding-wizard'
 import { $statusbarVisible } from '@/store/statusbar-prefs'
 
 /** True from guide kickoff until the layout pick assembles the app. */
 export const $chatOnboardingSolo = atom(false)
+
+// Presence mirror — see onboarding-presence.ts (update toast stands down).
+$chatOnboardingSolo.subscribe(solo => setOnboardingSurfaceActive('solo-chat', solo))
 
 /** The guided-setup session's ids — stored AND runtime, because consumers key
  *  sessions differently (the thread list by stored id, the composer by runtime
@@ -105,6 +108,7 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
       dismissTreePane(paneId)
     }
   }
+
   // The tree now HAS a sessions column, but the renderer drops the whole left
   // column when the persisted ⌘B state says closed ($sidebarOpen →
   // $collapsedTreeSides) — picking a layout with a sidebar is an explicit

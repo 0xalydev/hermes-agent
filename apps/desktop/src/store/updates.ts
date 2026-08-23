@@ -19,6 +19,7 @@ import { translateNow } from '@/i18n'
 import { persistString, storedString } from '@/lib/storage'
 import { $connectionsRegistry, refreshConnectionsRegistry } from '@/store/connections'
 import { dismissNotification, notify } from '@/store/notifications'
+import { onboardingSurfaceActive } from '@/store/onboarding-presence'
 import { $connection } from '@/store/session'
 import type { BackendUpdateCheckResponse } from '@/types/hermes'
 
@@ -205,8 +206,18 @@ export function reportInstallMethodWarning(message: string | undefined): void {
  * (re)starts the cooldown, so a busy upstream branch doesn't re-spam the user
  * on every new commit. The snooze is persisted, so it survives relaunches too.
  */
+
 export function maybeNotifyUpdateAvailable(status: DesktopUpdateStatus | null) {
   if (!status || status.supported === false || status.error || !status.targetSha) {
+    return
+  }
+
+  // Never over onboarding: the intro cinematic, the wizard/login window, and
+  // the guided first chat all own the screen — an update toast mid-chain
+  // breaks the moment (and every first-run screen recording). The poller
+  // fires again minutes later; the toast keeps its own snooze machinery, so
+  // dropping this one costs nothing.
+  if (onboardingSurfaceActive()) {
     return
   }
 
