@@ -9,9 +9,9 @@ import { $desktopOnboarding } from '@/store/onboarding'
 import {
   completeOnboardingWizard,
   devStartOnboardingWizard,
+  type OnboardingWizardOutcome,
   skipOnboardingWizard,
   startOnboardingWizardWindow,
-  type OnboardingWizardOutcome,
   type WizardStepId
 } from '@/store/onboarding-wizard'
 import { DEFAULT_SKIN_NAME } from '@/themes'
@@ -54,9 +54,11 @@ export function mountOnboardingWizard(): void {
     return
   }
 
-  const needsProvider = new URLSearchParams(window.location.search).get('providers') === '1'
+  const params = new URLSearchParams(window.location.search)
+  const needsProvider = params.get('providers') === '1'
+  const mode = params.get('mode') === 'login' ? 'login' : 'full'
 
-  startOnboardingWizardWindow(needsProvider)
+  startOnboardingWizardWindow(needsProvider, mode)
 
   // Same dev stage-jumping hooks as the in-app gate, so the screenshot loop
   // and browser iteration drive THIS surface — the one users actually see.
@@ -69,14 +71,21 @@ export function mountOnboardingWizard(): void {
     ;(window as Window & { __onboarding?: typeof hooks }).__onboarding = hooks
   }
 
-  const report = (outcome: OnboardingWizardOutcome) => {
-    window.hermesDesktop?.onboardingWizard?.done(outcome)
-  }
-
   // Whether the run still lacks inference: only meaningful when this window
-  // was told a provider is needed AND the in-wizard provider step didn't
+  // was told a provider is needed AND the in-wizard provider/login step didn't
   // finish a flow (which flips the classic store to configured).
   const providerReady = () => !needsProvider || $desktopOnboarding.get().configured === true
+
+  const report = (outcome: OnboardingWizardOutcome) => {
+    window.hermesDesktop?.onboardingWizard?.done({
+      ...outcome,
+      mode,
+      // Login mode continues into the in-chat guided setup whenever inference
+      // exists — main pre-sizes the (hidden) app window to the solo chat so
+      // the guide starts small instead of flashing the full shell.
+      soloChat: mode === 'login' && outcome.providerReady !== false
+    })
+  }
 
   createRoot(root).render(
     <ErrorBoundary label="onboarding-wizard">
@@ -91,7 +100,9 @@ export function mountOnboardingWizard(): void {
                 }}
                 onSkip={() => {
                   skipOnboardingWizard()
-                  report({ completed: false })
+                  // Login mode: skipping the sign-in skips ONLY the sign-in —
+                  // the guided chat still runs when inference already exists.
+                  report(mode === 'login' ? { completed: true, providerReady: providerReady() } : { completed: false })
                 }}
               />
             </RootTooltipProvider>

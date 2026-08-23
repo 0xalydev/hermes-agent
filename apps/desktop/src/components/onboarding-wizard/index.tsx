@@ -36,12 +36,12 @@ import {
   dismissOnboardingWizardSession,
   hasCompletedOnboardingWizard,
   onboardingDevStage,
+  type OnboardingWizardOutcome,
   reloadWizardAnswers,
   shouldResumeOnboardingWizard,
   startOnboardingWizard,
-  wizardNeedsProviderStep,
-  type OnboardingWizardOutcome,
   type WizardAnswers,
+  wizardNeedsProviderStep,
   type WizardStepId
 } from '@/store/onboarding-wizard'
 import { useTheme } from '@/themes'
@@ -114,6 +114,17 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
     (outcome: OnboardingWizardOutcome) => {
       completeOnboardingWizard()
 
+      // Login mode: no picks to commit — the guided chat IS the setup. Run it
+      // whenever inference exists (sign-in completed OR skipped-but-already
+      // -configured); without inference there is nothing to guide with.
+      if (outcome.mode === 'login') {
+        if (outcome.providerReady !== false) {
+          onKickoff('guide')
+        }
+
+        return
+      }
+
       if (!outcome.completed) {
         return
       }
@@ -141,6 +152,7 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
     }
 
     const offDone = bridge.onDone(handleOutcome)
+
     const offClosed = bridge.onClosed(() => {
       if ($onboardingWizard.get().phase === 'active' && !hasCompletedOnboardingWizard()) {
         dismissOnboardingWizardSession()
@@ -164,9 +176,9 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
 
     if (bridge && !openRequested.current) {
       openRequested.current = true
-      void bridge.open({ needsProvider: wizardNeedsProviderStep() }).catch(() => undefined)
+      void bridge.open({ mode: wizard.mode, needsProvider: wizardNeedsProviderStep() }).catch(() => undefined)
     }
-  }, [wizard.phase])
+  }, [wizard.mode, wizard.phase])
 
   // Dev entry points — `npm run dev:movie` / `dev:onboarding` / `dev:kickoff` /
   // `dev:chat` / `dev:full` bake a stage and land straight in it on boot:

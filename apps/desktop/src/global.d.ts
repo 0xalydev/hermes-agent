@@ -104,7 +104,7 @@ declare global {
       // (`?win=onboarding`) — the main app window stays hidden until it
       // finishes, so setup never reads as an overlay on the app.
       onboardingWizard?: {
-        open: (payload?: { needsProvider?: boolean }) => Promise<{ ok: boolean }>
+        open: (payload?: { mode?: 'full' | 'login'; needsProvider?: boolean }) => Promise<{ ok: boolean }>
         ready: () => void
         done: (payload: OnboardingWizardOutcome) => void
         onDone: (callback: (payload: OnboardingWizardOutcome) => void) => () => void

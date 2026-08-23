@@ -75,7 +75,7 @@ export function WizardSurface({ onComplete, onSkip }: WizardSurfaceProps) {
   // provider step opts out entirely: its forms (auth codes, API keys) own
   // Enter, and a stray advance mid-flow would abandon the sign-in.
   useEffect(() => {
-    if (finale || step === 'providers') {
+    if (finale || step === 'providers' || step === 'login') {
       return
     }
 
@@ -163,7 +163,12 @@ export function WizardSurface({ onComplete, onSkip }: WizardSurfaceProps) {
   const def = STEP_DEFS[step]
   // The closing step reads "Ready" wherever it lands — which step is last
   // depends on the provider gate, so it's decided by position, not by id.
-  const cta = index >= wizard.steps.length - 2 ? 'Ready' : def.cta
+  // A single-step run (login mode) keeps its own CTA.
+  const cta = wizard.steps.length > 1 && index >= wizard.steps.length - 2 ? 'Ready' : def.cta
+  // The classic run ends through the finale's timer; a run WITHOUT a finale
+  // (login mode) completes straight from the footer CTA. (The finale itself
+  // returned above, so reaching here on the last step means there is none.)
+  const lastAndNoFinale = index >= wizard.steps.length - 1
 
   return (
     <>
@@ -173,7 +178,7 @@ export function WizardSurface({ onComplete, onSkip }: WizardSurfaceProps) {
         footer={
           <>
             <Button onClick={onSkip ?? skipOnboardingWizard} size="inline" variant="text">
-              Skip setup
+              {step === 'login' ? 'Skip sign-in' : 'Skip setup'}
             </Button>
 
             <div className="flex items-center gap-2.5">
@@ -184,7 +189,7 @@ export function WizardSurface({ onComplete, onSkip }: WizardSurfaceProps) {
               )}
               <Button
                 autoFocus
-                onClick={nextWizardStep}
+                onClick={lastAndNoFinale ? onComplete : nextWizardStep}
                 size="lg"
                 // Dark derives a light-blue/dark-text primary for contrast; the
                 // CTA stays electric blue + white in both modes. Once the user

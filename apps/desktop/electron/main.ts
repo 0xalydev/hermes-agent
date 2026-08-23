@@ -11638,8 +11638,8 @@ let onboardingWizardReveal = null
 // window — whichever surface ends the chain restores it exactly once.
 let onboardingFlowHidMain = false
 
-function onboardingWizardUrl(needsProvider) {
-  const query = `?win=onboarding${needsProvider ? '&providers=1' : ''}`
+function onboardingWizardUrl(needsProvider, mode) {
+  const query = `?win=onboarding${needsProvider ? '&providers=1' : ''}${mode === 'login' ? '&mode=login' : ''}`
 
   if (DEV_SERVER) {
     return `${DEV_SERVER.endsWith('/') ? DEV_SERVER.slice(0, -1) : DEV_SERVER}/${query}#/`
@@ -11686,13 +11686,14 @@ function showMainAfterOnboarding() {
   }, 16)
 }
 
-function spawnOnboardingWizardWindow(needsProvider) {
+function spawnOnboardingWizardWindow(needsProvider, mode) {
   const display = screen.getPrimaryDisplay()
   const { workArea } = display
   // The window IS the modal card — no stage, no backdrop. The desktop sits
-  // directly behind a small floating panel, exactly the Dia shape.
-  const width = Math.min(720, workArea.width - 120)
-  const height = Math.min(500, workArea.height - 120)
+  // directly behind a small floating panel, exactly the Dia shape. Login mode
+  // is one card, no media column tour — a tighter panel.
+  const width = Math.min(mode === 'login' ? 680 : 720, workArea.width - 120)
+  const height = Math.min(mode === 'login' ? 460 : 500, workArea.height - 120)
 
   const win = new BrowserWindow({
     x: Math.round(workArea.x + (workArea.width - width) / 2),
@@ -11749,7 +11750,7 @@ function spawnOnboardingWizardWindow(needsProvider) {
   })
 
   attachRendererConsoleCapture(win, 'onboarding-wizard', rememberLog)
-  loadWindowUrl(win, onboardingWizardUrl(needsProvider), 'Onboarding wizard')
+  loadWindowUrl(win, onboardingWizardUrl(needsProvider, mode), 'Onboarding wizard')
 
   return win
 }
@@ -11760,7 +11761,10 @@ ipcMain.on('hermes:onboarding-wizard:ready', () => {
 
 ipcMain.handle('hermes:onboarding-wizard:open', async (_event, payload) => {
   if (!onboardingWizardWindow || onboardingWizardWindow.isDestroyed()) {
-    onboardingWizardWindow = spawnOnboardingWizardWindow(Boolean(payload?.needsProvider))
+    onboardingWizardWindow = spawnOnboardingWizardWindow(
+      Boolean(payload?.needsProvider),
+      payload?.mode === 'login' ? 'login' : 'full'
+    )
   } else {
     onboardingWizardWindow.focus()
   }
@@ -11780,6 +11784,23 @@ ipcMain.handle('hermes:onboarding-wizard:open', async (_event, payload) => {
 ipcMain.on('hermes:onboarding-wizard:done', (_event, payload) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('hermes:onboarding-wizard:done', payload ?? {})
+  }
+
+  // Login mode → guided chat: the app returns as the small solo-chat window
+  // (the guide grows it when the layout card is picked). Sized while still
+  // hidden so the first visible frame is already the conversation panel —
+  // mirrors the dev:chat boot dimensions.
+  if (payload?.soloChat && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+    const area = screen.getDisplayMatching(mainWindow.getBounds()).workArea
+    const width = Math.min(600, area.width)
+    const height = Math.min(640, area.height)
+
+    mainWindow.setBounds({
+      height,
+      width,
+      x: Math.round(area.x + (area.width - width) / 2),
+      y: Math.round(area.y + (area.height - height) / 2)
+    })
   }
 
   showMainAfterOnboarding()

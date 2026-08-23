@@ -18,7 +18,7 @@
 
 import { atom } from 'nanostores'
 
-import { readJson, writeJson, readKey, writeKey } from '@/lib/storage'
+import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
 
 import { $instantAccount, instantSuppressesOnboarding } from './instant-account'
 import { clearIntroRevealSeen, hasSeenIntroReveal, isIntroRevealEnabled } from './intro-reveal'
@@ -35,8 +35,17 @@ export type WizardStepId =
   | 'system'
   /** Only present when no inference path exists (instant mint failed/off). */
   | 'providers'
+  /** The login-mode run's single step: sign in to Nous Portal (or any
+   *  provider behind the disclosure), skippable. */
+  | 'login'
   /** Cinematic full-bleed "Welcome to your agent" before the app appears. */
   | 'finale'
+
+/** Which run the wizard window hosts:
+ *  - 'full'  — the classic multi-step setup (dev:onboarding, screenshots).
+ *  - 'login' — one card: portal sign-in, then the guided IN-CHAT setup takes
+ *    over (the animation → login → chat chain). */
+export type WizardRunMode = 'full' | 'login'
 
 export interface WizardAnswers {
   /** What the user wants to be called. Optional — empty is fine. */
@@ -73,6 +82,8 @@ export interface OnboardingWizardState {
   step: WizardStepId
   /** Step list for this run (provider step is conditional). */
   steps: WizardStepId[]
+  /** Which run this is — the gate forwards it to the dedicated window. */
+  mode: WizardRunMode
 }
 
 /** Outcome the wizard window reports back over IPC (see preload/global.d.ts). */
@@ -82,9 +93,16 @@ export interface OnboardingWizardOutcome {
   /** False when the run needed a provider and none was configured (the step
    *  was skipped past) — the first-chat kickoff has nothing to greet with. */
   providerReady?: boolean
+  /** Which run produced this outcome. Login-mode outcomes hand off to the
+   *  in-chat guided setup instead of the greet kickoff. */
+  mode?: WizardRunMode
+  /** Login mode only: the app should come back as the small solo-chat window
+   *  and run the guided in-chat setup (electron pre-sizes before showing). */
+  soloChat?: boolean
 }
 
 const INITIAL: OnboardingWizardState = {
+  mode: 'full',
   phase: 'hidden',
   step: 'welcome',
   steps: []
@@ -182,24 +200,29 @@ export function dismissOnboardingWizardSession(): void {
 }
 
 /** Begin (or resume) the wizard. Called by `finishIntroReveal()` and by the
- *  gate on mid-flow restarts. No-ops once done. */
-export function startOnboardingWizard(): void {
+ *  gate on mid-flow restarts. No-ops once done.
+ *
+ *  The first-run chain runs LOGIN mode: animation → one portal sign-in card →
+ *  the guided in-chat setup. The classic multi-step run stays reachable
+ *  through the dev entries (`dev:onboarding`, `__onboarding.start`). */
+export function startOnboardingWizard(mode: WizardRunMode = 'login'): void {
   if (!isIntroRevealEnabled() || hasCompletedOnboardingWizard()) {
     return
   }
 
-  const steps = buildSteps()
+  const steps: WizardStepId[] = mode === 'login' ? ['login'] : buildSteps()
 
-  $onboardingWizard.set({ phase: 'active', step: steps[0], steps })
+  $onboardingWizard.set({ mode, phase: 'active', step: steps[0], steps })
 }
 
 /** Boot the surface inside the dedicated `?win=onboarding` window. That window
  *  is gateway-less, so the provider decision arrives from the main renderer
- *  via the open IPC → query param instead of being computed here. */
-export function startOnboardingWizardWindow(includeProviders: boolean): void {
-  const steps = buildSteps(includeProviders)
+ *  via the open IPC → query param instead of being computed here. Login mode
+ *  is a one-card run: portal sign-in, then the in-chat guided setup. */
+export function startOnboardingWizardWindow(includeProviders: boolean, mode: WizardRunMode = 'full'): void {
+  const steps: WizardStepId[] = mode === 'login' ? ['login'] : buildSteps(includeProviders)
 
-  $onboardingWizard.set({ phase: 'active', step: steps[0], steps })
+  $onboardingWizard.set({ mode, phase: 'active', step: steps[0], steps })
 }
 
 /** Re-read answers persisted by the wizard WINDOW (shared origin storage) into
@@ -340,7 +363,7 @@ export function devStartOnboardingWizard(step?: WizardStepId): void {
   const steps = buildSteps(step === 'providers' ? true : undefined)
   const target = step && steps.includes(step) ? step : steps[0]
 
-  $onboardingWizard.set({ phase: 'active', step: target, steps })
+  $onboardingWizard.set({ mode: 'full', phase: 'active', step: target, steps })
 }
 
 /** Forget everything: intro seen-key, wizard done-key, answers. */
