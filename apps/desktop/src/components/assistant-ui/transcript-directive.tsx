@@ -1,5 +1,5 @@
 import type { FC, ReactNode } from 'react'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { type Contribution, useContributions } from '@/contrib'
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
@@ -46,15 +46,21 @@ export const TranscriptDirectiveLeaf: FC<{ text: string; streaming?: boolean }> 
   const contribution = match?.data as TranscriptDirectiveContribution | undefined
   const render = contribution?.render
 
+  // Streaming flips at settle. Baking it into the render identity remounts
+  // the widget (a card-sized jump). Keep the component stable and read
+  // streaming from a ref so the same mount receives the update.
+  const streamingRef = useRef(streaming ?? false)
+  streamingRef.current = streaming ?? false
+
   // Stable component identity for ContribRender (which mounts this AS a
   // component): a fresh closure per render would remount the widget on
   // every parent render.
   const renderLeaf = useMemo(
     () =>
       render && parsed
-        ? () => render({ attrs: parsed.attrs, source: parsed.source, streaming: streaming ?? false })
+        ? () => render({ attrs: parsed.attrs, source: parsed.source, streaming: streamingRef.current })
         : null,
-    [render, parsed, streaming]
+    [render, parsed]
   )
 
   if (!match || !renderLeaf) {

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useEffect } from 'react'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -59,6 +60,33 @@ describe('TranscriptDirectiveLeaf', () => {
     const { container } = render(<TranscriptDirectiveLeaf text="just some text" />)
 
     expect(container.firstChild).toBeNull()
+  })
+
+  it('does not remount the widget when streaming settles', () => {
+    let mounts = 0
+    const dispose = contribution({
+      render: ({ streaming }) => {
+        useEffect(() => {
+          mounts += 1
+        }, [])
+
+        return <div data-testid="demo-card">{streaming ? 'live' : 'settled'}</div>
+      }
+    })
+
+    try {
+      const { rerender } = render(<TranscriptDirectiveLeaf streaming text="::demo" />)
+
+      expect(mounts).toBe(1)
+      expect(screen.getByTestId('demo-card').textContent).toBe('live')
+
+      rerender(<TranscriptDirectiveLeaf streaming={false} text="::demo" />)
+
+      expect(mounts).toBe(1)
+      expect(screen.getByTestId('demo-card').textContent).toBe('settled')
+    } finally {
+      dispose()
+    }
   })
 
   it('contains a throwing plugin render to its own boundary', () => {

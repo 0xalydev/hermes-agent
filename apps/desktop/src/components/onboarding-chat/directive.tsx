@@ -48,6 +48,11 @@ function report(summary: string): boolean {
   return requestComposerSubmit(`[setup] ${summary}`, { displayKind: 'hidden' })
 }
 
+type CardProps = {
+  /** True while the surrounding turn is still streaming — same card, no clicks. */
+  locked?: boolean
+}
+
 /** No chrome — the picker sits directly in the transcript like any other
  *  message content. The interaction IS the affordance; a border would make it
  *  read as a form. */
@@ -55,18 +60,20 @@ function CardFrame({
   children,
   disabled = false,
   done,
+  locked = false,
   onContinue
 }: {
   children: React.ReactNode
   disabled?: boolean
   done: boolean
+  locked?: boolean
   onContinue: () => void
 }) {
   return (
-    <div className="my-3 grid max-w-md gap-4" data-onboarding-card>
+    <div className="my-3 grid max-w-md gap-4" data-onboarding-card inert={locked || undefined}>
       {children}
       <div className="flex justify-start">
-        <Button disabled={done || disabled} onClick={onContinue} size="sm">
+        <Button disabled={done || disabled || locked} onClick={onContinue} size="sm">
           {done ? 'Done' : 'Continue'}
         </Button>
       </div>
@@ -74,13 +81,14 @@ function CardFrame({
   )
 }
 
-function FocusCard() {
+function FocusCard({ locked = false }: CardProps) {
   const answers = useStore($wizardAnswers)
   const [done, setDone] = useState(false)
 
   return (
     <CardFrame
       done={done}
+      locked={locked}
       onContinue={() => {
         if (report(`they want help with: ${answers.focus.length > 0 ? answers.focus.join(', ') : 'no picks — keep it open'}`)) {
           setDone(true)
@@ -108,7 +116,7 @@ function FocusCard() {
   )
 }
 
-function ConnectorsCard() {
+function ConnectorsCard({ locked = false }: CardProps) {
   const answers = useStore($wizardAnswers)
   const [done, setDone] = useState(false)
 
@@ -122,6 +130,7 @@ function ConnectorsCard() {
   return (
     <CardFrame
       done={done}
+      locked={locked}
       onContinue={() => {
         const picked = CONNECTORS.filter(connector => answers.connectors.includes(connector.id))
 
@@ -150,7 +159,7 @@ function ConnectorsCard() {
   )
 }
 
-function LookCard() {
+function LookCard({ locked = false }: CardProps) {
   const answers = useStore($wizardAnswers)
   const { renderedMode } = useTheme()
   const [done, setDone] = useState(false)
@@ -168,6 +177,7 @@ function LookCard() {
   return (
     <CardFrame
       done={done}
+      locked={locked}
       onContinue={() => {
         if (report(`accent color: ${picked?.name ?? accent}`)) {
           setDone(true)
@@ -189,7 +199,7 @@ function LookCard() {
   )
 }
 
-function LayoutCard() {
+function LayoutCard({ locked = false }: CardProps) {
   const answers = useStore($wizardAnswers)
   const [done, setDone] = useState(false)
 
@@ -223,6 +233,7 @@ function LayoutCard() {
     <CardFrame
       disabled={!picked}
       done={done}
+      locked={locked}
       onContinue={() => {
         const choice = LAYOUTS.find(layout => layout.id === answers.layout)
 
@@ -246,7 +257,7 @@ function LayoutCard() {
   )
 }
 
-const CARDS: Record<ChatStep, () => React.JSX.Element> = {
+const CARDS: Record<ChatStep, (props: CardProps) => React.JSX.Element> = {
   connectors: ConnectorsCard,
   focus: FocusCard,
   layout: LayoutCard,
@@ -260,13 +271,10 @@ export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<st
     return null
   }
 
-  // Don't flash an interactive card mid-stream — the paragraph may still be
-  // growing. It mounts once the turn settles.
-  if (streaming) {
-    return null
-  }
-
+  // Mount as soon as the directive is parsed — returning null until settle
+  // grows the transcript by a card when the turn finishes. Keep it inert
+  // mid-stream so the growing paragraph can't be clicked through.
   const Card = CARDS[step]
 
-  return <Card />
+  return <Card locked={streaming} />
 }
