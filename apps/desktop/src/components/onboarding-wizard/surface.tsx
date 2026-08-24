@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Title, WizardShell } from '@/components/wizard-shell'
+import { $desktopOnboarding } from '@/store/onboarding'
 import {
   $firstScreenKind,
   compileFirstScreen,
@@ -139,6 +140,24 @@ export function WizardSurface({ onComplete, onSkip }: WizardSurfaceProps) {
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0 })
   }, [step])
+
+  // Login mode auto-advance: the moment sign-in lands (classic store flips
+  // configured), the card completes itself after a short "Connected" beat.
+  // The old shape waited for a Continue click — and a user who reads
+  // "Connected ✓" as done CLOSES the window instead, which the gate reads
+  // as a dismissal and the classic overlay then pops a SECOND sign-in.
+  // No click, no closable gap.
+  const configured = useStore($desktopOnboarding).configured === true
+
+  useEffect(() => {
+    if (step !== 'login' || !configured) {
+      return
+    }
+
+    const settle = window.setTimeout(onComplete, 900)
+
+    return () => window.clearTimeout(settle)
+  }, [configured, onComplete, step])
 
   // Finale: the build theater runs its own rAF clock inside Finale; the
   // surface waits for its duration (config-dependent) plus a hold on the

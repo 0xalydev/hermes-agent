@@ -198,16 +198,31 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
     const offDone = bridge.onDone(handleOutcome)
 
     const offClosed = bridge.onClosed(() => {
-      if ($onboardingWizard.get().phase === 'active' && !hasCompletedOnboardingWizard()) {
-        dismissOnboardingWizardSession()
+      const state = $onboardingWizard.get()
+
+      if (state.phase !== 'active' || hasCompletedOnboardingWizard()) {
+        return
       }
+
+      // Login mode + inference already landed: the user read "Connected" as
+      // done and closed the window — that IS completion, not abandonment.
+      // Hand off to the guided chat instead of stranding them on the bare
+      // landing page (the exact drop reported from the first live run).
+      if (state.mode === 'login' && $desktopOnboarding.get().configured === true) {
+        onKickoff('guide')
+        completeOnboardingWizard()
+
+        return
+      }
+
+      dismissOnboardingWizardSession()
     })
 
     return () => {
       offDone()
       offClosed()
     }
-  }, [handleOutcome])
+  }, [handleOutcome, onKickoff])
 
   useEffect(() => {
     if (wizard.phase !== 'active') {
