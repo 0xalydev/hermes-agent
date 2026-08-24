@@ -633,8 +633,13 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           // slowly in live runs); reasoning off below keeps turns snappy.
           // --session keeps the user's real default untouched — their first
           // OWN chat runs whatever setup resolved for the profile.
-          // Best-effort: a refusal leaves the guide on the profile default.
+          // confirm_expensive_model=true: with no agent built yet the switch
+          // otherwise returns confirm_required (selection warning) instead of
+          // switching — the exact silent-miss that left a live run on the
+          // slow default. Best-effort: a real refusal leaves the profile
+          // default, which still works.
           await requestGateway('config.set', {
+            confirm_expensive_model: true,
             key: 'model',
             session_id: runtimeId,
             value: 'deepseek/deepseek-v4-flash-0731 --provider nous --session'

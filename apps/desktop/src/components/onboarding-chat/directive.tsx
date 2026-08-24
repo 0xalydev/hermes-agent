@@ -14,6 +14,7 @@
  */
 
 import { useStore } from '@nanostores/react'
+import { atom } from 'nanostores'
 import { useEffect, useState } from 'react'
 
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
@@ -306,10 +307,41 @@ function LayoutCard({ locked = false }: CardProps) {
 }
 
 
+/** Built receipt, shared across every mount of the card: transcript
+ *  virtualization remounts directives with fresh local state, which would
+ *  resurrect the keep/drop picker after the build. An atom survives that. */
+const $firstScreenBuiltConfig = atom<null | ReturnType<typeof compileFirstScreen>>(null)
+
+/** The invisible data steps (name/context) mutate stores — that is an
+ *  EFFECT, not a render fact. Doing it inline in the directive's render
+ *  triggered React's cross-component setState warning and re-entrant
+ *  renders (live desktop.log). */
+function DataDirective({ step, value }: { step: 'context' | 'name'; value: string }) {
+  useEffect(() => {
+    if (!value || $wizardAnswers.get()[step] === value) {
+      return
+    }
+
+    setWizardAnswers({ [step]: value })
+
+    // The screen evolves with the conversation: a fresh name retitles the
+    // sketch; the context answer is the big one — it fires the module
+    // generation (their screen, from their words) and the pane advances to
+    // proposals the moment candidates land.
+    advanceSketch()
+
+    if (step === 'context') {
+      generateModuleCandidates()
+    }
+  }, [step, value])
+
+  return null
+}
+
 function FirstScreenCard({ locked = false }: CardProps) {
   const answers = useStore($wizardAnswers)
   const [building, setBuilding] = useState(false)
-  const [built, setBuilt] = useState<null | ReturnType<typeof compileFirstScreen>>(null)
+  const built = useStore($firstScreenBuiltConfig)
   const profile = { context: answers.context, focus: answers.focus, name: answers.name }
   // The generated modules — THEIR screen's parts, from their own words. When
   // generation produced candidates the card is keep/drop rows; when it
@@ -398,7 +430,7 @@ function FirstScreenCard({ locked = false }: CardProps) {
         }
       })()
 
-      setBuilt(config)
+      $firstScreenBuiltConfig.set(config)
     })
   }
 
@@ -488,9 +520,10 @@ function FirstScreenCard({ locked = false }: CardProps) {
 
 const CARDS: Record<ChatStep, (props: CardProps) => React.JSX.Element> = {
   connectors: ConnectorsCard,
-  // 'context' is data like 'name': what they're working on, in their words.
+  // 'context' and 'first-screen' are handled inline in the wrapper below
+  // (data effect + card mount); these entries are never reached.
   context: () => <></>,
-  'first-screen': FirstScreenCard,
+  'first-screen': () => <></>,
   focus: FocusCard,
   layout: LayoutCard,
   look: LookCard,
@@ -507,26 +540,26 @@ export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<st
     return null
   }
 
-  // Data directives (no UI): the model hands the renderer what the user
-  // said — the name, and the one-line summary of what they're working on.
-  // Stored idempotently; the artifact compiler reads both.
+  // Data directives: the model hands the renderer what the user said — the
+  // name, and the one-line summary of what they're working on. Stored in an
+  // effect (never during render). The CONTEXT directive also mounts the
+  // dashboard keep/drop card right there: the card no longer depends on the
+  // model remembering to emit a second directive (a live run narrated the
+  // card without emitting it — the user was stranded with nothing to do).
   if (step === 'name' || step === 'context') {
     const value = (attrs.value ?? '').trim()
 
-    if (value && $wizardAnswers.get()[step] !== value) {
-      setWizardAnswers({ [step]: value })
+    return (
+      <>
+        <DataDirective step={step} value={value} />
+        {step === 'context' ? <FirstScreenCard locked={streaming} /> : null}
+      </>
+    )
+  }
 
-      // The screen evolves with the conversation: a fresh name retitles the
-      // sketch; the context answer is the big one — it fires the module
-      // generation (their screen, from their words) and the pane advances to
-      // proposals the moment candidates land.
-      advanceSketch()
-
-      if (step === 'context') {
-        generateModuleCandidates()
-      }
-    }
-
+  // Legacy/compat: an explicitly emitted first-screen directive renders
+  // nothing — the card already lives at the context directive.
+  if (step === 'first-screen') {
     return null
   }
 
