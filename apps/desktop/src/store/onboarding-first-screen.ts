@@ -348,7 +348,7 @@ export default {
       id: 'pane',
       area: 'panes',
       title: 'your first screen',
-      data: { collapsible: true, dock: { pane: 'workspace', pos: 'right' }, minWidth: '280px', placement: 'right' },
+      data: { collapsible: true, dock: { pane: 'workspace', pos: 'right' }, minWidth: '320px', placement: 'right', width: '380px' },
       render: () => React.createElement(FirstScreenPane)
     })
 

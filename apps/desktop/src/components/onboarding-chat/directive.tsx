@@ -18,7 +18,7 @@ import { useState } from 'react'
 
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '@/components/onboarding-chat/assembly'
-import { FirstScreenPreview, FirstScreenSurface } from '@/components/onboarding-wizard/first-screen'
+import { FirstScreenPreview } from '@/components/onboarding-wizard/first-screen'
 import {
   accentsFor,
   AccentSwatch,
@@ -288,7 +288,8 @@ function FirstScreenCard({ locked = false }: CardProps) {
 
   // Continue = build. The config compiles synchronously, then materializes
   // (screen.json lands on disk) before the model is told — so when the chat
-  // says "it's built", the (now interactive) card IS the finished thing.
+  // says "it's built", the pane IS ALREADY OPEN beside the conversation —
+  // the app assembles itself around the user; nobody hunts for a button.
   const build = () => {
     if (!picked || building) {
       return
@@ -300,42 +301,54 @@ function FirstScreenCard({ locked = false }: CardProps) {
     void materializeFirstScreen(config).then(result => {
       const tile = FIRST_SCREEN_OPTIONS.find(o => o.kind === picked)
 
-      if (!report(`built their first screen: ${tile?.title.toLowerCase() ?? config.kind} "${config.title}"${result.ok ? `, saved to ${result.path}` : ''} — tell them it's ready and one tap on a block runs it`)) {
+      if (!report(`built their first screen: ${tile?.title.toLowerCase() ?? config.kind} "${config.title}"${result.ok ? `, saved to ${result.path}` : ''} — it just OPENED as a pane beside this chat; tell them to look right and press any of its buttons`)) {
         setBuilding(false)
 
         return
       }
+      // The disk watcher registers the new plugin pane on its next tick
+      // (~5s). Then OPEN it as a real split beside the chat — the moment of
+      // the whole flow: the app grows a new limb in front of the user. The
+      // window widens for it (same native glide as the layout pick) so the
+      // pane ADDS space instead of squeezing the conversation. Poll briefly
+      // for the contribution (registration is async); a miss degrades to the
+      // sidebar row, never an error.
+      void (async () => {
+        const [{ registry }, { dockPaneBeside, revealTreePane }] = await Promise.all([
+          import('@/contrib/registry'),
+          import('@/components/pane-shell/tree/store')
+        ])
 
-      // The build just dropped a NEW pane contribution (the plugin folder the
-      // disk watcher will register on its next tick). Reveal it now — this is
-      // the moment the guide answers "where did it go" with a real highlight,
-      // instead of the user hunting the rail for a pane that appeared quietly.
-      import('@/components/pane-shell/tree/store').then(({ revealTreePane }) =>
-        revealTreePane('first-screen:pane')
-      )
+        const deadline = Date.now() + 15_000
+
+        while (Date.now() < deadline) {
+          if (registry.getArea('panes').some(c => c.id === 'first-screen:pane')) {
+            window.hermesDesktop?.chatOnboarding?.grow({ bottom: 0, left: 0, right: 380, top: 0 })
+            dockPaneBeside('first-screen:pane', 'workspace')
+            revealTreePane('first-screen:pane')
+
+            return
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      })()
 
       setBuilt(config)
     })
   }
 
   if (built) {
-    // The finished artifact stays in the transcript, live — pressing any of
-    // its blocks hidden-submits the block's prompt, so the conversation
-    // itself demonstrates "press a button, it does something". The rail
-    // callout names what the same thing looks like as a pane, since the
-    // build also wrote a plugin.
+    // The real artifact is the PANE that just opened beside this chat — the
+    // transcript keeps only a quiet one-line receipt. Less in the session,
+    // more in the GUI: the app visibly assembled around the user.
     return (
-      <div className="my-3 grid max-w-md gap-2" data-onboarding-card>
-        <div className="overflow-hidden rounded-[6px] border bg-white">
-          <FirstScreenSurface config={built} interactive />
-        </div>
-        <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-          <span aria-hidden>→</span>
-          <span>
-            This also lives as the <strong className="font-medium">your first screen</strong> pane — one click
-            on the rail keeps it open anywhere.
-          </span>
-        </div>
+      <div className="my-3 flex items-center gap-1.5 text-muted-foreground text-xs" data-onboarding-card>
+        <span aria-hidden>✓</span>
+        <span>
+          <strong className="font-medium text-foreground">{built.title}</strong> is open beside this chat, and
+          lives on as <strong className="font-medium">your first screen</strong> in the sidebar.
+        </span>
       </div>
     )
   }
