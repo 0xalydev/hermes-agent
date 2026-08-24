@@ -11823,7 +11823,11 @@ ipcMain.on('hermes:chat-onboarding:grow', (event, deltas) => {
     return
   }
 
-  const clampDelta = value => Math.max(0, Math.min(4000, Math.round(Number(value) || 0)))
+  // Renderers ask in CSS pixels; the window lives in physical (DIP) pixels.
+  // At first-run zoom (118%) an unscaled 380px pane request would arrive
+  // ~15% short and squeeze the chat. Convert here, at the single funnel.
+  const zoom = event.sender.getZoomFactor() || 1
+  const clampDelta = value => Math.max(0, Math.min(4000, Math.round((Number(value) || 0) * zoom)))
   const left = clampDelta(deltas?.left)
   const top = clampDelta(deltas?.top)
   const right = clampDelta(deltas?.right)

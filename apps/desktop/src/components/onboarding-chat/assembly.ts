@@ -26,6 +26,7 @@ import { setOnboardingSurfaceActive } from '@/store/onboarding-presence'
 import { onboardingDevStage } from '@/store/onboarding-wizard'
 import { $statusbarVisible } from '@/store/statusbar-prefs'
 import { setTranslucencyMode } from '@/store/translucency'
+import { setZoomPercent } from '@/store/zoom'
 
 /** True from guide kickoff until the layout pick assembles the app. */
 export const $chatOnboardingSolo = atom(false)
@@ -64,6 +65,12 @@ export function startChatOnboardingSolo(): void {
   // store guards support itself (clear on non-glass platforms), and this is
   // a first-run store write on a fresh profile, so no user pref is clobbered.
   setTranslucencyMode('glass')
+  // First-run type size: the shipped 90% preset reads small in the guided
+  // chat (side-by-side screenshots: the wanted size is ~1.3x). 118% is the
+  // measured target; real Chromium zoom, so every surface scales coherently
+  // and nothing can break layout. Persisted by the main process — the user
+  // keeps this size after onboarding until they change UI Scale themselves.
+  setZoomPercent(118)
   // Both the statusbar pref and the layout persist — a dev run killed mid-flow
   // must not leave the bar hidden forever, so the dev:chat stage always
   // restores to visible (a real first run has it visible anyway).
