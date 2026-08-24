@@ -21,6 +21,7 @@
 import { atom, computed, type ReadableAtom } from 'nanostores'
 import type { ReactNode } from 'react'
 
+import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { PRIMARY_SESSION_VIEW } from '@/app/chat/session-view'
 import { openSession, type OpenSessionIntent } from '@/app/open-session'
 import type { ClientSessionState } from '@/app/types'
@@ -820,6 +821,14 @@ export const host = {
 
     revealTreePane(id)
   },
+
+  /** Submit a prompt through the ACTIVE chat composer, as if typed and sent.
+   *  The plugin-safe way for a pane's action button to make the conversation
+   *  do something (the first-screen Run buttons). `hidden` submits without a
+   *  user bubble — the reply streams in as if Hermes volunteered it. Returns
+   *  false when no composer surface is visible to claim the submit. */
+  submitPrompt: (text: string, options: { hidden?: boolean } = {}): boolean =>
+    requestComposerSubmit(text, options.hidden ? { displayKind: 'hidden' } : {}),
 
   /** HEAR the gateway stream (message deltas, session lifecycle, tool
    *  activity, …) by event type — `'*'` for everything. Returns a disposer.

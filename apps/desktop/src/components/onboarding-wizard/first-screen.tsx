@@ -111,7 +111,7 @@ export function FirstScreenSurface({
               <button
                 className="flex items-center justify-between rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3 text-left text-[14px] transition-colors hover:border-neutral-900 hover:bg-white"
                 key={block.id}
-                onClick={() => requestComposerSubmit(block.prompt, { displayKind: 'hidden' })}
+                onClick={() => requestComposerSubmit(block.prompt)}
                 type="button"
               >
                 <span className="truncate">{block.label}</span>

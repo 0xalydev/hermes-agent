@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button'
 import { ConnectorLogo } from '@/components/ui/connector-logo'
 import { Chip } from '@/components/wizard-shell'
 import { registry } from '@/contrib/registry'
+import { cn } from '@/lib/utils'
 import {
   $firstScreenKind,
   compileFirstScreen,
@@ -45,10 +46,17 @@ import { $wizardAnswers, setWizardAnswers } from '@/store/onboarding-wizard'
 import { useTheme } from '@/themes'
 import { setAccentOverride } from '@/themes/accent-override'
 
-type ChatStep = 'connectors' | 'first-screen' | 'focus' | 'layout' | 'look'
+type ChatStep = 'connectors' | 'first-screen' | 'focus' | 'layout' | 'look' | 'name'
 
 function isChatStep(value: string | undefined): value is ChatStep {
-  return value === 'focus' || value === 'connectors' || value === 'look' || value === 'layout' || value === 'first-screen'
+  return (
+    value === 'focus' ||
+    value === 'connectors' ||
+    value === 'look' ||
+    value === 'layout' ||
+    value === 'first-screen' ||
+    value === 'name'
+  )
 }
 
 /** Report a pick and let the model move on — hidden, so no user bubble. */
@@ -345,7 +353,10 @@ function FirstScreenCard({ locked = false }: CardProps) {
 
           return (
             <button
-              className="grid grid-cols-[120px,1fr] items-center gap-3 text-left"
+              className={cn(
+                'grid grid-cols-[120px_1fr] items-center gap-3 rounded-[8px] border p-2 text-left transition-colors',
+                picked === option.kind ? 'border-primary bg-primary/10' : 'border-transparent hover:bg-accent/40'
+              )}
               key={option.kind}
               onClick={() => setFirstScreenKind(option.kind)}
               type="button"
@@ -368,13 +379,29 @@ const CARDS: Record<ChatStep, (props: CardProps) => React.JSX.Element> = {
   'first-screen': FirstScreenCard,
   focus: FocusCard,
   layout: LayoutCard,
-  look: LookCard
+  look: LookCard,
+  // 'name' renders nothing — it's the model handing the renderer the name it
+  // was told, so the artifact compiler personalizes for real (see the
+  // OnboardingChatDirective wrapper: the value lands before this lookup).
+  name: () => <></>
 }
 
 export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<string, string>; streaming: boolean }) {
   const step = attrs.step
 
   if (!isChatStep(step)) {
+    return null
+  }
+
+  // The name directive is data, not UI: store it (idempotent) and render
+  // nothing. The model interpolates the user's actual answer into `value`.
+  if (step === 'name') {
+    const value = (attrs.value ?? '').trim()
+
+    if (value && $wizardAnswers.get().name !== value) {
+      setWizardAnswers({ name: value })
+    }
+
     return null
   }
 

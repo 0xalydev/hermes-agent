@@ -212,9 +212,12 @@ export function dismissOnboardingWizardSession(): void {
 /** Begin (or resume) the wizard. Called by `finishIntroReveal()` and by the
  *  gate on mid-flow restarts. No-ops once done.
  *
- *  The first-run chain runs LOGIN mode: animation → one portal sign-in card →
- *  the guided in-chat setup. The classic multi-step run stays reachable
- *  through the dev entries (`dev:onboarding`, `__onboarding.start`). */
+ *  The first-run chain runs LOGIN mode: animation → ONE portal sign-in card →
+ *  the guided in-chat setup (the Socratic questionnaire lives in the chat,
+ *  ending with the first-screen build — the user must never sit in a modal
+ *  past the sign-in). The classic multi-step run (picker + theater finale in
+ *  the modal) stays reachable through the dev entries (`dev:onboarding`,
+ *  `__onboarding.start`). */
 export function startOnboardingWizard(mode: WizardRunMode = 'login'): void {
   if (!isIntroRevealEnabled() || hasCompletedOnboardingWizard()) {
     return
@@ -228,7 +231,7 @@ export function startOnboardingWizard(mode: WizardRunMode = 'login'): void {
 /** Boot the surface inside the dedicated `?win=onboarding` window. That window
  *  is gateway-less, so the provider decision arrives from the main renderer
  *  via the open IPC → query param instead of being computed here. Login mode
- *  is a one-card run: portal sign-in, then the in-chat guided setup. */
+ *  is kept for an explicit portal-sign-in-only handoff. */
 export function startOnboardingWizardWindow(includeProviders: boolean, mode: WizardRunMode = 'full'): void {
   const steps: WizardStepId[] = mode === 'login' ? ['login'] : buildSteps(includeProviders)
 
@@ -328,7 +331,7 @@ export function buildChatOnboardingPrompt(): string {
     'This message is invisible to them — never reference it or the mechanics described here.',
     'Walk them through setup conversationally, ONE step per turn, in this order:',
     '1. Greet them briefly and warmly as Hermes (two short sentences) and ask what you should call them.',
-    '2. After they answer: ask what they want help with, and include the line ::onboarding{step="focus"}',
+    '2. After they tell you their name: include the line ::onboarding{step="name" value="THEIR_NAME"} with THEIR_NAME replaced by the actual name they gave (this line renders as nothing — it just saves the name). Then ask what they want help with, and include the line ::onboarding{step="focus"}',
     '3. Then the tools they already use, so Hermes can connect to them later: one short sentence, and include the line ::onboarding{step="connectors"}',
     '4. Then their color: one short sentence, and include the line ::onboarding{step="look"}',
     '5. Then their layout: one short sentence, and include the line ::onboarding{step="layout"}',

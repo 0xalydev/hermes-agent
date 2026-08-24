@@ -75,7 +75,11 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
   const name = profile.name.trim()
   const primary = focus[0] ?? 'your day'
   const secondary = focus[1] ?? focus[0] ?? 'your projects'
-  const userName = name || 'there'
+  // No name yet → speak in second person, never a fake name. "there's
+  // command center" shipped once; never again.
+  const userName = name || 'you'
+  const possessive = name ? `${name}'s` : 'Your'
+  const theirName = name || 'the user'
 
   const blocks: FirstScreenBlock[] =
     kind === 'dashboard'
@@ -84,21 +88,21 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
             id: 'start',
             kind: 'action',
             label: `Start today's ${primary.toLowerCase()}`,
-            prompt: `You are ${userName}'s daily starter. They care most about ${primary.toLowerCase()}${focus.length > 1 ? ` and ${secondary.toLowerCase()}` : ''}. Give them the single best next task for today, one sentence of why, and the first three concrete steps. No preamble.`,
+            prompt: `You are ${theirName}'s daily starter. They care most about ${primary.toLowerCase()}${focus.length > 1 ? ` and ${secondary.toLowerCase()}` : ''}. Give them the single best next task for today, one sentence of why, and the first three concrete steps. No preamble.`,
             stepLine: `Wiring your ${primary.toLowerCase()} starter`
           },
           {
             id: 'draft',
             kind: 'draft',
             label: 'Draft in your voice',
-            prompt: `You are ${userName}'s writing hand. Match their natural voice — plain, direct, short sentences. Draft what they ask for; if they ask about ${primary.toLowerCase()} or ${secondary.toLowerCase()}, fold in what you know about their focus. Show the draft, ask one clarification at most, then revise.`,
+            prompt: `You are ${theirName}'s writing hand. Match their natural voice — plain, direct, short sentences. Draft what they ask for; if they ask about ${primary.toLowerCase()} or ${secondary.toLowerCase()}, fold in what you know about their focus. Show the draft, ask one clarification at most, then revise.`,
             stepLine: 'Teaching it your voice'
           },
           {
             id: 'brief',
             kind: 'feed',
             label: 'Morning brief',
-            prompt: `Once each morning, assemble ${userName}'s brief: three items on ${primary.toLowerCase()}${focus.length > 1 ? `, two on ${secondary.toLowerCase()}` : ''}, each one line with a source. Then one sentence answering "what should you look at first". Offer to save it as a recurring job.`,
+            prompt: `Once each morning, assemble ${theirName}'s brief: three items on ${primary.toLowerCase()}${focus.length > 1 ? `, two on ${secondary.toLowerCase()}` : ''}, each one line with a source. Then one sentence answering "what should you look at first". Offer to save it as a recurring job.`,
             stepLine: 'Setting your morning brief'
           }
         ]
@@ -108,21 +112,21 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
               id: 'brief',
               kind: 'feed',
               label: 'Your first issue',
-              prompt: `Write the first issue of ${userName}'s personal brief. Lead with ${primary.toLowerCase()}: the three most useful things from the last day, one line each with a source. ${focus.length > 1 ? `Then a short ${secondary.toLowerCase()} section with two items. ` : ''}Close with one concrete suggestion for today. Address them by name once, at the top.`,
+              prompt: `Write the first issue of ${theirName}'s personal brief. Lead with ${primary.toLowerCase()}: the three most useful things from the last day, one line each with a source. ${focus.length > 1 ? `Then a short ${secondary.toLowerCase()} section with two items. ` : ''}Close with one concrete suggestion for today.${name ? ' Address them by name once, at the top.' : ''}`,
               stepLine: 'Composing your first issue'
             },
             {
               id: 'recurring',
               kind: 'action',
               label: 'Make it daily',
-              prompt: `Set up a paused recurring job that regenerates ${userName}'s brief every morning, same shape as the first issue. Confirm it's paused and tell them exactly how to turn it on.`,
+              prompt: `Set up a paused recurring job that regenerates ${theirName}'s brief every morning, same shape as the first issue. Confirm it's paused and tell them exactly how to turn it on.`,
               stepLine: 'Setting the daily cadence'
             },
             {
               id: 'notebook',
               kind: 'draft',
               label: 'A page that remembers',
-              prompt: `Keep a running page for ${userName}. When they paste anything — a quote, a link, a thought — file it under ${primary.toLowerCase()} or ${secondary.toLowerCase()} and acknowledge in one line. When they ask "what do I have on X", summarize what's been filed.`,
+              prompt: `Keep a running page for ${theirName}. When they paste anything — a quote, a link, a thought — file it under ${primary.toLowerCase()} or ${secondary.toLowerCase()} and acknowledge in one line. When they ask "what do I have on X", summarize what's been filed.`,
               stepLine: 'Opening your notebook'
             }
           ]
@@ -131,21 +135,21 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
               id: 'tool',
               kind: 'tool',
               label: `${primary} helper`,
-              prompt: `You are a small tool, not a conversation. ${userName} pastes raw material; you return exactly one shaped result about ${primary.toLowerCase()}${focus.length > 1 ? ` or ${secondary.toLowerCase()}` : ''}, nothing else. If the input is ambiguous, pick the most likely reading and show it — do not ask questions. Three sections maximum.`,
+              prompt: `You are a small tool, not a conversation. ${theirName} pastes raw material; you return exactly one shaped result about ${primary.toLowerCase()}${focus.length > 1 ? ` or ${secondary.toLowerCase()}` : ''}, nothing else. If the input is ambiguous, pick the most likely reading and show it — do not ask questions. Three sections maximum.`,
               stepLine: `Building your ${primary.toLowerCase()} helper`
             },
             {
               id: 'refine',
               kind: 'action',
               label: 'Refine the last result',
-              prompt: `Take the tool's last output and ${userName}'s one-line correction. Return a revised result in the same shape. If the correction changes the rules, say what changed in one sentence.`,
+              prompt: `Take the tool's last output and ${theirName}'s one-line correction. Return a revised result in the same shape. If the correction changes the rules, say what changed in one sentence.`,
               stepLine: 'Wiring the refine loop'
             },
             {
               id: 'share',
               kind: 'draft',
               label: 'Save as a template',
-              prompt: `Turn the current inputs into a reusable template for ${userName}: name it, describe the input it expects in one line, and store it so the next run starts from it. Confirm the name.`,
+              prompt: `Turn the current inputs into a reusable template for ${theirName}: name it, describe the input it expects in one line, and store it so the next run starts from it. Confirm the name.`,
               stepLine: 'Making it repeatable'
             }
           ]
@@ -159,10 +163,10 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
     rationale: `Built around ${focusSummary}`,
     title:
       kind === 'dashboard'
-        ? `${userName}'s command center`
+        ? `${possessive} command center`
         : kind === 'document'
-          ? `${userName}'s daily brief`
-          : `${userName}'s ${primary.toLowerCase()} tool`,
+          ? `${possessive} daily brief`
+          : `${possessive} ${primary.toLowerCase()} tool`,
     userName
   }
 }
@@ -187,7 +191,7 @@ export function buildTheaterBeats(config: FirstScreenConfig): TheaterBeat[] {
   const beats: TheaterBeat[] = []
   const beatMs = 1900
 
-  beats.push({ cue: 'header', t: 0, text: `Making ${config.userName === 'there' ? 'yours' : `${config.userName}'s`} ${config.kind}` })
+  beats.push({ cue: 'header', t: 0, text: `Making ${config.userName === 'you' ? 'your' : `${config.userName}'s`} ${config.kind}` })
 
   config.blocks.forEach((block, i) => {
     const t = 900 + i * beatMs
@@ -271,8 +275,16 @@ export default {
         }
       }, [])
 
-      const run = prompt =>
-        host.request('prompt.submit', { displayKind: 'hidden', text: prompt }).catch(() => {})
+      // Run = the block's prompt goes through the ACTIVE composer, visibly —
+      // the user sees their click become a real turn. Falls back to a toast
+      // when no chat surface is on screen to claim it.
+      const run = prompt => {
+        const sent = typeof host.submitPrompt === 'function' && host.submitPrompt(prompt)
+
+        if (!sent) {
+          host.notify({ kind: 'info', message: 'Open a chat to run this — the button sends its prompt there.' })
+        }
+      }
 
       const h = React.createElement
       const blocks = config?.blocks ?? []
