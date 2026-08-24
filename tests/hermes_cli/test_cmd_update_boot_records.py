@@ -33,9 +33,12 @@ from hermes_cli.main import PROJECT_ROOT, cmd_update
 def _stub_managed_uv():
     from unittest.mock import patch as _p
 
-    with _p("hermes_cli.managed_uv.ensure_uv", return_value="/managed/bin/uv"), \
-         _p("hermes_cli.managed_uv.resolve_uv", return_value="/managed/bin/uv"), \
-         _p("hermes_cli.managed_uv.update_managed_uv", return_value=None):
+    from hermes_cli.runtime_repair import RuntimeRepairResult
+
+    with _p("installation.uv.ensure_uv", return_value="/managed/bin/uv"), \
+         _p("installation.uv.uv_path", return_value="/managed/bin/uv"), \
+         _p("hermes_cli.runtime_repair.repair_vulnerable_runtime",
+            return_value=RuntimeRepairResult("safe")):
         yield
 
 

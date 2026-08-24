@@ -146,7 +146,7 @@ def test_no_unreviewed_bare_managed_runtime_lookups():
         "arbitrary process's PATH, so this resolves a system copy — or nothing "
         "— on an install that has a managed one.\n"
         "Use instead:\n"
-        "  uv       -> managed_uv.resolve_uv() (lookup) or ensure_uv() (may install)\n"
+        "  uv       -> installation.uv.uv_path() (lookup) or ensure_uv() (may install)\n"
         "  node/npm -> installation.nodejs.node_path() / npm_path()\n"
         "  git      -> installation.git.git_path()\n"
         "  PATH env -> installation.env.managed_path_dirs()\n"
@@ -189,16 +189,8 @@ def test_managed_node_helpers_exist(module, helper):
 
 
 def test_managed_uv_helpers_exist():
-    from hermes_cli.managed_uv import ensure_uv, managed_uv_path, resolve_uv
+    from installation.uv import ensure_uv, uv_path, uvx_path
 
-    assert callable(resolve_uv)
+    assert callable(uv_path)
     assert callable(ensure_uv)
-    # Install-scoped layout (hermes-home lifetime split): <runtime dir>/uv/.
-    # Asserted against get_runtime_dir() rather than the literal
-    # ".hermes-runtime": a packager can point HERMES_RUNTIME_DIR at a built
-    # tree (Nix does), and the invariant is that uv lives inside whatever
-    # runtime dir this install resolves — not what that dir is called.
-    from installation.paths import get_runtime_dir
-
-    assert managed_uv_path().parent.name == "uv"
-    assert managed_uv_path().parent.parent == get_runtime_dir()
+    assert callable(uvx_path)

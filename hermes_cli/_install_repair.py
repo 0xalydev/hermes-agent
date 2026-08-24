@@ -11,9 +11,9 @@ Both callers need to run the same core ``.[all]`` reinstall:
 
 This module is deliberately **stdlib-only** so importing it can never fail in
 the corrupted-venv state it exists to repair. ``hermes_cli.main`` imports
-``managed_uv``, ``hermes_constants``, and friends only in its late path; the
-early path must not. Where the late path uses ``managed_uv.ensure_uv`` to
-bootstrap uv if missing, the early path uses the stdlib
+``installation.uv``, ``hermes_constants``, and friends only in its late path;
+the early path must not. Where the late path uses ``installation.uv.ensure_uv``
+to bootstrap uv if missing, the early path uses the stdlib
 :func:`hermes_cli._early_recovery._find_uv_binary` lookup and falls back to
 plain pip when uv is absent — a degraded but working installer (the late
 recovery will bootstrap uv on the next launch if it ever matters).
@@ -36,18 +36,6 @@ from hermes_cli import _early_recovery as _er
 
 def _is_windows() -> bool:
     return sys.platform == "win32"
-
-
-def _is_termux_env(env: dict | None = None) -> bool:
-    """Stdlib Termux probe (hermes_cli.main's version lives behind imports)."""
-    env = env if env is not None else os.environ
-    try:
-        if env.get("TERMUX_VERSION"):
-            return True
-        prefix = env.get("PREFIX", "")
-        return "com.termux" in prefix
-    except Exception:
-        return False
 
 
 @contextlib.contextmanager
@@ -85,10 +73,8 @@ def _resolve_install_target(root: Path) -> tuple[list[str], dict | None]:
     """(install_cmd_prefix, env) for the project venv — stdlib uv lookup.
 
     Mirrors ``main.py::_default_venv_install_target`` but without
-    ``managed_uv``. ``VIRTUAL_ENV`` steers ``uv pip`` at the project venv even
+    ``installation.uv``. ``VIRTUAL_ENV`` steers ``uv pip`` at the project venv even
     when invoked from the base interpreter (the early-recovery case).
-    Termux strips leaked interpreter-path env vars so uv resolves the venv
-    correctly.
 
     There is no pip tier: pip resolves without uv policy (exclude-newer,
     the [tool.uv] overrides), so it can install a release the project
@@ -101,9 +87,6 @@ def _resolve_install_target(root: Path) -> tuple[list[str], dict | None]:
             "no managed uv found. Run: python -m installation.provisioner"
         )
     env = {**os.environ, "VIRTUAL_ENV": str(root / "venv")}
-    if _is_termux_env(env):
-        env.pop("PYTHONPATH", None)
-        env.pop("PYTHONHOME", None)
     return [uv_bin, "pip"], env
 
 
@@ -202,7 +185,7 @@ def _run_install_cmd(cmd: list[str], *, env: dict | None, root: Path) -> None:
 
 
 def _load_installable_optional_extras(root: Path, group: str) -> list[str]:
-    """Optional extras referenced by a dependency group (all / termux-all)."""
+    """Optional extras referenced by a dependency group (all)."""
     try:
         import tomllib
 
@@ -233,11 +216,10 @@ def run_core_install(root: Path) -> None:
       pip module at all)
     - prefer ``uv pip`` with VIRTUAL_ENV pointed at the project venv; fall back
       to ``python -m pip`` when no uv binary is available
-    - target ``.[all]`` (or ``.[termux-all]`` on Termux) with the per-extra
-      fallback ladder when the combined extras resolve fails
+    - target ``.[all]`` with the per-extra fallback ladder when the combined
+      extras resolve fails
     - quarantine live ``hermes*.exe`` shims on Windows so they can be replaced
     - route ALL install output to stderr (acp/JSON-RPC safety)
-    - Termux strips leaked PYTHONPATH/PYTHONHOME from the uv env
 
     Installs run through the managed uv only (no pip tier, no ensurepip
     bootstrap): pip resolves without uv policy, so it can install a release
@@ -248,7 +230,7 @@ def run_core_install(root: Path) -> None:
     callers own marker lifecycle (clear on success, keep on failure).
     """
     prefix, env = _resolve_install_target(root)
-    group = "termux-all" if _is_termux_env(env) else "all"
+    group = "all"
 
     with _stdout_to_stderr():
         try:

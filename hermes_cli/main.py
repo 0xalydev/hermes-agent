@@ -8420,7 +8420,7 @@ def _recover_core_update_marker_locked() -> None:
         # ensure_uv bootstraps the installer itself when missing (the early
         # pass's stdlib-only lookup cannot); keeping it here means the late
         # path still self-heals a venv whose uv vanished mid-update.
-        from hermes_cli.managed_uv import ensure_uv
+        from installation.uv import ensure_uv
 
         ensure_uv()
 
@@ -8501,7 +8501,7 @@ def _default_venv_install_target() -> tuple[list[str], dict[str, str] | None] | 
     provisioning fault instead of installing a different dependency set.
     """
     try:
-        from hermes_cli.managed_uv import ensure_uv
+        from installation.uv import ensure_uv
 
         uv_bin = ensure_uv()
     except Exception:

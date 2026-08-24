@@ -381,11 +381,11 @@ def test_update_up_to_date_path_does_not_repark_merged_branch(
     class _StopFlow(Exception):
         pass
 
-    import hermes_cli.managed_uv as managed_uv
+    import installation.uv as installation_uv
 
     monkeypatch.setattr(
-        managed_uv,
-        "update_managed_uv",
+        installation_uv,
+        "ensure_uv",
         lambda *a, **k: (_ for _ in ()).throw(_StopFlow()),
     )
     args = SimpleNamespace(branch=None, yes=False, force=False, force_venv=False)

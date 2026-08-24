@@ -12,12 +12,11 @@ from hermes_cli import main as hermes_main
 # ---------------------------------------------------------------------------
 # Managed-uv compatibility for tests that patch shutil.which
 # ---------------------------------------------------------------------------
-# The production code now uses ``ensure_uv()`` / ``update_managed_uv()``
-# instead of ``shutil.which("uv")``.  Many tests in this file patch
-# ``shutil.which`` to control whether uv is "available" — these autouse
-# fixtures make the managed_uv functions delegate to the patched
-# ``shutil.which`` so the existing test setup keeps working without
-# per-test changes.
+# The production code now uses ``installation.uv.ensure_uv()`` instead of
+# ``shutil.which("uv")``.  Many tests in this file patch ``shutil.which``
+# to control whether uv is "available" — these autouse fixtures make the
+# managed-uv seams delegate to the patched ``shutil.which`` so the
+# existing test setup keeps working without per-test changes.
 @pytest.fixture(autouse=True)
 def _treat_test_root_as_managed(monkeypatch):
     """These tests exercise the update flow itself, not the dev-tree
@@ -30,23 +29,23 @@ def _treat_test_root_as_managed(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _patch_managed_uv(request):
-    """Make managed_uv helpers follow shutil.which mocking in tests."""
+    """Make the managed-uv seams follow shutil.which mocking in tests."""
     import shutil
 
-    # resolve_uv delegates to shutil.which("uv") so that test patches
-    # on shutil.which flow through naturally.
-    def _fake_resolve_uv(**kwargs):
+    from hermes_cli.runtime_repair import RuntimeRepairResult
+
+    # uv_path/ensure_uv delegate to shutil.which("uv") so that test
+    # patches on shutil.which flow through naturally.
+    def _fake_uv_path(**kwargs):
         return shutil.which("uv")
 
     def _fake_ensure_uv(**kwargs):
         return shutil.which("uv")
 
-    def _fake_update_managed_uv(**kwargs):
-        return None  # never actually self-update in tests
-
-    with patch("hermes_cli.managed_uv.resolve_uv", side_effect=_fake_resolve_uv), \
-         patch("hermes_cli.managed_uv.ensure_uv", side_effect=_fake_ensure_uv), \
-         patch("hermes_cli.managed_uv.update_managed_uv", side_effect=_fake_update_managed_uv):
+    with patch("installation.uv.uv_path", side_effect=_fake_uv_path), \
+         patch("installation.uv.ensure_uv", side_effect=_fake_ensure_uv), \
+         patch("hermes_cli.runtime_repair.repair_vulnerable_runtime",
+               return_value=RuntimeRepairResult("safe")):
         yield
 
 

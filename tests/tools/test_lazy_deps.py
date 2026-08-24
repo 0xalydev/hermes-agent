@@ -495,7 +495,7 @@ class TestUvSyncTier:
         # The uv-sync tier uses the MANAGED uv only (no PATH lookup):
         # a PATH uv resolves without the store facts behind it.
         monkeypatch.setattr(
-            "hermes_cli.managed_uv.resolve_uv", lambda: "/usr/bin/uv"
+            "installation.uv.uv_path", lambda: "/usr/bin/uv"
         )
 
         seen = {}

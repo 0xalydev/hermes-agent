@@ -314,13 +314,6 @@ interface DesktopBackendEnvOptions {
   hermesHome?: string
   runtimeDir?: string | null
   storeDir?: string | null
-  /**
-   * Root of the Hermes install the spawned backend belongs to (the payload's
-   * `repo/` for the embedded shape). Exported as HERMES_INSTALL_ROOT so
-   * child processes of the backend resolve the SAME install across process
-   * boundaries — the same contract nix/hermes-agent.nix sets on its wrappers.
-   */
-  installRoot?: string | null
   pythonPathEntries?: string[]
   venvRoot?: string | null
   currentEnv?: NodeJS.ProcessEnv
@@ -333,7 +326,6 @@ function buildDesktopBackendEnv({
   hermesHome,
   runtimeDir,
   storeDir,
-  installRoot,
   pythonPathEntries = [],
   venvRoot,
   currentEnv = process.env,
@@ -365,25 +357,17 @@ function buildDesktopBackendEnv({
     })
   }
 
-  // A SELF-CONTAINED runtime dir (facts and bytes in one directory — the
-  // desktop payload) must be named to the Python child. installation.paths
-  // reads HERMES_RUNTIME_DIR for both get_runtime_dir() AND get_tool_store();
-  // without it the backend derives <checkout>/.hermes-runtime + ~/.hermes/tools
-  // and never sees the staged tools (registry.tool_path → None, and env.py's
-  // PLAYWRIGHT_BROWSERS_PATH export never fires — the staged Chromium is
-  // invisible). Electron's own PATH assembly above masks this for bare-name
-  // spawns only.
-  //
-  // Deliberately NOT exported for the split shape (runtimeDir + storeDir):
-  // HERMES_RUNTIME_DIR collapses bytes into the facts dir on the Python side,
-  // which would point the source install's store at .hermes-runtime.
-  if (runtimeDir && !storeDir) {
-    env.HERMES_RUNTIME_DIR = runtimeDir
-  }
-
-  if (installRoot) {
-    env.HERMES_INSTALL_ROOT = installRoot
-  }
+  // NOTE deliberately NOT exported here: HERMES_RUNTIME_DIR and
+  // HERMES_INSTALL_ROOT. The payload's install stamp declares its own
+  // layout (runtimeDir, relative to the stamp — stage-agent-payloads
+  // writes it), and installation/paths.py resolves it identically for
+  // every launcher: this spawn, the CLI shim, a bare `python -m`. An env
+  // contract here would be a second authority for the same fact, and the
+  // CLI-shim path (which never ran through this assembler) shipped broken
+  // under it — the boot drift check derived <repo>/.hermes-runtime, found
+  // no facts, and reported every pinned tool as "installed nothing".
+  // HERMES_RUNTIME_DIR remains a PACKAGER override (Nix) — not a launcher
+  // channel.
 
   return env
 }

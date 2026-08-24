@@ -278,18 +278,6 @@ def _user_local_bin_dir() -> Optional[str]:
         return None
 
 
-def _managed_uv_dir() -> Optional[str]:
-    """The install-scoped runtime dir holding the pinned uv + uvx
-    (managed_uv.managed_uv_path()'s parent — where the installers stage them)."""
-    try:
-        from hermes_cli.managed_uv import managed_uv_path
-
-        return str(managed_uv_path().parent)
-    except Exception as e:  # pragma: no cover — defensive
-        logger.debug("Could not resolve managed uv dir: %s", e)
-        return None
-
-
 def _find_cli() -> Optional[List[str]]:
     """Locate the browser-use CLI, or None when it can't be run.
 
@@ -300,9 +288,9 @@ def _find_cli() -> Optional[List[str]]:
     (~/.local/bin / %APPDATA%\\uv\\bin, where a manual ``uv tool install``
     links binaries) are fallbacks for setups that never ran our install,
     and cover Desktop/TUI workers that spawn with a minimal PATH. The uvx
-    zero-install path is the final fallback: it probes the install-scoped
-    runtime dir first (where the installers stage the pinned uv/uvx —
-    not on the user's PATH), then the same probe order.
+    zero-install path is the final fallback — the pinned uvx via
+    ``installation.uv`` (never a PATH probe: the registry names the
+    binary).
 """
     probe_paths = (_managed_bin_dir(), None, _user_local_bin_dir())
     for probe_path in probe_paths:
@@ -310,20 +298,23 @@ def _find_cli() -> Optional[List[str]]:
             direct = shutil.which("browser-use", path=probe_path)
             if direct:
                 return [direct]
-    uv_dir = _managed_uv_dir()
-    for probe_path in (uv_dir, *probe_paths):
-        if probe_path is None or probe_path:
-            uvx = shutil.which("uvx", path=probe_path)
-            if uvx:
-                return [uvx, "browser-use"]
+    try:
+        from installation.uv import uvx_path
+
+        uvx = uvx_path()
+    except Exception as e:  # pragma: no cover — defensive
+        logger.debug("Could not resolve pinned uvx: %s", e)
+        uvx = None
+    if uvx is not None:
+        return [str(uvx), "browser-use"]
     return None
 
 
 def install_cli(timeout_s: int = 600) -> Tuple[bool, str]:
     """Install the browser-use CLI persistently via ``uv tool install``.
 
-    Resolution order for uv: Hermes' managed uv (bootstrapped on demand via
-    ``hermes_cli.managed_uv.ensure_uv``) → uv on PATH. The binary is linked
+    Resolution order for uv: the pinned uv (converged on demand via
+    ``installation.uv.ensure_uv``) → uv on PATH. The binary is linked
     into ``$HERMES_HOME/bin`` (``UV_TOOL_BIN_DIR``) so ``_find_cli()``
     resolves it for every profile without touching the user's PATH.
 
@@ -342,9 +333,9 @@ def install_cli(timeout_s: int = 600) -> Tuple[bool, str]:
 
     uv_bin: Optional[str] = None
     try:
-        from hermes_cli.managed_uv import ensure_uv
+        from installation.uv import ensure_uv
 
-        uv_bin = str(ensure_uv() or "") or None
+        uv_bin = ensure_uv()
     except Exception as e:
         logger.debug("Managed uv bootstrap unavailable: %s", e)
     if not uv_bin:

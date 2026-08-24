@@ -595,14 +595,6 @@ class TestInstallRootAndRuntimeDir:
             == explicit / hermes_constants.RUNTIME_DIR_NAME
         )
 
-    def test_runtime_dir_name_matches_managed_uv_convention(self):
-        # managed_uv.py predates these resolvers and already nests its
-        # python store under <checkout>/.hermes-runtime — the two must
-        # agree or the install grows two runtime dirs.
-        from hermes_cli import managed_uv
-
-        assert hermes_constants.RUNTIME_DIR_NAME == managed_uv._RUNTIME_DIR_NAME
-
     def test_runtime_dir_is_not_under_hermes_home(self, tmp_path, monkeypatch):
         # The design invariant: install artifacts never nest in profile
         # state. A checkout that happens to live under ~/.hermes (the

@@ -59,7 +59,13 @@ def _project_root() -> Path:
 
 
 def _runtime_cache(project_root: Path) -> Path:
-    return project_root / ".hermes-runtime" / "cache"
+    # Lazy import: the stdlib-only audit checks what a bare IMPORT of this
+    # module loads. installation.paths is itself stdlib-only (same audit),
+    # and it owns the runtime-dir layout — including the install stamp's
+    # runtimeDir for sealed payloads — so the name never gets restated here.
+    from installation.paths import get_runtime_dir
+
+    return get_runtime_dir(project_root) / "cache"
 
 
 def _stamp_path(project_root: Path) -> Path:
@@ -120,31 +126,16 @@ def _is_sealed(project_root: Path) -> bool:
 def _managed_uv(project_root: Path) -> str | None:
     """The pinned uv, resolved the way the store resolves everything.
 
-    Reads runtimes.json directly rather than importing
-    ``installation.registry`` — one fact lookup does not justify a
-    package dependency in a module whose value is that it imports
-    nothing. The two layouts (store-relative v2, runtime-relative v1)
-    are both tried, so a half-updated tree still finds its uv.
+    ``installation.uv.uv_path`` IS that resolution — facts from the
+    runtime dir (full ladder: HERMES_RUNTIME_DIR, the install stamp's
+    runtimeDir, ``<root>/.hermes-runtime``), bytes from the store the
+    facts point at. ``installation`` is under the same stdlib-only audit
+    as this module, so the import costs nothing.
     """
-    runtime_dir = Path(
-        os.environ.get("HERMES_RUNTIME_DIR") or project_root / ".hermes-runtime"
-    )
-    try:
-        facts = json.loads(
-            (runtime_dir / "runtimes.json").read_text(encoding="utf-8-sig")
-        )
-        rel = facts["tools"]["uv"]["path"]
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
+    from installation.uv import uv_path
 
-    home_root = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
-    if home_root.name != ".hermes" and home_root.parent.name == "profiles":
-        home_root = home_root.parent.parent
-    for base in (runtime_dir, home_root / "tools"):
-        candidate = base / rel
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return str(candidate)
-    return None
+    uv = uv_path()
+    return str(uv) if uv is not None else None
 
 
 def read_stamp(project_root: Path) -> dict:

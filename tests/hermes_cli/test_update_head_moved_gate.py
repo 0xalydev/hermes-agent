@@ -109,11 +109,16 @@ def _patch_update_deps(monkeypatch, tmp_path, run_side_effect):
     # Short-circuit the long tail: dependency install + desktop build.
     # The restacked dependency phase provisions a real managed uv binary
     # (download + integrity probe) that a subprocess.run mock cannot fake,
-    # so stub the managed_uv seam and the installer it feeds.
-    import hermes_cli.managed_uv as managed_uv
+    # so stub the managed-uv seam, the repair it feeds, and the installer.
+    import installation.uv as installation_uv
+    from hermes_cli import runtime_repair
 
-    monkeypatch.setattr(managed_uv, "update_managed_uv", lambda *a, **k: None)
-    monkeypatch.setattr(managed_uv, "ensure_uv", lambda *a, **k: "/usr/bin/uv")
+    monkeypatch.setattr(installation_uv, "ensure_uv", lambda *a, **k: "/usr/bin/uv")
+    monkeypatch.setattr(
+        runtime_repair,
+        "repair_vulnerable_runtime",
+        lambda *a, **k: runtime_repair.RuntimeRepairResult("safe"),
+    )
     monkeypatch.setattr(
         hermes_main,
         "_install_python_dependencies_with_optional_fallback",

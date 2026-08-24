@@ -168,7 +168,7 @@ def test_cmd_update_captures_and_propagates_pre_rebuild_snapshot(
     tmp_path, monkeypatch
 ):
     """The updater must carry pre-rebuild state into its repair refresh."""
-    from hermes_cli import managed_uv, update_cmd
+    from hermes_cli import runtime_repair, update_cmd
 
     (tmp_path / ".git").mkdir()
     snapshot = ["platform.telegram"]
@@ -218,8 +218,12 @@ def test_cmd_update_captures_and_propagates_pre_rebuild_snapshot(
     monkeypatch.setattr(m, "_refresh_active_lazy_features", fake_refresh)
     monkeypatch.setattr(m, "_restore_active_tool_dependencies", fake_restore)
     monkeypatch.setattr(m.subprocess, "run", fake_run)
-    monkeypatch.setattr(managed_uv, "update_managed_uv", lambda **kwargs: None)
-    monkeypatch.setattr(managed_uv, "ensure_uv", lambda **kwargs: "uv")
+    monkeypatch.setattr(
+        runtime_repair,
+        "repair_vulnerable_runtime",
+        lambda *a, **k: runtime_repair.RuntimeRepairResult("safe"),
+    )
+    monkeypatch.setattr("installation.uv.ensure_uv", lambda **kwargs: "uv")
 
     args = SimpleNamespace(
         yes=True,

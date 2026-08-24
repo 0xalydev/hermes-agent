@@ -1150,9 +1150,10 @@ def _uv_sync_extra(feature: str) -> Optional[_InstallResult]:
         return None
 
     try:
-        from hermes_cli.managed_uv import resolve_uv
+        from installation.uv import uv_path
 
-        uv_bin = resolve_uv()
+        resolved = uv_path()
+        uv_bin = str(resolved) if resolved is not None else None
     except Exception:
         uv_bin = None
     if not uv_bin:
@@ -1221,7 +1222,7 @@ def _venv_pip_install(specs: tuple[str, ...], *, timeout: int = 300) -> _Install
 
     Lazy-install policy carried into the ladder as arguments (this used
     to be the second of three divergent copies of the mechanics):
-    ``resolve_uv()`` and never ``ensure_uv()``. This runs mid-turn to
+    ``uv_path()`` and never ``ensure_uv()``. This runs mid-turn to
     satisfy an optional import, and downloading uv as a side effect of
     that is a far bigger action than the caller asked for. An
     unprovisioned tree fails with the provisioner hint instead.
@@ -1246,9 +1247,10 @@ def _venv_pip_install(specs: tuple[str, ...], *, timeout: int = 300) -> _Install
         env = hermes_subprocess_env(inherit_credentials=False)
 
         try:
-            from hermes_cli.managed_uv import resolve_uv
+            from installation.uv import uv_path
 
-            uv_bin = resolve_uv()
+            resolved = uv_path()
+            uv_bin = str(resolved) if resolved is not None else None
         except Exception:
             uv_bin = None
 

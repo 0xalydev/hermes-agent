@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from contextvars import ContextVar, Token
+from functools import lru_cache
 from pathlib import Path
 
 __all__ = [
@@ -45,6 +46,34 @@ def reset_install_root_override(token: Token) -> None:
     _INSTALL_ROOT_OVERRIDE.reset(token)
 
 
+@lru_cache(maxsize=8)
+def _stamped_runtime_dir(install_root: str) -> str | None:
+    """The install stamp's ``runtimeDir``, or None.
+
+    THE one stamp read in this module, cached per root: a sealed payload's
+    stamp names where its runtime dir sits (RELATIVE to the stamp, ``..``
+    for the desktop payload, whose runtime dir is the payload dir itself).
+    Reading it here — instead of every launcher exporting
+    ``HERMES_RUNTIME_DIR`` — means the CLI shim, the Electron spawn, and a
+    bare ``python -m`` all resolve the same layout from the artifact alone.
+
+    Absolute values are refused as staging bugs (same rule as the shim's
+    sidecar): the whole point of the field is relocatability.
+    """
+    import json
+
+    try:
+        data = json.loads(
+            (Path(install_root) / "install-stamp.json").read_text(encoding="utf-8-sig")
+        )
+    except (OSError, ValueError):
+        return None
+    rel = data.get("runtimeDir") if isinstance(data, dict) else None
+    if not isinstance(rel, str) or not rel or Path(rel).is_absolute():
+        return None
+    return rel
+
+
 def get_install_root() -> Path:
     """Return the root directory of THIS install of Hermes.
 
@@ -72,25 +101,36 @@ def get_install_root() -> Path:
 
 
 def get_runtime_dir(install_root: Path | None = None) -> Path:
-    """Return the install-scoped runtime directory ``<root>/.hermes-runtime``.
+    """Return the runtime directory holding ``runtimes.json`` and tool state.
 
     Holds managed binaries (node, npm, uv, git, gh, ripgrep), install-keyed
     caches, and the ``runtimes.json`` facts manifest. Callers must treat
     the location as opaque and go through the runtime registry for tool
     lookup — no path literals.
 
-    ``HERMES_RUNTIME_DIR`` overrides it for packagers that BUILD the
-    runtime dir instead of provisioning it: the Nix package assembles one
-    from the pin table at build time and points here, because its install
-    root is an immutable store path that no provisioner can write to. An
-    explicit *install_root* still wins — a caller naming a root means
-    that root.
+    Resolution:
+      1. ``HERMES_RUNTIME_DIR`` — packagers that BUILD the runtime dir
+         somewhere unrelated to the tree (Nix: an immutable store path no
+         provisioner can write to).
+      2. The install stamp's ``runtimeDir`` (relative to the stamp) — a
+         sealed payload whose runtime dir is part of the artifact but not
+         at the default spot (the desktop payload: ``..``, the payload dir
+         itself). Derived from the artifact, so every launcher — GUI spawn,
+         CLI shim, bare ``python -m`` — resolves it identically with no
+         env contract.
+      3. ``<install root>/.hermes-runtime`` — source checkouts.
+
+    An explicit *install_root* skips rung 1 — a caller naming a root means
+    that root, not the process-wide override.
     """
     if install_root is None:
         override = os.environ.get("HERMES_RUNTIME_DIR", "").strip()
         if override:
             return Path(override)
     root = install_root if install_root is not None else get_install_root()
+    stamped = _stamped_runtime_dir(str(root))
+    if stamped is not None:
+        return (root / stamped).resolve()
     return root / RUNTIME_DIR_NAME
 
 
@@ -114,12 +154,18 @@ def get_tool_store() -> Path:
 
     ``HERMES_RUNTIME_DIR`` wins, and points bytes and facts back at ONE
     self-contained directory. That is what a packager builds: the Nix
-    bundle and the desktop payload assemble a runtime dir at build time
-    and cannot use a store they do not own.
+    bundle assembles a runtime dir at build time and cannot use a store
+    it does not own. The install stamp's ``runtimeDir`` says the same
+    thing from inside the artifact — the desktop payload is its own
+    store — so it collapses the pair identically.
     """
     override = os.environ.get("HERMES_RUNTIME_DIR", "").strip()
     if override:
         return Path(override)
+    root = get_install_root()
+    stamped = _stamped_runtime_dir(str(root))
+    if stamped is not None:
+        return (root / stamped).resolve()
     # Local import: hermes_constants imports THIS module, so an
     # import-time dependency would be circular. By the time anyone calls
     # this, both modules are loaded. (installation/tree.py does the same

@@ -72,26 +72,27 @@ def mock_args():
 # other PATH tools. There is no pip tier any more: a test that leaves the
 # managed uv unresolved gets the provisioner error, not a silent pip
 # install. Tests that want the unprovisioned case patch
-# ``hermes_cli.managed_uv.ensure_uv`` themselves.
+# ``installation.uv.ensure_uv`` themselves.
 FAKE_MANAGED_UV = "/managed/bin/uv"
 
 
 @pytest.fixture(autouse=True)
 def _patch_managed_uv(request):
     """Resolve a managed uv without touching PATH."""
+    from hermes_cli.runtime_repair import RuntimeRepairResult
 
-    def _fake_resolve_uv():
+    def _fake_uv_path():
         return FAKE_MANAGED_UV
 
     def _fake_ensure_uv(**_kwargs):
         return FAKE_MANAGED_UV
 
-    def _fake_update_managed_uv(**_kwargs):
-        return None  # never actually self-update in tests
-
-    with patch("hermes_cli.managed_uv.resolve_uv", side_effect=_fake_resolve_uv), \
-         patch("hermes_cli.managed_uv.ensure_uv", side_effect=_fake_ensure_uv), \
-         patch("hermes_cli.managed_uv.update_managed_uv", side_effect=_fake_update_managed_uv):
+    # The update flow calls repair_vulnerable_runtime() explicitly after
+    # ensure_uv(); unmocked it would probe this checkout's real venv.
+    with patch("installation.uv.uv_path", side_effect=_fake_uv_path), \
+         patch("installation.uv.ensure_uv", side_effect=_fake_ensure_uv), \
+         patch("hermes_cli.runtime_repair.repair_vulnerable_runtime",
+               return_value=RuntimeRepairResult("safe")):
         yield
 
 
@@ -897,8 +898,7 @@ class TestNodeRuntimeNpmResolution:
             patch("hermes_cli.config.load_config", return_value={}),
             patch("subprocess.run", side_effect=fail_git_fetch),
             patch("urllib.request.urlretrieve", side_effect=write_source_zip),
-            patch("hermes_cli.managed_uv.ensure_uv", return_value="uv"),
-            patch("hermes_cli.managed_uv.update_managed_uv"),
+            patch("installation.uv.ensure_uv", return_value="uv"),
             patch(
                 "tools.skills_sync.sync_skills",
                 return_value={

@@ -869,7 +869,7 @@ def _pip_install(
     Returns a CompletedProcess-shaped result (``.returncode``/``.stdout``/
     ``.stderr``) so existing callers keep working.
     """
-    from hermes_cli.managed_uv import ensure_uv
+    from installation.uv import ensure_uv
     from installation.pip_ladder import pip_install
 
     return pip_install(

@@ -3004,8 +3004,8 @@ def get_python_path() -> str:
         except ImportError:
             # Update-boundary: a gateway restarted mid-update can hold a
             # hermes_constants cached from before this symbol existed. See
-            # _reload_hermes_constants() in hermes_cli/managed_uv.py.
-            from hermes_cli.managed_uv import _reload_hermes_constants
+            # _reload_hermes_constants() in hermes_cli/runtime_repair.py.
+            from hermes_cli.runtime_repair import _reload_hermes_constants
 
             venv_python_path = _reload_hermes_constants().venv_python_path
 

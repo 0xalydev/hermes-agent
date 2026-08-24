@@ -75,9 +75,12 @@ def _make_run_side_effect(
 # tier, an unresolved uv makes the update try to provision for real.
 @pytest.fixture(autouse=True)
 def _stub_managed_uv():
-    with patch("hermes_cli.managed_uv.ensure_uv", return_value="/managed/bin/uv"), \
-         patch("hermes_cli.managed_uv.resolve_uv", return_value="/managed/bin/uv"), \
-         patch("hermes_cli.managed_uv.update_managed_uv", return_value=None):
+    from hermes_cli.runtime_repair import RuntimeRepairResult
+
+    with patch("installation.uv.ensure_uv", return_value="/managed/bin/uv"), \
+         patch("installation.uv.uv_path", return_value="/managed/bin/uv"), \
+         patch("hermes_cli.runtime_repair.repair_vulnerable_runtime",
+               return_value=RuntimeRepairResult("safe")):
         yield
 
 

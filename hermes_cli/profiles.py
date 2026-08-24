@@ -34,6 +34,8 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Dict, List, Optional, Tuple
 
 from agent.skill_utils import is_excluded_skill_path
+from hermes_cli.boot_bootstrap import INSTALLS_DIR_NAME
+from installation.paths import TOOL_STORE_DIR_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -97,19 +99,33 @@ _CLONE_ALL_STRIP: list[str] = [
 # exclusion list (export also drops logs / caches because the archive is a
 # portable snapshot; clone-all keeps those because the cloned profile is
 # meant to keep working immediately).
-_CLONE_ALL_DEFAULT_EXCLUDE_ROOT: frozenset[str] = frozenset({
-    "hermes-agent",
-    ".worktrees",
-    "profiles",
-    "bin",
-    "node_modules",
-    # Managed runtimes: install-scoped, never profile data (hermes-home
-    # lifetime split). ".hermes-runtime" is the current home; "node" is
-    # where a pre-split install left its Node tree, which is multi-hundred
-    # MB and would otherwise be copied into every new profile.
-    ".hermes-runtime",
+# Home-root entries that only RETIRED layouts produce. The current layout
+# never writes these at the home root — they are excluded so cloning or
+# exporting a home that an older install once touched does not drag its
+# leftovers along (multi-hundred-MB in `node`'s case). Public so `hermes
+# doctor` can report them as reclaimable legacy debris.
+LEGACY_HOME_LAYOUT_NAMES: frozenset[str] = frozenset({
+    # Pre-lifetime-split managed Node tree (`~/.hermes/node`), replaced by
+    # the pinned store entry under the tool store.
     "node",
 })
+
+# Install-scoped infrastructure the CURRENT layout keeps under the default
+# home. Never profile data: cloning or exporting a profile must not copy
+# another install's checkout, state, or the machine-wide tool bytes.
+_INSTALL_INFRA_EXCLUDE_ROOT: frozenset[str] = frozenset({
+    "hermes-agent",         # repo checkout (multi-GB)
+    ".worktrees",           # git worktrees
+    "profiles",             # other profiles — never recursive
+    "bin",                  # installed binaries (tirith, iron-proxy, ...)
+    "node_modules",         # npm packages (browser/mcp tooling)
+    TOOL_STORE_DIR_NAME,    # machine-wide tool store (~/.hermes/tools)
+    INSTALLS_DIR_NAME,      # per-install state dirs (~/.hermes/installs)
+})
+
+_CLONE_ALL_DEFAULT_EXCLUDE_ROOT: frozenset[str] = (
+    _INSTALL_INFRA_EXCLUDE_ROOT | LEGACY_HOME_LAYOUT_NAMES
+)
 
 # Per-profile history artifacts excluded from --clone-all regardless of the
 # source profile.  A new profile is a fresh workspace — inheriting the source
@@ -211,14 +227,9 @@ def _clone_all_copytree_ignore(source_dir: Path):
 # caches, binaries) that named profiles don't have.  We exclude those so the
 # export is a portable, reasonable-size archive of actual profile data.
 _DEFAULT_EXPORT_EXCLUDE_ROOT = frozenset({
-    # Infrastructure
-    "hermes-agent",         # repo checkout (multi-GB)
-    ".worktrees",           # git worktrees
-    "profiles",             # other profiles — never recursive-export
-    "bin",                  # installed binaries (tirith, etc.)
-    "node_modules",         # npm packages
-    ".hermes-runtime",      # managed runtimes (install-scoped, not data)
-    "node",                 # pre-split managed Node tree
+    # Install-scoped infrastructure + retired-layout leftovers (one
+    # authority above: _INSTALL_INFRA_EXCLUDE_ROOT + LEGACY_HOME_LAYOUT_NAMES).
+    *_CLONE_ALL_DEFAULT_EXCLUDE_ROOT,
     # Databases & runtime state
     "state.db", "state.db-shm", "state.db-wal",
     "hermes_state.db",

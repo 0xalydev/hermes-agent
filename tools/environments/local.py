@@ -353,7 +353,7 @@ _HERMES_PROVIDER_ENV_BLOCKLIST = _build_provider_env_blocklist()
 # system/venv Pythons — to the Hermes venv's stdlib, which crashes with
 # version-mismatch errors before a child script even imports a package
 # (#75018). Hermes itself treats PYTHONHOME as contamination in its own
-# child processes (managed_uv.py, sqlite_runtime.py), so stripping it from
+# child processes (runtime_repair.py, sqlite_runtime.py), so stripping it from
 # subprocess envs is consistent. Users who need PYTHONHOME for a specific
 # child can set it explicitly in the command.
 #

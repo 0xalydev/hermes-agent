@@ -138,6 +138,7 @@ def build_stamp(
     commit_date: int | None = None,
     source: str = "local",
     distribution: str | None = None,
+    runtime_dir: str | None = None,
 ) -> dict:
     """Build a stamp dict from explicit args, filling gaps from git/env.
 
@@ -145,6 +146,15 @@ def build_stamp(
     ``source`` identifies where the stamp came from (``ci``, ``local``,
     ``docker``, ``nix``, ``fallback``). ``update_mechanism`` is required:
     every stamp names who applies the next update (see UPDATE_MECHANISMS).
+
+    ``runtime_dir`` is a path RELATIVE to the stamp file's directory, naming
+    where the provisioner wrote ``runtimes.json`` and the tool bytes. A
+    sealed desktop-app payload stages its runtime dir as a sibling of
+    ``repo/`` (the install root), so the value is ``..``. The Python boot
+    path reads this instead of deriving ``<install_root>/.hermes-runtime``,
+    which is wrong for that layout: the runtime dir is the payload dir, not
+    a child of the install root. ``..`` keeps it relocatable — an absolute
+    path would break under MSIX translocation.
     """
     if update_mechanism not in UPDATE_MECHANISMS:
         raise SystemExit(
@@ -222,7 +232,7 @@ def build_stamp(
             f"HERMES_PAYLOAD_TAG=vX.Y.Z or vX.Y.0-nightly.YYYYMMDDHHMMSS (got {tag!r})"
         )
 
-    return {
+    stamp = {
         "schemaVersion": STAMP_SCHEMA_VERSION,
         "commit": commit,
         "commitDate": commit_date,
@@ -238,6 +248,9 @@ def build_stamp(
         "payload": payload,
         "tag": tag if payload != "bootstrap" else None,
     }
+    if runtime_dir is not None:
+        stamp["runtimeDir"] = runtime_dir
+    return stamp
 
 
 def write_stamp(output: str | Path, **kwargs) -> dict:
@@ -271,6 +284,14 @@ def main() -> int:
         help="Who applies the next update: 'self' (hermes update), "
         "'electron-updater' (in-app updater), 'external' (nix/docker/store)",
     )
+    parser.add_argument(
+        "--runtime-dir",
+        default=None,
+        help="Path RELATIVE to the stamp file's directory, naming where the "
+        "provisioner wrote runtimes.json and the tool bytes. A sealed "
+        "desktop-app payload passes '..' (the payload dir is the install "
+        "root's parent). Omitted for source/docker/nix stamps.",
+    )
     args = parser.parse_args()
 
     stamp = write_stamp(
@@ -284,6 +305,7 @@ def main() -> int:
         commit_date=args.commit_date,
         source=args.source,
         distribution=args.distribution,
+        runtime_dir=args.runtime_dir,
     )
 
     commit_short = stamp["commit"][:12]

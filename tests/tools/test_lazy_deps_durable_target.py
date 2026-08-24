@@ -226,12 +226,11 @@ class TestInstallArgConstruction:
         monkeypatch.setenv(ld._LAZY_TARGET_ENV, str(target))
 
         import installation.pip_ladder as ladder
-        import hermes_cli.managed_uv as managed_uv
 
         # The managed uv is the only installer now, so pin it rather than
         # steering PATH: which() no longer decides anything here.
         monkeypatch.setattr(ladder, "default_uv", lambda: "/managed/bin/uv")
-        monkeypatch.setattr(managed_uv, "resolve_uv", lambda: "/managed/bin/uv")
+        monkeypatch.setattr("installation.uv.uv_path", lambda: "/managed/bin/uv")
 
         calls: list[list[str]] = []
 
@@ -268,10 +267,9 @@ class TestInstallArgConstruction:
         monkeypatch.setenv(ld._LAZY_TARGET_ENV, str(target))
 
         import installation.pip_ladder as ladder
-        import hermes_cli.managed_uv as managed_uv
 
         monkeypatch.setattr(ladder, "default_uv", lambda: "/managed/bin/uv")
-        monkeypatch.setattr(managed_uv, "resolve_uv", lambda: "/managed/bin/uv")
+        monkeypatch.setattr("installation.uv.uv_path", lambda: "/managed/bin/uv")
 
         calls: list[list[str]] = []
 
@@ -301,10 +299,9 @@ class TestInstallArgConstruction:
             tree_mod, "runtime_tree", lambda _root: object(), raising=True
         )
         import installation.pip_ladder as ladder
-        import hermes_cli.managed_uv as managed_uv
 
         monkeypatch.setattr(ladder, "default_uv", lambda: "/managed/bin/uv")
-        monkeypatch.setattr(managed_uv, "resolve_uv", lambda: "/managed/bin/uv")
+        monkeypatch.setattr("installation.uv.uv_path", lambda: "/managed/bin/uv")
         captured = {}
 
         def fake_run(cmd, *a, **k):
@@ -330,7 +327,7 @@ class TestInstallArgConstruction:
 
     def test_uv_resolution_failure_does_not_fall_through_to_pip(self, monkeypatch):
         monkeypatch.delenv(ld._LAZY_TARGET_ENV, raising=False)
-        monkeypatch.setattr("hermes_cli.managed_uv.resolve_uv", lambda: "uv")
+        monkeypatch.setattr("installation.uv.uv_path", lambda: "uv")
         calls = []
 
         def fake_run(cmd, *args, **kwargs):

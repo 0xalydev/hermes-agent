@@ -58,7 +58,6 @@ from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Callable, Optional
 
-from installation.git import SYSTEM_GIT_FLOOR
 from installation.paths import get_install_root, resolve_bases
 from installation.tree import Sealed, runtime_tree
 from installation.registry import (
@@ -523,7 +522,7 @@ class ToolResult:
     # kept | adopted | downloaded | system | unavailable | failed
     #
     # "unavailable" is a DECLARED gap (the pin table's {"missing": reason}
-    # rows, or a tool with no Termux mapping): the capability does not
+    # rows): the capability does not
     # exist on this target, so nothing was attempted and nothing is
     # broken. "failed" means work was attempted and went wrong — a
     # download, digest, or probe failure that a retry or a fix can cure.
@@ -928,88 +927,6 @@ def probe_system_git() -> Optional[tuple[str, str]]:
     return _probe()
 
 
-# ─── termux: the verify-only lane (decision 5) ─────────────────────────────
-#
-# dugite, the node tarballs, gh, ripgrep — every pinned artifact is a
-# glibc build, and Termux is bionic. Nothing in the pin table can RUN
-# there, so provisioning on Termux does not mean download: it means
-# verify that pkg installed what we need and record it, source="system",
-# exactly like a floor-clearing system git anywhere else. One lane,
-# replacing the is_termux special cases scattered through the callers.
-#
-# Versions are constraints here, not pins: pkg ships one rolling build
-# per tool, so demanding our exact pin would fail every Termux install
-# forever. The floor is what the code needs; pkg decides the rest.
-
-TERMUX_TOOLS: dict[str, tuple[tuple[int, int], str]] = {
-    # tool: ((major, minor) floor, pkg package name)
-    "git": (SYSTEM_GIT_FLOOR, "git"),
-    "node": ((20, 0), "nodejs"),  # engine-strict floor for the web UI build
-    "npm": ((9, 0), "nodejs"),  # npm rides the nodejs package
-    "ripgrep": ((13, 0), "ripgrep"),
-    "gh": ((2, 0), "gh"),
-    # uv: managed_uv's termux path already owns it (pip lane); not probed.
-}
-
-
-def is_termux() -> bool:
-    return bool(
-        os.environ.get("TERMUX_VERSION")
-        or "com.termux" in os.environ.get("PREFIX", "")
-    )
-
-
-def _provision_termux(
-    tool: str,
-    facts_dir: Path,
-    facts: dict[str, RuntimeFact],
-    path_order: list[str] | None,
-) -> ToolResult:
-    """Verify a pkg-installed tool and record it, or fail with the fix.
-
-    The failure message carries the exact ``pkg install`` line because a
-    Termux user cannot be handed a download URL — the store's artifacts
-    do not run on bionic, so pkg is the only path and saying anything
-    else would be a lie.
-    """
-    spec = TERMUX_TOOLS.get(tool)
-    if spec is None:
-        # A tool with no Termux mapping (chromium, agent-browser): explicitly
-        # unsupported there — a declared gap, not a failure to cure.
-        return ToolResult(
-            tool, "unavailable", detail=f"{tool} is not available on Termux"
-        )
-    floor, pkg_name = spec
-
-    fact = facts.get(tool)
-    if fact is not None and fact.source == "system" and Path(fact.path).is_file():
-        return ToolResult(tool, "kept", version=fact.version)
-
-    found = shutil.which(tool)
-    version = _probe_version(Path(found)) if found else None
-    pair: tuple[int, int] | None = None
-    if version is not None:
-        try:
-            pair = (int(version.split(".")[0]), int(version.split(".")[1]))
-        except (ValueError, IndexError):
-            pair = None
-
-    if found is None or version is None or pair is None or pair < floor:
-        have = f"{tool} {version}" if version else "nothing"
-        return ToolResult(
-            tool,
-            "failed",
-            detail=(
-                f"Termux needs {tool} >= {floor[0]}.{floor[1]} from pkg "
-                f"(found {have}). Run: pkg install {pkg_name}"
-            ),
-        )
-
-    facts[tool] = RuntimeFact(version=version, path=found, source="system")
-    save_facts(facts, facts_dir, path_order=path_order)
-    return ToolResult(tool, "system", version=version)
-
-
 # ─── the provisioning loop ──────────────────────────────────────────────────
 
 
@@ -1157,11 +1074,6 @@ def _provision_one(
     archive_dir: Path | None = None,
 ) -> ToolResult:
     """Bring ONE tool to the pinned state. Never raises."""
-    # Termux first: no pinned artifact runs on bionic, so the pin table
-    # governs WHAT tools exist but pkg supplies the bytes (decision 5).
-    if is_termux():
-        return _provision_termux(tool, facts_dir, facts, path_order)
-
     # A DECLARED gap ({\"missing\": reason} in the pin table) must be
     # detected BEFORE anything derives a binary layout from (tool,
     # target): _binary_rel has no row for a target the pin table refuses,
@@ -1477,8 +1389,7 @@ def stale_tools(
         installed = fact.version if fact is not None else None
         # A system-provided tool is deliberately NOT at the pinned
         # version — it satisfied the flag floor instead (decision 1's
-        # third state, and every Termux fact by construction: decision
-        # 5's constraints-not-pins rule). Reporting it as drift would
+        # third state). Reporting it as drift would
         # make every install using its distro git look permanently
         # broken. Only a vanished binary turns it back into work.
         if fact is not None and fact.source == "system":

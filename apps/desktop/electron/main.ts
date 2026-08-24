@@ -5021,8 +5021,13 @@ function createEmbeddedBackend(backendArgs) {
   const env: Record<string, string> = {
     ...buildDesktopBackendEnv({
       hermesHome: HERMES_HOME,
+      // PATH assembly only: the payload IS a runtime dir, so the backend's
+      // subprocess PATH is built from its runtimes.json. The Python side
+      // resolves the same layout ITSELF from the install stamp's runtimeDir
+      // (installation/paths.py) — no HERMES_RUNTIME_DIR / HERMES_INSTALL_ROOT
+      // env contract; the CLI shim and a bare `python -m` get the identical
+      // answer without one.
       runtimeDir: payload.dir,
-      installRoot: repoRoot,
       pythonPathEntries: [],
       venvRoot: null
     }),

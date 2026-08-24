@@ -46,7 +46,7 @@ def _stub_install_env(monkeypatch, m, seen):
 
     monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: R())
     monkeypatch.setattr(
-        "hermes_cli.managed_uv.ensure_uv", lambda: "/managed/bin/uv"
+        "installation.uv.ensure_uv", lambda: "/managed/bin/uv"
     )
     # The install executor moved to hermes_cli._install_repair (shared between
     # the pre-import early pass and this late recovery path) — stub WHERE it

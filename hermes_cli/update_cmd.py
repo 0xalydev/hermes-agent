@@ -1423,10 +1423,8 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False):
     _m()._abort_dependency_sync_if_self_locked()
     print("→ Updating Python dependencies...")
 
-    from hermes_cli.managed_uv import ensure_uv, update_managed_uv
-
-    # Keep managed uv on the pin table — re-provisions if the pin moved.
-    update_managed_uv()
+    from installation.uv import ensure_uv
+    from hermes_cli.runtime_repair import repair_vulnerable_runtime
 
     uv_bin = ensure_uv()
 
@@ -1438,6 +1436,11 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False):
             "no managed uv found: cannot install Python dependencies. "
             "Run: python -m installation.provisioner"
         )
+
+    # A current uv does not imply a safe interpreter: python-build-standalone
+    # re-releases the same CPython patch with fixed SQLite. Repair is its own
+    # explicit step now — no longer smuggled inside uv acquisition.
+    repair_vulnerable_runtime()
     uv_env = {**os.environ, "VIRTUAL_ENV": str(_m().PROJECT_ROOT / "venv")}
     _m()._install_python_dependencies_with_optional_fallback([uv_bin, "pip"], env=uv_env)
 
@@ -5336,11 +5339,12 @@ def _cmd_update_impl(args, gateway_mode: bool):
             # uv can retain the same CPython patch while python-build-standalone
             # refreshes the embedded SQLite underneath it. Keep the existing
             # update-boundary hook active on this retry path too.
-            from hermes_cli.managed_uv import ensure_uv, update_managed_uv
+            from installation.uv import ensure_uv
+            from hermes_cli.runtime_repair import repair_vulnerable_runtime
 
             runtime_repairs = []
-            update_managed_uv(repair_observer=runtime_repairs.append)
-            ensure_uv(repair_observer=runtime_repairs.append)
+            if ensure_uv():
+                runtime_repairs.append(repair_vulnerable_runtime())
             runtime_repaired = next(
                 (result for result in runtime_repairs if result.repaired),
                 None,
@@ -5362,7 +5366,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 # too — same mapped-extension hazard as the update sync.
                 _m()._abort_dependency_sync_if_self_locked(_windows_gateway_resume)
                 _write_update_incomplete_marker()
-                from hermes_cli.managed_uv import ensure_uv
+                from installation.uv import ensure_uv
 
                 repair_uv = ensure_uv()
                 # A managed install whose venv is gone entirely (interrupted
@@ -5624,10 +5628,8 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # ``.[all]`` install completes — lazy refresh uses a separate marker.
         _write_update_incomplete_marker()
         print("→ Updating Python dependencies...")
-        from hermes_cli.managed_uv import ensure_uv, update_managed_uv
-
-        # Keep managed uv on the pin table — re-provisions if the pin moved.
-        update_managed_uv()
+        from installation.uv import ensure_uv
+        from hermes_cli.runtime_repair import repair_vulnerable_runtime
 
         uv_bin = ensure_uv()
 
@@ -5639,6 +5641,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 "no managed uv found: cannot install Python dependencies. "
                 "Run: python -m installation.provisioner"
             )
+        # Same explicit repair step as the ZIP path: a current uv does not
+        # imply a safe interpreter.
+        repair_vulnerable_runtime()
         uv_env = {**os.environ, "VIRTUAL_ENV": str(_m().PROJECT_ROOT / "venv")}
         _m()._install_python_dependencies_with_optional_fallback(
             [uv_bin, "pip"], env=uv_env, group=install_group

@@ -72,6 +72,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agent.skill_utils import is_excluded_skill_path
 from hermes_cli._subprocess_compat import noninteractive_git_env
+from hermes_cli.profiles import _CLONE_ALL_DEFAULT_EXCLUDE_ROOT
 
 
 # ---------------------------------------------------------------------------
@@ -113,11 +114,10 @@ USER_OWNED_EXCLUDE: frozenset = frozenset({
     "image_cache", "audio_cache", "document_cache",
     "browser_screenshots", "checkpoints", "sandboxes",
     "backups", "cache",
-    # Infrastructure
-    "hermes-agent", ".worktrees", "profiles", "bin", "node_modules",
-    # Managed runtimes: install-scoped, never profile data (hermes-home
-    # lifetime split). "node" is the pre-split location.
-    ".hermes-runtime", "node",
+    # Install-scoped infrastructure + retired-layout leftovers: one
+    # authority in profiles.py (_INSTALL_INFRA_EXCLUDE_ROOT and
+    # LEGACY_HOME_LAYOUT_NAMES) shared by clone-all, export, and this.
+    *_CLONE_ALL_DEFAULT_EXCLUDE_ROOT,
     # User customization namespace
     "local",
 })

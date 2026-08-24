@@ -11,8 +11,8 @@ History of this contract:
   entirely: Hermes owns its uv. Install-Uv now downloads the EXACT
   artifact pinned in installation/runtime-pins.json (URL + sha256 via the
   generated fragment), verifies the digest before extraction, and stages
-  the binary at $InstallDir\\.hermes-runtime\\uv\\uv.exe -- the same
-  location managed_uv.managed_uv_path() resolves. PATH probing and
+  the binary at $InstallDir\\.hermes-runtime\\uv\\uv.exe -- inside the
+  install-scoped managed runtime dir. PATH probing and
   non-pinned install sources are deliberately gone: a salvaged or
   latest-channel uv is a binary nobody reviewed.
 
@@ -98,12 +98,12 @@ def test_uv_digest_is_checked_before_extraction(source: str):
 
 
 def test_uv_staged_at_managed_runtime_location(source: str):
-    """The staged binary must be where managed_uv_path() resolves."""
+    """The staged binary must live inside the managed runtime dir."""
     body = _install_uv_body(source)
     assert ".hermes-runtime\\uv" in body, (
         "Install-Uv must stage uv under $InstallDir\\.hermes-runtime\\uv -- "
-        "the location managed_uv.managed_uv_path() reads -- so the binary "
-        "the installer stages is the one ensure_uv() finds (c9febdde5)"
+        "the install-scoped managed runtime dir -- so the binary "
+        "the installer stages is the one the provisioner records (c9febdde5)"
     )
 
 

@@ -688,6 +688,10 @@ function stageRepo(tag, outDir) {
     "--distance", "0",
     "--source", "ci",
     "--distribution", "desktop-app",
+    // The runtime dir is the payload dir (OUT_DIR), one level above the
+    // repo/ (repoDir). The stamp lives at repoDir/install-stamp.json, so
+    // the relative path from the stamp to the runtime dir is "..".
+    "--runtime-dir", "..",
     // The NSIS/dmg/AppImage artifacts update through electron-updater;
     // the MSIX pack pass is a full top-down rebuild that sets
     // HERMES_PAYLOAD_UPDATE_MECHANISM=external (store-managed) — the same

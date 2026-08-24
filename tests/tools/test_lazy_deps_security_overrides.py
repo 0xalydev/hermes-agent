@@ -26,7 +26,6 @@ from pathlib import Path
 
 import pytest
 
-from hermes_cli import managed_uv
 from tools import lazy_deps as ld
 
 BACKEND = "alibabacloud-dingtalk==2.2.42"
@@ -72,7 +71,7 @@ def install(monkeypatch):
         monkeypatch.setattr(ladder, "default_uv", lambda: uv_bin)
         monkeypatch.setattr(ld.subprocess, "run", fake_run)
         monkeypatch.setattr(ld.shutil, "which", lambda _n: uv_bin)
-        monkeypatch.setattr(managed_uv, "resolve_uv", lambda: uv_bin)
+        monkeypatch.setattr("installation.uv.uv_path", lambda: uv_bin)
         monkeypatch.delenv(ld._LAZY_TARGET_ENV, raising=False)
         import installation.tree as tree_mod
 

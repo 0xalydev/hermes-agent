@@ -256,7 +256,7 @@ def orphaned_store_entries() -> list[tuple[Path, int]]:
     unknowable and any entry might be one of them. A busted install
     should cost disk, not break a neighbour that shares the store.
     """
-    from installation.paths import get_tool_store
+    from installation.paths import get_runtime_dir, get_tool_store
     from installation.registry import load_facts
 
     store = get_tool_store()
@@ -278,9 +278,13 @@ def orphaned_store_entries() -> list[tuple[Path, int]]:
 
     referenced: set[str] = set()
     for root in roots:
-        facts_file = root / ".hermes-runtime" / "runtimes.json"
+        # Per-root resolution, not a hardcoded ".hermes-runtime": a sealed
+        # payload's stamp places its runtime dir elsewhere (runtimeDir),
+        # and missing its facts here would flag its tools as orphans.
+        runtime_dir = get_runtime_dir(root)
+        facts_file = runtime_dir / "runtimes.json"
         try:
-            facts = load_facts(root / ".hermes-runtime")
+            facts = load_facts(runtime_dir)
         except Exception:  # noqa: BLE001
             # An install whose facts file EXISTS but cannot be read might
             # reference anything — with its references unknowable, no

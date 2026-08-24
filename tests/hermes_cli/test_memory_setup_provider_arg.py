@@ -71,7 +71,7 @@ class TestInstallDependenciesRunner:
         # tests/tools/test_lazy_deps.py uses.
         with _patch.dict(os.environ, {"HERMES_DISABLE_LAZY_INSTALLS": "0"}), \
              patch("plugins.memory.find_provider_dir", return_value=tmp_path), \
-             patch("hermes_cli.managed_uv.ensure_uv", return_value=uv_bin), \
+             patch("installation.uv.ensure_uv", return_value=uv_bin), \
              patch("installation.pip_ladder.default_uv", return_value=uv_bin), \
              patch("installation.pip_ladder.subprocess.run", fake_run):
             memory_setup._install_dependencies("x")
