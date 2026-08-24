@@ -330,25 +330,23 @@ const FAST_TIMEOUT_MS = 45_000
  *  Resolves true when the file was rewritten with at least one populated
  *  block. Never throws — every failure path resolves false and leaves the
  *  deterministic artifact untouched. */
-export async function populateFirstScreenArtifact(config: FirstScreenConfig): Promise<boolean> {
-  const desktop = window.hermesDesktop
-
-  if (!desktop?.desktopPluginsRoot || !desktop.writeTextFile) {
-    return false
-  }
-
+/** The content-fill engine: one hidden fast-lane session, two passes (fast:
+ *  no tools, lands in seconds; feed: web search). `onPartial` fires as each
+ *  pass lands so callers can paint progressively. Never throws — null means
+ *  nothing usable was produced. */
+export async function fillScreenContent(
+  config: FirstScreenConfig,
+  options: { onPartial?: (partial: PopulateResult) => void } = {}
+): Promise<null | PopulateResult> {
   const gateway = activeGateway()
 
   if (!gateway) {
-    return false
+    return null
   }
 
   let sessionId = ''
 
   try {
-    // Same fast lane as the guided chat: the turn is structured JSON work
-    // (plus a search for feed blocks); flagship latency buys nothing here.
-    // Model refusal falls back to the profile default via a bare create.
     const created = await gateway
       .request<{ session_id?: string }>(
         'session.create',
@@ -356,34 +354,29 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
         CREATE_TIMEOUT_MS
       )
       .catch(() =>
-        gateway.request<{ session_id?: string }>('session.create', { cols: 96, hidden: true, source: 'desktop' }, CREATE_TIMEOUT_MS)
+        gateway.request<{ session_id?: string }>(
+          'session.create',
+          { cols: 96, hidden: true, source: 'desktop' },
+          CREATE_TIMEOUT_MS
+        )
       )
 
     sessionId = created?.session_id ?? ''
 
     if (!sessionId) {
-      return false
+      return null
     }
 
-    // The hidden session shows in history — title it honestly.
     void gateway
       .request('session.title', { session_id: sessionId, title: 'First screen content' })
       .catch(() => undefined)
 
-    // Thinking OFF for this one JSON turn — reasoning buys nothing on a
-    // structured fill and multiplies latency (the exact slow-populate
-    // complaint from live runs).
+    // Thinking OFF: reasoning buys nothing on a structured fill and
+    // multiplies latency (the exact slow-populate complaint from live runs).
     await gateway
       .request('config.set', { key: 'reasoning', session_id: sessionId, value: 'none' })
       .catch(() => undefined)
 
-    // TWO PASSES so the pane fills FAST:
-    //  1. fast — steps/skeletons/examples straight from the profile, tools
-    //     forbidden. Lands in seconds; the pane loses most of its shimmer on
-    //     the first rewrite.
-    //  2. feed — live-content blocks only, web search allowed. Lands when it
-    //     lands; the file keeps populating:true until then so those blocks
-    //     keep their spinner.
     // Both listeners are parse-gated: tool-using turns emit an interim
     // message.complete per assistant segment and the first is usually prose,
     // not the JSON (live failure: resolved on segment one, dropped the real
@@ -429,37 +422,104 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
           })
       })
 
+    const hasFast = config.blocks.some(block => block.kind !== 'feed')
+    const hasFeed = config.blocks.some(block => block.kind === 'feed')
+    const empty: PopulateResult = { content: {}, extra: [], overrides: {} }
+    const fast = hasFast ? await runPass('fast', FAST_TIMEOUT_MS) : empty
+
+    if (hasFast) {
+      options.onPartial?.(fast)
+    }
+
+    if (!hasFeed) {
+      return fast
+    }
+
+    try {
+      const feed = await runPass('feed', COMPLETE_TIMEOUT_MS)
+
+      const merged: PopulateResult = {
+        content: { ...fast.content, ...feed.content },
+        extra: [...fast.extra, ...feed.extra],
+        overrides: { ...fast.overrides, ...feed.overrides }
+      }
+
+      options.onPartial?.(merged)
+
+      return merged
+    } catch {
+      return hasFast ? fast : null
+    }
+  } catch {
+    return null
+  } finally {
+    if (sessionId) {
+      void gateway.request('session.close', { session_id: sessionId }).catch(() => undefined)
+    }
+  }
+}
+
+/** Fire-and-forget FINAL fill: write `precomputed` content (the speculative
+ *  fill that ran while the user was picking selectors) immediately, then fill
+ *  only the gaps. Resolves true when the file ends populated. Never throws —
+ *  every failure path resolves false and leaves the deterministic artifact
+ *  untouched. */
+export async function populateFirstScreenArtifact(
+  config: FirstScreenConfig,
+  precomputed: null | PopulateResult = null
+): Promise<boolean> {
+  const desktop = window.hermesDesktop
+
+  if (!desktop?.desktopPluginsRoot || !desktop.writeTextFile) {
+    return false
+  }
+
+  try {
     const root = await desktop.desktopPluginsRoot()
     const filePath = `${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`
-    const hasFeed = config.blocks.some(block => block.kind === 'feed')
 
-    const fast = await runPass('fast', FAST_TIMEOUT_MS)
+    // Keep only precomputed content that belongs to blocks that survived the
+    // keep/drop pass.
+    const ids = new Set(config.blocks.map(block => block.id))
 
-    await desktop.writeTextFile(filePath, populatedFileContent(config, fast, { stillPopulating: hasFeed }))
-
-    if (hasFeed) {
-      // Second turn in the same session: live items for the feed blocks.
-      // Failure keeps the fast content and clears the flag below.
-      try {
-        const feed = await runPass('feed', COMPLETE_TIMEOUT_MS)
-
-        const merged: PopulateResult = {
-          content: { ...fast.content, ...feed.content },
-          extra: [...fast.extra, ...feed.extra],
-          overrides: { ...fast.overrides, ...feed.overrides }
+    const carried: PopulateResult = precomputed
+      ? {
+          content: Object.fromEntries(Object.entries(precomputed.content).filter(([id]) => ids.has(id))),
+          extra: [],
+          overrides: Object.fromEntries(Object.entries(precomputed.overrides).filter(([id]) => ids.has(id)))
         }
+      : { content: {}, extra: [], overrides: {} }
 
-        await desktop.writeTextFile(filePath, populatedFileContent(config, merged))
-      } catch {
-        await desktop.writeTextFile(filePath, populatedFileContent(config, fast))
-      }
+    const missing = config.blocks.filter(block => !carried.content[block.id])
+
+    // Everything the user kept is already written — finalize in one write.
+    if (missing.length === 0) {
+      await desktop.writeTextFile(filePath, populatedFileContent(config, carried))
+
+      return true
     }
+
+    await desktop.writeTextFile(filePath, populatedFileContent(config, carried, { stillPopulating: true }))
+
+    const gap = await fillScreenContent({ ...config, blocks: missing })
+
+    if (!gap) {
+      // Clear the flag so the shimmer can't run forever; carried content stays.
+      await desktop.writeTextFile(filePath, populatedFileContent(config, carried))
+
+      return Object.keys(carried.content).length > 0
+    }
+
+    const merged: PopulateResult = {
+      content: { ...carried.content, ...gap.content },
+      extra: gap.extra,
+      overrides: { ...carried.overrides, ...gap.overrides }
+    }
+
+    await desktop.writeTextFile(filePath, populatedFileContent(config, merged))
 
     return true
   } catch {
-    // The build stamped populating:true; a dead fill must clear it or the
-    // pane shimmers forever. populatedFileContent without content writes the
-    // same blocks, no flag — the pane falls back to its Run-forward states.
     try {
       if (desktop.desktopPluginsRoot && desktop.writeTextFile) {
         const root = await desktop.desktopPluginsRoot()
@@ -474,9 +534,5 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
     }
 
     return false
-  } finally {
-    if (sessionId) {
-      void gateway.request('session.close', { session_id: sessionId }).catch(() => undefined)
-    }
   }
 }

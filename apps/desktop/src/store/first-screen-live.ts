@@ -20,6 +20,7 @@
 
 import { atom } from 'nanostores'
 
+import { fillScreenContent, type PopulateResult } from '@/store/first-screen-populate'
 import { activeGateway } from '@/store/gateway'
 import {
   compileFirstScreen,
@@ -48,11 +49,25 @@ export const $livePaneOpen = atom(false)
 
 let generationInFlight = false
 
+/** Speculative content fill, keyed by module id — runs DURING the selector
+ *  steps (connectors/color/layout are dead time for the builder), so at Build
+ *  the kept modules' content is usually already written. null until the
+ *  first pass lands. */
+export const $speculativeFill = atom<null | PopulateResult>(null)
+
+let speculativeInFlight = false
+// Build takes ownership of screen.json — the speculative writer must never
+// clobber the final file with a proposals-stage rewrite after that.
+let speculativeWritesStopped = false
+
 export function resetLiveScreenForTests(): void {
   $moduleCandidates.set(null)
   $droppedModuleIds.set([])
   $livePaneOpen.set(false)
   generationInFlight = false
+  $speculativeFill.set(null)
+  speculativeInFlight = false
+  speculativeWritesStopped = false
 }
 
 // ── Sketch + rewrite plumbing ────────────────────────────────────────────────
@@ -82,6 +97,26 @@ export function sketchBlocks(focus: string[]): FirstScreenBlock[] {
 }
 
 async function writeScreenJson(config: FirstScreenConfig): Promise<boolean> {
+  return writeScreenText(firstScreenFileContent({ ...config, path: await screenJsonPath() ?? undefined }))
+}
+
+async function screenJsonPath(): Promise<null | string> {
+  const desktop = window.hermesDesktop
+
+  if (!desktop?.desktopPluginsRoot) {
+    return null
+  }
+
+  try {
+    const root = await desktop.desktopPluginsRoot()
+
+    return `${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`
+  } catch {
+    return null
+  }
+}
+
+async function writeScreenText(text: string): Promise<boolean> {
   const desktop = window.hermesDesktop
 
   if (!desktop?.desktopPluginsRoot || !desktop.writeTextFile) {
@@ -89,10 +124,13 @@ async function writeScreenJson(config: FirstScreenConfig): Promise<boolean> {
   }
 
   try {
-    const root = await desktop.desktopPluginsRoot()
-    const filePath = `${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`
+    const filePath = await screenJsonPath()
 
-    await desktop.writeTextFile(filePath, firstScreenFileContent({ ...config, path: filePath }))
+    if (!filePath) {
+      return false
+    }
+
+    await desktop.writeTextFile(filePath, text)
 
     return true
   } catch {
@@ -192,7 +230,18 @@ export function advanceSketch(): void {
   const candidates = $moduleCandidates.get()
 
   if (candidates && candidates.length > 0) {
-    void writeScreenJson(proposalsConfig(candidates))
+    // With a speculative fill running (or landed), its writer owns the file —
+    // rewriting from the bare proposals config would erase content the user
+    // is watching appear.
+    const fill = $speculativeFill.get()
+
+    if (fill) {
+      if (!speculativeWritesStopped) {
+        void writeScreenText(speculativeFileContent(candidates, fill))
+      }
+    } else {
+      void writeScreenJson(proposalsConfig(candidates))
+    }
 
     return
   }
@@ -418,6 +467,13 @@ export function generateModuleCandidates(): void {
       if ($livePaneOpen.get()) {
         void writeScreenJson(proposalsConfig(modules))
       }
+
+      // The selectors (connectors/color/layout) are dead time for the
+      // builder — start writing every candidate's content NOW. Partials
+      // stream into screen.json as they land, so the user watches modules
+      // fill in while they pick a color. Build later reuses this fill and
+      // only writes gaps.
+      startSpeculativeFill(modules)
     } catch {
       // Fail open: templates remain the build path.
     } finally {
@@ -443,6 +499,72 @@ export function keptModules(): DraftModule[] | null {
   const kept = candidates.filter(module => !dropped.has(module.id))
 
   return kept.length > 0 ? kept : null
+}
+
+/** Serialize a proposals-stage config WITH whatever content the speculative
+ *  fill has produced so far — the pane shows real content materializing
+ *  under the modules while the user is still on the selector steps. */
+function speculativeFileContent(modules: DraftModule[], fill: PopulateResult): string {
+  const config = proposalsConfig(modules)
+
+  const body = JSON.parse(firstScreenFileContent(config)) as { blocks: Record<string, unknown>[] } & Record<
+    string,
+    unknown
+  >
+
+  body['blocks'] = config.blocks.map(({ id, kind, label, prompt }) => ({
+    id,
+    kind: fill.content[id] ? fill.content[id].kind : kind,
+    label: fill.overrides[id]?.label ?? label,
+    prompt: fill.overrides[id]?.prompt ?? prompt,
+    ...(fill.content[id] ? { content: fill.content[id] } : {})
+  }))
+  // Still mid-fill while the user picks — the pane keeps spinners on the
+  // blocks that have no content yet.
+  body['populating'] = true
+
+  return `${JSON.stringify(body, null, 2)}\n`
+}
+
+/** Start writing content for EVERY candidate while the user walks the
+ *  selector steps. Partials stream into screen.json (proposals stage) as
+ *  each pass lands; the result parks in $speculativeFill for Build to carry
+ *  into the final file. Idempotent; fail-open. */
+export function startSpeculativeFill(modules: DraftModule[]): void {
+  if (speculativeInFlight || $speculativeFill.get()) {
+    return
+  }
+
+  speculativeInFlight = true
+
+  const config = proposalsConfig(modules)
+
+  void fillScreenContent(config, {
+    onPartial: partial => {
+      $speculativeFill.set(partial)
+
+      if ($livePaneOpen.get() && !speculativeWritesStopped) {
+        void writeScreenText(speculativeFileContent(modules, partial))
+      }
+    }
+  })
+    .then(result => {
+      if (result) {
+        $speculativeFill.set(result)
+
+        if ($livePaneOpen.get() && !speculativeWritesStopped) {
+          void writeScreenText(speculativeFileContent(modules, result))
+        }
+      }
+    })
+    .finally(() => {
+      speculativeInFlight = false
+    })
+}
+
+/** Build takes over screen.json — no speculative write may land after this. */
+export function stopSpeculativeWrites(): void {
+  speculativeWritesStopped = true
 }
 
 /** Build the final config from the current answers + kept modules. */

@@ -38,11 +38,13 @@ import { cn } from '@/lib/utils'
 import {
   $droppedModuleIds,
   $moduleCandidates,
+  $speculativeFill,
   advanceSketch,
   compileLiveScreen,
   generateModuleCandidates,
   openSketchPane,
-  redockLivePane
+  redockLivePane,
+  stopSpeculativeWrites
 } from '@/store/first-screen-live'
 import {
   compileFirstScreen,
@@ -325,17 +327,22 @@ function FirstScreenCard({ locked = false }: CardProps) {
     }
 
     setBuilding(true)
+    // Build owns the file from here — the speculative writer stands down,
+    // and whatever it already wrote rides into the final file so the kept
+    // modules are usually ALREADY filled (the selectors were the fill's
+    // working time).
+    stopSpeculativeWrites()
     const config = candidates ? compileLiveScreen('dashboard') : compileFirstScreen(profile, 'dashboard')
 
     void materializeFirstScreen(config).then(result => {
-            // Population runs behind the reveal: a hidden fast-lane session fills
+      // Population runs behind the reveal: a hidden fast-lane session fills
       // every block with real content (feed items via live search, skeletons,
       // steps) and rewrites screen.json — the pane's file watcher repaints it
       // as the content lands, seconds after it opens. Fire-and-forget: any
       // failure leaves the deterministic screen exactly as materialized.
       if (result.ok) {
         void import('@/store/first-screen-populate').then(({ populateFirstScreenArtifact }) =>
-          populateFirstScreenArtifact(config)
+          populateFirstScreenArtifact(config, $speculativeFill.get())
         )
       }
 
