@@ -107,7 +107,7 @@ function CardFrame({
   onContinue: () => void
 }) {
   return (
-    <div className="my-3 grid max-w-md gap-4" data-onboarding-card inert={locked || undefined}>
+    <div className="my-3 grid w-full min-w-0 max-w-md gap-4" data-onboarding-card inert={locked || undefined}>
       {children}
       <div className="flex justify-start">
         <Button disabled={done || disabled || locked} onClick={onContinue} size="sm">
@@ -412,7 +412,7 @@ function FirstScreenCard({ locked = false }: CardProps) {
     // keep/drop rows (the choosing IS the interaction) + arrangement chips.
     return (
       <CardFrame disabled={keptCount === 0} done={built !== null} locked={locked || building} onContinue={build}>
-        <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-1 overflow-hidden">
           {candidates.map(module => {
             const off = dropped.includes(module.id)
 
@@ -420,7 +420,7 @@ function FirstScreenCard({ locked = false }: CardProps) {
               <button
                 aria-pressed={!off}
                 className={cn(
-                  'flex items-center gap-2.5 rounded-[8px] border px-3 py-2 text-left transition-colors',
+                  'flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-[8px] border px-3 py-2 text-left transition-colors',
                   off ? 'border-transparent opacity-45 hover:opacity-70' : 'border-border bg-card hover:border-primary/40'
                 )}
                 key={module.id}

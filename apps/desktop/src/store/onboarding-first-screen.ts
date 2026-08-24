@@ -300,7 +300,11 @@ export function firstScreenFileContent(config: FirstScreenConfig): string {
       generatedFrom: { focus: config.rationale, name: config.userName },
       kind: config.kind,
       ...(config.path ? { path: config.path } : {}),
-      ...(config.stage && config.stage !== 'final' ? { stage: config.stage } : {}),
+      // The FINAL build immediately enters the populate pass — stamp the
+      // in-progress flag so the pane renders shimmer + disabled Run instead
+      // of guessing from file age. populate's rewrite (or clear-on-failure)
+      // replaces the file without it.
+      ...(config.stage && config.stage !== 'final' ? { stage: config.stage } : { populating: true }),
       title: config.title
     },
     null,

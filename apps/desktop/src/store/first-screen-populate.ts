@@ -304,6 +304,7 @@ export function populatedFileContent(
       generatedAt: new Date().toISOString(),
       generatedFrom: { focus: config.rationale, name: config.userName },
       kind: config.kind,
+      ...(config.path ? { path: config.path } : {}),
       populatedAt: new Date().toISOString(),
       title: config.title
     },
@@ -368,7 +369,13 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
       .request('config.set', { key: 'reasoning', session_id: sessionId, value: 'none' })
       .catch(() => undefined)
 
-    const reply = await new Promise<string>((resolve, reject) => {
+    // The fill turn may run TOOLS (web search for feed items) — tool-using
+    // turns emit interim message.completes per assistant segment, and the
+    // FIRST one is usually prose ("let me search…"), not the JSON. Resolve
+    // only when a matching complete actually PARSES into content; keep
+    // listening otherwise (live failure: resolved on segment one, dropped
+    // the real JSON that landed 40s later).
+    const authored = await new Promise<PopulateResult>((resolve, reject) => {
       const timer = window.setTimeout(() => {
         off()
         reject(new Error('populate timeout'))
@@ -379,16 +386,24 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
           return
         }
 
-        window.clearTimeout(timer)
-        off()
-
         const payload = (event.payload ?? {}) as { status?: string; text?: string }
 
         if (payload.status === 'error') {
+          window.clearTimeout(timer)
+          off()
           reject(new Error('populate turn failed'))
-        } else {
-          resolve(payload.text ?? '')
+
+          return
         }
+
+        const parsed = parsePopulate(payload.text ?? '', config.blocks)
+
+        if (Object.keys(parsed.content).length > 0 || parsed.extra.length > 0) {
+          window.clearTimeout(timer)
+          off()
+          resolve(parsed)
+        }
+        // Unparseable segment: an interim tool-turn message. Keep waiting.
       })
 
       void gateway
@@ -400,18 +415,28 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
         })
     })
 
-    const authored = parsePopulate(reply, config.blocks)
-
-    if (Object.keys(authored.content).length === 0 && authored.extra.length === 0) {
-      return false
-    }
-
     const root = await desktop.desktopPluginsRoot()
 
     await desktop.writeTextFile(`${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`, populatedFileContent(config, authored))
 
     return true
   } catch {
+    // The build stamped populating:true; a dead fill must clear it or the
+    // pane shimmers forever. populatedFileContent without content writes the
+    // same blocks, no flag — the pane falls back to its Run-forward states.
+    try {
+      if (desktop.desktopPluginsRoot && desktop.writeTextFile) {
+        const root = await desktop.desktopPluginsRoot()
+
+        await desktop.writeTextFile(
+          `${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`,
+          populatedFileContent(config, { content: {}, extra: [], overrides: {} })
+        )
+      }
+    } catch {
+      // Nothing left to do — the age heuristic expires the shimmer.
+    }
+
     return false
   } finally {
     if (sessionId) {

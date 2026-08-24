@@ -81,6 +81,13 @@ const CSS = [
   '.fsx-go{background:var(--primary);border:0;color:var(--primary-foreground);cursor:pointer;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;margin-top:8px;padding:7px 14px;text-transform:uppercase;transition:opacity 120ms ease}',
   '.fsx-go:hover{opacity:.85}',
   '.fsx-pending{color:var(--muted-foreground);font-style:italic;padding:10px 0}',
+  '@keyframes fsx-shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}',
+  '.fsx-fill{display:flex;flex-direction:column;gap:7px;padding:10px 0}',
+  '.fsx-fillbar{animation:fsx-shimmer 1.4s linear infinite;background:linear-gradient(90deg, color-mix(in srgb, var(--muted-foreground) 12%, transparent) 25%, color-mix(in srgb, var(--muted-foreground) 26%, transparent) 50%, color-mix(in srgb, var(--muted-foreground) 12%, transparent) 75%);background-size:200px 100%;border-radius:4px;height:9px}',
+  '.fsx-fillnote{align-items:center;color:var(--muted-foreground);display:flex;font-family:var(--mono);font-size:9.5px;gap:6px;letter-spacing:.06em;text-transform:uppercase}',
+  '@keyframes fsx-spin{to{transform:rotate(360deg)}}',
+  '.fsx-spinner{animation:fsx-spin .9s linear infinite;border:1.5px solid color-mix(in srgb, var(--muted-foreground) 30%, transparent);border-radius:999px;border-top-color:var(--accent);flex:none;height:10px;width:10px}',
+  '.fsx-secrun[disabled]{cursor:default;opacity:.35;pointer-events:none}',
   '.fsx-sketchrow{align-items:center;border:1px dashed color-mix(in srgb, var(--muted-foreground) 40%, transparent);display:flex;gap:10px;margin-top:8px;min-height:44px;padding:10px 12px;transition:border-color 400ms ease}',
   '.fsx-sketchlabel{color:var(--muted-foreground);font-family:var(--mono);font-size:11px;letter-spacing:.04em}',
   '.fsx-sketchbars{display:flex;flex:1;flex-direction:column;gap:4px}',
@@ -190,7 +197,7 @@ function Section(props) {
       h('span', { className: 'fsx-dot' }),
       h('span', { className: 'fsx-seclabel' }, props.label),
       props.kind ? h('span', { className: 'fsx-kindtag' }, props.kind) : null,
-      h('button', { className: 'fsx-secrun', onClick: props.onRun, type: 'button' }, props.runLabel || 'Run', ' \\u25B8')
+      h('button', { className: 'fsx-secrun', disabled: props.busy || undefined, onClick: props.onRun, type: 'button' }, props.busy ? 'Writing\\u2026' : (props.runLabel || 'Run'), props.busy ? null : ' \\u25B8')
     ),
     h('div', { className: 'fsx-secbody' }, props.children)
   )
@@ -199,9 +206,18 @@ function Section(props) {
 function blockBody(block, freshPending) {
   const c = block.content
   if (!c) {
-    return freshPending
-      ? h('div', { className: 'fsx-pending' }, 'Hermes is writing this now \\u2014 a few seconds\\u2026')
-      : h('div', { className: 'fsx-pending' }, 'Press run and Hermes fills this in.')
+    if (freshPending) {
+      // Live shimmer: unmistakably in progress, never a static sentence.
+      return h(
+        'div',
+        { className: 'fsx-fill' },
+        h('div', { className: 'fsx-fillnote' }, h('span', { className: 'fsx-spinner' }), 'writing'),
+        h('div', { className: 'fsx-fillbar', style: { width: '86%' } }),
+        h('div', { className: 'fsx-fillbar', style: { width: '64%' } }),
+        h('div', { className: 'fsx-fillbar', style: { width: '73%' } })
+      )
+    }
+    return h('div', { className: 'fsx-pending' }, 'Press Run and Hermes fills this in.')
   }
   if (c.kind === 'feed' && Array.isArray(c.items) && c.items.length) {
     const lede = c.lede
@@ -246,10 +262,15 @@ export default {
       const blocks = (config && config.blocks) || []
       const stage = (config && config.stage) || 'final'
       const populated = Boolean(config && config.populatedAt)
-      // Fresh build (< 3 min) with no content yet → honest "being written" state;
-      // older than that → population failed, show run-forward empty states.
+      // In-progress: the builder stamps populating:true at build and clears it
+      // when content lands (or the fill fails). Age heuristic stays as the
+      // fallback for files written by older builds.
       const freshPending =
-        !populated && config && config.generatedAt ? Date.now() - Date.parse(config.generatedAt) < 180000 : false
+        !populated &&
+        Boolean(
+          (config && config.populating) ||
+            (config && config.generatedAt && Date.now() - Date.parse(config.generatedAt) < 180000)
+        )
       const filePath = (config && config.path) || '~/.hermes/desktop-plugins/first-screen/screen.json'
 
       const regen = () =>
@@ -330,6 +351,7 @@ export default {
           h(
             Section,
             {
+              busy: freshPending && !block.content,
               key: block.id,
               kind: block.kind,
               label: block.label,

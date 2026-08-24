@@ -367,7 +367,7 @@ export function generateModuleCandidates(): void {
         .request('config.set', { key: 'reasoning', session_id: sessionId, value: 'none' })
         .catch(() => undefined)
 
-      const reply = await new Promise<string>((resolve, reject) => {
+      const modules = await new Promise<DraftModule[]>((resolve, reject) => {
         const timer = window.setTimeout(() => {
           off()
           reject(new Error('module generation timeout'))
@@ -378,15 +378,24 @@ export function generateModuleCandidates(): void {
             return
           }
 
-          window.clearTimeout(timer)
-          off()
-
           const payload = (event.payload ?? {}) as { status?: string; text?: string }
 
           if (payload.status === 'error') {
+            window.clearTimeout(timer)
+            off()
             reject(new Error('module generation turn failed'))
-          } else {
-            resolve(payload.text ?? '')
+
+            return
+          }
+
+          // Parse-gated: an interim (tool-turn) segment that doesn't carry
+          // the JSON keeps the listener alive instead of resolving empty.
+          const parsed = parseModuleReply(payload.text ?? '')
+
+          if (parsed.length > 0) {
+            window.clearTimeout(timer)
+            off()
+            resolve(parsed)
           }
         })
 
@@ -398,8 +407,6 @@ export function generateModuleCandidates(): void {
             reject(error instanceof Error ? error : new Error(String(error)))
           })
       })
-
-      const modules = parseModuleReply(reply)
 
       if (modules.length === 0) {
         return
