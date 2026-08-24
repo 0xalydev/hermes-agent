@@ -15,6 +15,9 @@
 import { atom } from 'nanostores'
 
 import { readJson, writeJson } from '@/lib/storage'
+import { FIRST_SCREEN_PLUGIN_JS } from '@/store/first-screen-plugin-source'
+
+export { FIRST_SCREEN_PLUGIN_JS }
 
 const KIND_KEY = 'hermes-onboarding-first-screen-kind-v1'
 
@@ -38,10 +41,26 @@ export interface FirstScreenBlock {
 export interface FirstScreenConfig {
   blocks: FirstScreenBlock[]
   kind: FirstScreenKind
+  /** Absolute path of screen.json once materialized — stamped so the pane's
+   *  regenerate control can name the exact file in its rewrite prompt. */
+  path?: string
   /** One-line why-it-fits summary, from the profile ("Mornings, writing…"). */
   rationale: string
+  /** Evolution stage of the living screen: 'sketch' (wireframe, appears at
+   *  the focus answer), 'proposals' (personalized modules landed, content
+   *  pending), 'final' (built + populating). Absent = final (back-compat). */
+  stage?: 'final' | 'proposals' | 'sketch'
   title: string
   userName: string
+}
+
+/** A module candidate generated from the user's own answers mid-conversation
+ *  (see first-screen-live.ts). Kept modules become blocks at build. */
+export interface DraftModule {
+  id: string
+  kind: FirstScreenBlock['kind']
+  label: string
+  prompt: string
 }
 
 export interface FirstScreenProfile {
@@ -72,8 +91,18 @@ export function setFirstScreenKind(kind: FirstScreenKind | null): void {
 }
 
 /** The sequence the user will see — used by the picker previews AND the
- *  theater, so what the card sketches is what's delivered. */
-export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScreenKind): FirstScreenConfig {
+ *  theater, so what the card sketches is what's delivered.
+ *
+ *  `modules` — when the living screen generated personalized module
+ *  candidates from the user's own words (first-screen-live.ts) and the user
+ *  kept ≥1 of them, those REPLACE the deterministic template blocks: the
+ *  screen is literally made of things named after their answers. The
+ *  templates below remain the preview shapes and the no-generation fallback. */
+export function compileFirstScreen(
+  profile: FirstScreenProfile,
+  kind: FirstScreenKind,
+  modules?: DraftModule[]
+): FirstScreenConfig {
   const focus = profile.focus.filter(Boolean)
   const name = profile.name.trim()
   const context = (profile.context ?? '').trim()
@@ -87,8 +116,18 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
   const userName = name || 'you'
   const possessive = name ? `${name}'s` : 'Your'
 
+  const generated: FirstScreenBlock[] = (modules ?? []).map(module => ({
+    id: module.id,
+    kind: module.kind,
+    label: module.label,
+    prompt: module.prompt,
+    stepLine: `Wiring ${module.label.toLowerCase()}`
+  }))
+
   const blocks: FirstScreenBlock[] =
-    kind === 'dashboard'
+    generated.length > 0
+      ? generated
+      : kind === 'dashboard'
       ? [
           {
             id: 'start',
@@ -243,182 +282,16 @@ export function resetFirstScreenForTests(): void {
  *  suffixed copies. */
 export const FIRST_SCREEN_PLUGIN_DIR = 'first-screen'
 
-/** The plugin.js source for the first-screen plugin — the artifact's
- *  renderer. One template string so materializeFirstScreen can write it next
- *  to screen.json, and the loader hot-reloads it on save. The config is
- *  embedded at build time; the plugin reads screen.json through the plugin
- *  filesystem door added in the same change, so a user edit to screen.json
- *  repaints the pane without an app restart. */
-export const FIRST_SCREEN_PLUGIN_JS = `/** first-screen — the screen onboarding built, kept alive as a pane.
- *
- *  screen.json in this folder IS the product: edit it and this pane repaints
- *  on save. Press Run and the block's prompt goes through your chat's normal
- *  path. Plain DOM (no JSX) so the runtime loader can import the file as-is.
- */
-
-import React, { useEffect, useState } from 'react'
-
-import { host } from '@hermes/plugin-sdk'
-
-export default {
-  id: 'first-screen',
-  name: 'First Screen',
-  description: 'The screen Hermes built at first setup, as a live pane.',
-  register(ctx) {
-    function FirstScreenPane() {
-      const [config, setConfig] = useState(() => ctx.storage.get('config', null))
-
-      useEffect(() => {
-        let alive = true
-
-        const load = () =>
-          ctx.os
-            .readPluginFileText('screen.json')
-            .then(({ text }) => {
-              if (alive) setConfig(JSON.parse(text))
-            })
-            .catch(() => {})
-
-        void load()
-
-        const stop = ctx.os.watchPluginFile('screen.json', load)
-
-        return () => {
-          alive = false
-          stop()
-        }
-      }, [])
-
-      // Run = the block's prompt goes through the ACTIVE composer, visibly —
-      // the user sees their click become a real turn. Falls back to a toast
-      // when no chat surface is on screen to claim it.
-      const run = prompt => {
-        const sent = typeof host.submitPrompt === 'function' && host.submitPrompt(prompt)
-
-        if (!sent) {
-          host.notify({ kind: 'info', message: 'Open a chat to run this — the button sends its prompt there.' })
-        }
-      }
-
-      const h = React.createElement
-      const blocks = config?.blocks ?? []
-
-      // A populated block renders its content under the header (feed items,
-      // draft skeleton, steps, example); an unpopulated one stays a compact
-      // row. Same file, both states — population is a rewrite of screen.json.
-      const body = block => {
-        const c = block.content
-
-        if (!c) return null
-        if (c.kind === 'feed' && Array.isArray(c.items) && c.items.length)
-          return h(
-            'div',
-            { className: 'fs-body' },
-            c.items.map((item, i) =>
-              h(
-                'div',
-                { className: 'fs-item', key: i },
-                h('span', null, item.line),
-                item.source ? h('span', { className: 'fs-src' }, item.source) : null
-              )
-            )
-          )
-        if (c.kind === 'draft' && c.skeleton) return h('div', { className: 'fs-body fs-skel' }, c.skeleton)
-        if (c.kind === 'action' && Array.isArray(c.steps) && c.steps.length)
-          return h(
-            'ol',
-            { className: 'fs-body fs-steps' },
-            c.steps.map((step, i) => h('li', { key: i }, step))
-          )
-        if (c.kind === 'tool' && c.example)
-          return h(
-            'div',
-            { className: 'fs-body' },
-            h('div', { className: 'fs-item' }, h('span', { className: 'fs-src' }, 'in'), h('span', null, c.example.input)),
-            h('div', { className: 'fs-item' }, h('span', { className: 'fs-src' }, 'out'), h('span', null, c.example.output))
-          )
-
-        return null
-      }
-
-      return h(
-        'div',
-        { 'data-tour': 'first-screen', style: { display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: 12 } },
-        h('div', { style: { fontSize: 14, fontWeight: 600 } }, config?.title ?? 'your first screen'),
-        config?.rationale ? h('div', { style: { fontSize: 11, marginTop: 2, opacity: 0.7 } }, config.rationale) : null,
-        h(
-          'style',
-          null,
-          '.fs-card{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--foreground);display:flex;flex-direction:column;width:100%}' +
-            '.fs-row{align-items:center;background:transparent;border:0;color:var(--foreground);cursor:pointer;display:flex;font-size:12px;font-weight:500;justify-content:space-between;gap:10px;padding:9px 12px;text-align:left;transition:background 120ms ease;width:100%}' +
-            '.fs-row:hover{background:color-mix(in srgb, var(--accent) 24%, transparent)}' +
-            '.fs-row:active{background:color-mix(in srgb, var(--accent) 38%, transparent)}' +
-            '.fs-pill{align-items:center;background:var(--primary);border:1px solid color-mix(in srgb, var(--primary-foreground) 18%, transparent);border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.25);color:var(--primary-foreground);display:inline-flex;flex:none;font-size:10px;font-weight:600;gap:3px;letter-spacing:.02em;padding:3px 10px;transition:transform 120ms ease,box-shadow 120ms ease}' +
-            '.fs-row:hover .fs-pill{box-shadow:0 2px 6px rgba(0,0,0,.35);transform:translateY(-1px)}' +
-            '.fs-row:active .fs-pill{transform:translateY(0)}' +
-            '.fs-body{border-top:1px solid var(--border);display:flex;flex-direction:column;font-size:11px;gap:6px;padding:8px 12px 10px}' +
-            '.fs-item{color:var(--muted-foreground);display:flex;gap:8px;justify-content:space-between;line-height:1.45}' +
-            '.fs-src{color:var(--muted-foreground);flex:none;font-size:9px;font-style:italic;opacity:.75}' +
-            '.fs-skel{color:var(--muted-foreground);white-space:pre-wrap}' +
-            '.fs-steps{color:var(--muted-foreground);margin:0;padding-left:16px}.fs-steps li{line-height:1.5}'
-        ),
-        h(
-          'div',
-          { style: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 } },
-          blocks.map(block =>
-            h(
-              'div',
-              { className: 'fs-card', key: block.id },
-              h(
-                'button',
-                { className: 'fs-row', onClick: () => run(block.prompt), type: 'button' },
-                h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, block.label),
-                h('span', { className: 'fs-pill' }, 'Run', h('span', { 'aria-hidden': true }, '\u25B8'))
-              ),
-              body(block)
-            )
-          )
-        ),
-        h(
-          'div',
-          { style: { color: 'var(--muted-foreground)', fontSize: 10, marginTop: 'auto', paddingTop: 12 } },
-          'Yours to change: edit screen.json in ~/.hermes/desktop-plugins/first-screen/ and this pane repaints.'
-        )
-      )
-    }
-
-    ctx.register({
-      id: 'pane',
-      area: 'panes',
-      title: 'your first screen',
-      data: { collapsible: true, dock: { pane: 'workspace', pos: 'right' }, minWidth: '320px', placement: 'right', width: '380px' },
-      render: () => React.createElement(FirstScreenPane)
-    })
-
-    // Sidebar row: "your first screen" alongside the built-ins. Clicking
-    // reveals the pane (no route to navigate to — the pane is the product).
-    // isNew marks the row fresh-out-of-onboarding until the user sees it.
-    ctx.register({
-      id: 'nav',
-      area: 'sidebar.nav',
-      isNew: true,
-      data: {
-        codicon: 'sparkle',
-        label: 'your first screen',
-        onClick: () => {
-          if (typeof host.revealPane === 'function') {
-            host.revealPane('first-screen:pane')
-          }
-        }
-      }
-    })
-  }
-}
-`
+/** The plugin.js source lives in first-screen-plugin-source.ts (the designed
+ *  renderer: masthead, dateline, regenerate, indexed feed rows, checklist,
+ *  typeset skeleton, working tool panel — every element sends a scoped prompt
+ *  into the chat). Imported at the top of this file and re-exported. */
 
 /** Serialize a config into the plugin's screen.json — the file the user edits
  *  later. The prompts carry the profile, and the `generatedFrom` echo is what
- *  makes the file read as theirs when they open it outside the app. */
+ *  makes the file read as theirs when they open it outside the app. `path`
+ *  (when known) rides inside so the pane's regenerate control can name the
+ *  exact file; `stage` drives the living-screen render states. */
 export function firstScreenFileContent(config: FirstScreenConfig): string {
   return `${JSON.stringify(
     {
@@ -426,6 +299,8 @@ export function firstScreenFileContent(config: FirstScreenConfig): string {
       generatedAt: new Date().toISOString(),
       generatedFrom: { focus: config.rationale, name: config.userName },
       kind: config.kind,
+      ...(config.path ? { path: config.path } : {}),
+      ...(config.stage && config.stage !== 'final' ? { stage: config.stage } : {}),
       title: config.title
     },
     null,
@@ -466,8 +341,10 @@ export async function materializeFirstScreen(config: FirstScreenConfig): Promise
     // The pane itself: plugin.js (the renderer) + screen.json (the artifact)
     // land in the same folder, so the disk-door loader picks the plugin up on
     // its next scan tick — and any later save to either file hot-reloads it.
+    // The absolute path is stamped INTO the config first so the file can name
+    // itself (the pane's regenerate control quotes it back to the agent).
     await desktop.writeTextFile(`${dir}/plugin.js`, FIRST_SCREEN_PLUGIN_JS)
-    await desktop.writeTextFile(filePath, firstScreenFileContent(config))
+    await desktop.writeTextFile(filePath, firstScreenFileContent({ ...config, path: filePath }))
 
     return { ok: true, path: filePath }
   } catch (error) {

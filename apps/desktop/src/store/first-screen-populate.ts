@@ -31,13 +31,29 @@ export interface FeedContentItem {
   source: string
 }
 
+export interface ChoiceOption {
+  label: string
+  prompt: string
+}
+
 export type FirstScreenBlockContent =
   | { kind: 'action'; steps: string[] }
+  | { kind: 'choice'; options: ChoiceOption[]; question: string }
   | { kind: 'draft'; skeleton: string }
   | { kind: 'feed'; items: FeedContentItem[] }
+  | { kind: 'input'; placeholder: string; promptPrefix: string }
   | { kind: 'tool'; example: { input: string; output: string } }
 
 export type FirstScreenContentMap = Record<string, FirstScreenBlockContent>
+
+/** The full authored result: content per block, label/prompt re-aims, and
+ *  up to two model-added blocks — the screen's SHAPE is authorable, not just
+ *  its filling. */
+export interface PopulateResult {
+  content: FirstScreenContentMap
+  extra: { content?: FirstScreenBlockContent; id: string; kind: string; label: string; prompt: string }[]
+  overrides: Record<string, { label?: string; prompt?: string }>
+}
 
 // Length clamps — generated copy drifts long and ornate; the pane is narrow.
 const MAX_LINE = 110
@@ -45,6 +61,11 @@ const MAX_SOURCE = 40
 const MAX_SKELETON = 320
 const MAX_STEP = 90
 const MAX_EXAMPLE = 160
+const MAX_LABEL = 48
+const MAX_QUESTION = 120
+const MAX_OPTION = 40
+const MAX_PROMPT = 400
+const MAX_EXTRA = 2
 
 const clamp = (value: string, max: number) => {
   const text = value.trim()
@@ -67,21 +88,104 @@ export function buildPopulatePrompt(config: FirstScreenConfig): string {
     'For "draft" blocks: {"skeleton": a fill-in-the-blank template <=300 chars in a plain, direct voice with [bracketed] slots} matching the block\'s prompt.',
     'For "action" blocks: {"steps": [3 concrete steps, each <=80 chars]} the user could take right now, specific to the block\'s prompt.',
     'For "tool" blocks: {"example": {"input": <=150 chars, "output": <=150 chars}} showing one honest before→after for the tool the prompt describes.',
+    'You may also RESHAPE the screen: any block\'s entry may include "label" (<=40 chars) and/or "prompt" (a first-person prompt the user would send) to re-aim it at their actual project.',
+    'And add an "extra" array (up to 2 new blocks) when their project calls for something the starter blocks miss: each is {"id": short-slug, "kind": "action"|"draft"|"feed"|"choice"|"input", "label", "prompt", "content": <per its kind>}.',
+    'Interactive kinds — USE AT LEAST ONE (as an extra or by re-kinding a weak starter block via extra): "choice" content is {"question": <=100 chars, "options": [2-4 of {"label": <=32 chars, "prompt": first-person prompt sent when clicked}]} asking a real fork about their project; "input" content is {"placeholder": <=60 chars, "promptPrefix": text the typed value is appended to} giving them a type-and-go box.',
     'No exclamation marks. Never praise the user. Plain declaratives.',
     `Blocks: ${JSON.stringify(blocks)}`,
-    'Reply with ONLY a JSON object, no prose, no code fences: {"blocks": {"<id>": <content per its kind>, ...}}.'
+    'Reply with ONLY a JSON object, no prose, no code fences: {"blocks": {"<id>": <content, optionally + label/prompt>, ...}, "extra": [...]}.'
   ].join('\n')
 }
 
 /** Strict-ish parse of the model's reply: fences tolerated, shape validated
  *  per block kind, lengths clamped. Returns only the blocks that validated —
  *  a half-good answer populates half the screen rather than nothing. */
-export function parsePopulateReply(text: string, blocks: FirstScreenBlock[]): FirstScreenContentMap {
+/** Validate one block-content payload by kind. Shared by starter-block
+ *  content and extra-block content. */
+function parseContent(kind: string, v: Record<string, unknown>): FirstScreenBlockContent | null {
+  if (kind === 'feed' && Array.isArray(v['items'])) {
+    const items = (v['items'] as unknown[])
+      .filter(
+        (item): item is { line: string; source: string } =>
+          !!item &&
+          typeof item === 'object' &&
+          typeof (item as Record<string, unknown>)['line'] === 'string' &&
+          typeof (item as Record<string, unknown>)['source'] === 'string' &&
+          ((item as Record<string, unknown>)['line'] as string).trim().length > 0
+      )
+      .slice(0, 4)
+      .map(item => ({ line: clamp(item.line, MAX_LINE), source: clamp(item.source, MAX_SOURCE) }))
+
+    return items.length > 0 ? { items, kind: 'feed' } : null
+  }
+
+  if (kind === 'draft' && typeof v['skeleton'] === 'string' && v['skeleton'].trim()) {
+    return { kind: 'draft', skeleton: clamp(v['skeleton'], MAX_SKELETON) }
+  }
+
+  if (kind === 'action' && Array.isArray(v['steps'])) {
+    const steps = (v['steps'] as unknown[])
+      .filter((step): step is string => typeof step === 'string' && step.trim().length > 0)
+      .slice(0, 4)
+      .map(step => clamp(step, MAX_STEP))
+
+    return steps.length > 0 ? { kind: 'action', steps } : null
+  }
+
+  if (kind === 'tool' && v['example'] && typeof v['example'] === 'object') {
+    const example = v['example'] as Record<string, unknown>
+
+    if (typeof example['input'] === 'string' && typeof example['output'] === 'string' && example['input'].trim()) {
+      return {
+        example: { input: clamp(example['input'], MAX_EXAMPLE), output: clamp(example['output'], MAX_EXAMPLE) },
+        kind: 'tool'
+      }
+    }
+
+    return null
+  }
+
+  if (kind === 'choice' && typeof v['question'] === 'string' && Array.isArray(v['options'])) {
+    const options = (v['options'] as unknown[])
+      .filter(
+        (option): option is { label: string; prompt: string } =>
+          !!option &&
+          typeof option === 'object' &&
+          typeof (option as Record<string, unknown>)['label'] === 'string' &&
+          typeof (option as Record<string, unknown>)['prompt'] === 'string' &&
+          ((option as Record<string, unknown>)['label'] as string).trim().length > 0 &&
+          ((option as Record<string, unknown>)['prompt'] as string).trim().length > 0
+      )
+      .slice(0, 4)
+      .map(option => ({ label: clamp(option.label, MAX_OPTION), prompt: clamp(option.prompt, MAX_PROMPT) }))
+
+    return v['question'].trim() && options.length >= 2
+      ? { kind: 'choice', options, question: clamp(v['question'], MAX_QUESTION) }
+      : null
+  }
+
+  if (kind === 'input' && typeof v['promptPrefix'] === 'string' && v['promptPrefix'].trim()) {
+    return {
+      kind: 'input',
+      placeholder: typeof v['placeholder'] === 'string' ? clamp(v['placeholder'], 60) : '',
+      promptPrefix: clamp(v['promptPrefix'], MAX_PROMPT)
+    }
+  }
+
+  return null
+}
+
+const EXTRA_KINDS = new Set(['action', 'choice', 'draft', 'feed', 'input', 'tool'])
+
+/** Full parse: content + label/prompt overrides + extra blocks. Every part
+ *  degrades independently — a bad extra never poisons good content. */
+export function parsePopulate(text: string, blocks: FirstScreenBlock[]): PopulateResult {
+  const empty: PopulateResult = { content: {}, extra: [], overrides: {} }
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
 
   if (start < 0 || end <= start) {
-    return {}
+    return empty
   }
 
   let parsed: unknown
@@ -89,19 +193,16 @@ export function parsePopulateReply(text: string, blocks: FirstScreenBlock[]): Fi
   try {
     parsed = JSON.parse(text.slice(start, end + 1))
   } catch {
-    return {}
+    return empty
   }
 
-  const raw =
-    parsed && typeof parsed === 'object' && 'blocks' in parsed && parsed.blocks && typeof parsed.blocks === 'object'
-      ? (parsed.blocks as Record<string, unknown>)
-      : null
-
-  if (!raw) {
-    return {}
+  if (!parsed || typeof parsed !== 'object') {
+    return empty
   }
 
-  const result: FirstScreenContentMap = {}
+  const root = parsed as Record<string, unknown>
+  const raw = root['blocks'] && typeof root['blocks'] === 'object' ? (root['blocks'] as Record<string, unknown>) : {}
+  const result: PopulateResult = { content: {}, extra: [], overrides: {} }
 
   for (const block of blocks) {
     const value = raw[block.id]
@@ -111,63 +212,95 @@ export function parsePopulateReply(text: string, blocks: FirstScreenBlock[]): Fi
     }
 
     const v = value as Record<string, unknown>
+    // A starter block may be re-KINDED by shipping content of another kind —
+    // try its own kind first, then whatever the content declares.
+    const declared = typeof v['kind'] === 'string' ? v['kind'] : block.kind
+    const content = parseContent(block.kind, v) ?? (declared !== block.kind ? parseContent(declared, v) : null)
 
-    if (block.kind === 'feed' && Array.isArray(v['items'])) {
-      const items = (v['items'] as unknown[])
-        .filter(
-          (item): item is { line: string; source: string } =>
-            !!item &&
-            typeof item === 'object' &&
-            typeof (item as Record<string, unknown>)['line'] === 'string' &&
-            typeof (item as Record<string, unknown>)['source'] === 'string' &&
-            ((item as Record<string, unknown>)['line'] as string).trim().length > 0
-        )
-        .slice(0, 4)
-        .map(item => ({ line: clamp(item.line, MAX_LINE), source: clamp(item.source, MAX_SOURCE) }))
-
-      if (items.length > 0) {
-        result[block.id] = { items, kind: 'feed' }
-      }
-    } else if (block.kind === 'draft' && typeof v['skeleton'] === 'string' && v['skeleton'].trim()) {
-      result[block.id] = { kind: 'draft', skeleton: clamp(v['skeleton'], MAX_SKELETON) }
-    } else if (block.kind === 'action' && Array.isArray(v['steps'])) {
-      const steps = (v['steps'] as unknown[])
-        .filter((step): step is string => typeof step === 'string' && step.trim().length > 0)
-        .slice(0, 4)
-        .map(step => clamp(step, MAX_STEP))
-
-      if (steps.length > 0) {
-        result[block.id] = { kind: 'action', steps }
-      }
-    } else if (block.kind === 'tool' && v['example'] && typeof v['example'] === 'object') {
-      const example = v['example'] as Record<string, unknown>
-
-      if (typeof example['input'] === 'string' && typeof example['output'] === 'string' && example['input'].trim()) {
-        result[block.id] = {
-          example: { input: clamp(example['input'], MAX_EXAMPLE), output: clamp(example['output'], MAX_EXAMPLE) },
-          kind: 'tool'
-        }
-      }
+    if (content) {
+      result.content[block.id] = content
     }
+
+    const label = typeof v['label'] === 'string' && v['label'].trim() ? clamp(v['label'], MAX_LABEL) : undefined
+    const prompt = typeof v['prompt'] === 'string' && v['prompt'].trim() ? clamp(v['prompt'], MAX_PROMPT) : undefined
+
+    if (label || prompt) {
+      result.overrides[block.id] = { ...(label ? { label } : {}), ...(prompt ? { prompt } : {}) }
+    }
+  }
+
+  const extras = Array.isArray(root['extra']) ? (root['extra'] as unknown[]) : []
+  const seen = new Set(blocks.map(b => b.id))
+
+  for (const entry of extras) {
+    if (result.extra.length >= MAX_EXTRA || !entry || typeof entry !== 'object') {
+      continue
+    }
+
+    const v = entry as Record<string, unknown>
+    const kind = typeof v['kind'] === 'string' ? v['kind'] : ''
+    const id = typeof v['id'] === 'string' && v['id'].trim() ? v['id'].trim().slice(0, 24) : ''
+    const label = typeof v['label'] === 'string' && v['label'].trim() ? clamp(v['label'], MAX_LABEL) : ''
+    const prompt = typeof v['prompt'] === 'string' && v['prompt'].trim() ? clamp(v['prompt'], MAX_PROMPT) : ''
+
+    if (!EXTRA_KINDS.has(kind) || !id || seen.has(id) || !label || !prompt) {
+      continue
+    }
+
+    const content = v['content'] && typeof v['content'] === 'object' ? parseContent(kind, v['content'] as Record<string, unknown>) : null
+
+    seen.add(id)
+    result.extra.push({ id, kind, label, prompt, ...(content ? { content } : {}) })
   }
 
   return result
 }
 
+/** Back-compat content-only view (existing tests + callers). */
+export function parsePopulateReply(text: string, blocks: FirstScreenBlock[]): FirstScreenContentMap {
+  return parsePopulate(text, blocks).content
+}
+
 // ── screen.json rewrite ──────────────────────────────────────────────────────
 
-/** screen.json with content merged in — same shape materialize writes, plus a
- *  `content` field on populated blocks and a `populatedAt` stamp. */
-export function populatedFileContent(config: FirstScreenConfig, content: FirstScreenContentMap): string {
+/** screen.json with the authored result merged in — content per block,
+ *  label/prompt re-aims applied, extra blocks appended (their rendered kind
+ *  follows their content when present), and a `populatedAt` stamp. Accepts
+ *  the full PopulateResult or a bare content map (legacy callers/tests). */
+export function populatedFileContent(
+  config: FirstScreenConfig,
+  result: FirstScreenContentMap | PopulateResult
+): string {
+  const authored: PopulateResult =
+    'content' in result && ('overrides' in result || 'extra' in result)
+      ? (result as PopulateResult)
+      : { content: result as FirstScreenContentMap, extra: [], overrides: {} }
+
+  const starters = config.blocks.map(({ id, kind, label, prompt }) => {
+    const content = authored.content[id]
+    const override = authored.overrides[id] ?? {}
+
+    return {
+      id,
+      // A re-kinded block renders as what its content IS.
+      kind: content ? content.kind : kind,
+      label: override.label ?? label,
+      prompt: override.prompt ?? prompt,
+      ...(content ? { content } : {})
+    }
+  })
+
+  const extras = authored.extra.map(({ content, id, kind, label, prompt }) => ({
+    id,
+    kind: content ? content.kind : kind,
+    label,
+    prompt,
+    ...(content ? { content } : {})
+  }))
+
   return `${JSON.stringify(
     {
-      blocks: config.blocks.map(({ id, kind, label, prompt }) => ({
-        id,
-        kind,
-        label,
-        prompt,
-        ...(content[id] ? { content: content[id] } : {})
-      })),
+      blocks: [...starters, ...extras],
       generatedAt: new Date().toISOString(),
       generatedFrom: { focus: config.rationale, name: config.userName },
       kind: config.kind,
@@ -260,15 +393,15 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
         })
     })
 
-    const content = parsePopulateReply(reply, config.blocks)
+    const authored = parsePopulate(reply, config.blocks)
 
-    if (Object.keys(content).length === 0) {
+    if (Object.keys(authored.content).length === 0 && authored.extra.length === 0) {
       return false
     }
 
     const root = await desktop.desktopPluginsRoot()
 
-    await desktop.writeTextFile(`${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`, populatedFileContent(config, content))
+    await desktop.writeTextFile(`${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`, populatedFileContent(config, authored))
 
     return true
   } catch {

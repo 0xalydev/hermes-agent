@@ -615,6 +615,17 @@ export function ContribWiring({ children }: { children: ReactNode }) {
 
           $chatOnboardingThreadIds.set(storedId ? [storedId, runtimeId] : [runtimeId])
 
+          // Name the thread NOW, explicitly: the kickoff brief is persisted as
+          // a (hidden) user message, and the backend's auto-titler happily
+          // derives a title from it — the tab read "YOU ARE WELCOMING A
+          // BRAND-NEW..." in live runs. A manual title holds highest authority
+          // (set_session_title), so the titler never reconsiders, and the RPC
+          // persists the row even before the first turn lands.
+          await requestGateway('session.title', {
+            session_id: runtimeId,
+            title: 'Welcome to Hermes'
+          }).catch(() => undefined)
+
           // Pin the guided turns to the fast lane, session-scoped: the walk
           // is short scripted replies where flagship-model latency (and a
           // thinking pass) reads as the app hanging between cards. GLM is

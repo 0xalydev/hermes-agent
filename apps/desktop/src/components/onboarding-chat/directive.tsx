@@ -37,6 +37,15 @@ import { Chip } from '@/components/wizard-shell'
 import { registry } from '@/contrib/registry'
 import { cn } from '@/lib/utils'
 import {
+  $droppedModuleIds,
+  $moduleCandidates,
+  advanceSketch,
+  compileLiveScreen,
+  generateModuleCandidates,
+  openSketchPane,
+  redockLivePane
+} from '@/store/first-screen-live'
+import {
   $firstScreenKind,
   compileFirstScreen,
   type FirstScreenKind,
@@ -124,6 +133,10 @@ function FocusCard({ locked = false }: CardProps) {
           )
         ) {
           setDone(true)
+          // The living screen opens HERE — the earliest personal moment.
+          // A wireframe sketch docks beside the chat and every answer from
+          // now on repaints it (see first-screen-live.ts).
+          openSketchPane()
         }
       }}
     >
@@ -259,6 +272,10 @@ function LayoutCard({ locked = false }: CardProps) {
     } else {
       applyLayoutPreset(preset.id, preset.data as LayoutNode)
     }
+
+    // Assembly dismisses panes the preset doesn't declare — the living
+    // screen must survive the rearrangement and stay beside the chat.
+    redockLivePane()
   }
 
   return (
@@ -301,21 +318,27 @@ function FirstScreenCard({ locked = false }: CardProps) {
   const [building, setBuilding] = useState(false)
   const [built, setBuilt] = useState<null | ReturnType<typeof compileFirstScreen>>(null)
   const profile = { context: answers.context, focus: answers.focus, name: answers.name }
+  // The generated modules — THEIR screen's parts, from their own words. When
+  // generation produced candidates the card is keep/drop rows; when it
+  // failed (or hasn't landed) the kind tiles carry the fallback.
+  const candidates = useStore($moduleCandidates)
+  const dropped = useStore($droppedModuleIds)
+  const keptCount = candidates ? candidates.length - dropped.length : 0
 
   // Continue = build. The config compiles synchronously, then materializes
   // (screen.json lands on disk) before the model is told — so when the chat
   // says "it's built", the pane IS ALREADY OPEN beside the conversation —
   // the app assembles itself around the user; nobody hunts for a button.
   const build = () => {
-    if (!picked || building) {
+    if (building || (candidates ? keptCount === 0 : !picked)) {
       return
     }
 
     setBuilding(true)
-    const config = compileFirstScreen(profile, picked)
+    const config = candidates ? compileLiveScreen(picked ?? 'dashboard') : compileFirstScreen(profile, picked ?? 'dashboard')
 
     void materializeFirstScreen(config).then(result => {
-      const tile = FIRST_SCREEN_OPTIONS.find(o => o.kind === picked)
+      const shape = FIRST_SCREEN_OPTIONS.find(o => o.kind === (picked ?? 'dashboard'))
 
       // Population runs behind the reveal: a hidden fast-lane session fills
       // every block with real content (feed items via live search, skeletons,
@@ -330,7 +353,7 @@ function FirstScreenCard({ locked = false }: CardProps) {
 
       if (
         !report(
-          `built their first screen: ${tile?.title.toLowerCase() ?? config.kind} "${config.title}"${result.ok ? `, saved to ${result.path}` : ''} — it just OPENED as a pane beside this chat and is filling itself in with live content; tell them to look right and press any of its buttons`
+          `built their first screen: ${shape?.title.toLowerCase() ?? config.kind} "${config.title}" with ${config.blocks.length} modules${candidates ? ' they hand-picked' : ''}${result.ok ? `, saved to ${result.path}` : ''} — it just OPENED as a pane beside this chat and is filling itself in with live content; tell them to look right and press any of its parts`
         )
       ) {
         setBuilding(false)
@@ -381,6 +404,71 @@ function FirstScreenCard({ locked = false }: CardProps) {
           as <strong className="font-medium">your first screen</strong> in the sidebar.
         </span>
       </div>
+    )
+  }
+
+  if (candidates) {
+    // THEIR modules, generated from their own answers mid-conversation:
+    // keep/drop rows (the choosing IS the interaction) + arrangement chips.
+    return (
+      <CardFrame disabled={keptCount === 0} done={built !== null} locked={locked || building} onContinue={build}>
+        <div className="flex flex-col gap-1">
+          {candidates.map(module => {
+            const off = dropped.includes(module.id)
+
+            return (
+              <button
+                aria-pressed={!off}
+                className={cn(
+                  'flex items-center gap-2.5 rounded-[8px] border px-3 py-2 text-left transition-colors',
+                  off ? 'border-transparent opacity-45 hover:opacity-70' : 'border-border bg-card hover:border-primary/40'
+                )}
+                key={module.id}
+                onClick={() =>
+                  $droppedModuleIds.set(off ? dropped.filter(id => id !== module.id) : [...dropped, module.id])
+                }
+                type="button"
+              >
+                <span
+                  className={cn(
+                    'grid size-4 flex-none place-items-center rounded-[4px] border text-[10px] leading-none',
+                    off ? 'border-muted-foreground/40 text-transparent' : 'border-primary bg-primary text-primary-foreground'
+                  )}
+                >
+                  ✓
+                </span>
+                <span className="min-w-0">
+                  <span className={cn('block truncate text-[13px] font-medium', off && 'line-through')}>
+                    {module.label}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">{module.prompt}</span>
+                </span>
+                <span className="ml-auto flex-none font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                  {module.kind}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-muted-foreground">Arrange as</span>
+          {FIRST_SCREEN_OPTIONS.map(option => (
+            <button
+              className={cn(
+                'rounded-full border px-2.5 py-0.5 text-[11px] transition-colors',
+                (picked ?? 'dashboard') === option.kind
+                  ? 'border-primary bg-primary/15 text-foreground'
+                  : 'border-border text-muted-foreground hover:border-primary/40'
+              )}
+              key={option.kind}
+              onClick={() => setFirstScreenKind(option.kind)}
+              type="button"
+            >
+              {option.title}
+            </button>
+          ))}
+        </div>
+      </CardFrame>
     )
   }
 
@@ -442,6 +530,16 @@ export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<st
 
     if (value && $wizardAnswers.get()[step] !== value) {
       setWizardAnswers({ [step]: value })
+
+      // The screen evolves with the conversation: a fresh name retitles the
+      // sketch; the context answer is the big one — it fires the module
+      // generation (their screen, from their words) and the pane advances to
+      // proposals the moment candidates land.
+      advanceSketch()
+
+      if (step === 'context') {
+        generateModuleCandidates()
+      }
     }
 
     return null
