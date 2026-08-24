@@ -28,6 +28,7 @@ import type { LayoutNode } from '@/components/pane-shell/tree/model'
 import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import { registry } from '@/contrib/registry'
 import { $introReveal, startIntroReveal } from '@/store/intro-reveal'
+import { $desktopOnboarding } from '@/store/onboarding'
 import {
   $onboardingWizard,
   completeOnboardingWizard,
@@ -83,12 +84,17 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
   // Mid-flow restart: intro already seen, wizard unfinished — pick it back up.
   // Unless a dev entry point baked a stage: the stage owns the boot (e.g.
   // `dev:kickoff` must not have this racing it with a wizard window).
+  //
+  // Also covers the case this dev app was CLOSED mid-flow and reopened into
+  // the next boot's resume path — the wizard's own window can be live with
+  // the store still 'hidden' (its own mount order), and this main renderer is
+  // the one that actually launches the wizard store on the same profile.
   useEffect(() => {
     if (onboardingDevStage()) {
       return
     }
 
-    if (enabled && intro.phase === 'hidden' && wizard.phase === 'hidden' && shouldResumeOnboardingWizard()) {
+    if (intro.phase === 'hidden' && wizard.phase === 'hidden' && shouldResumeOnboardingWizard()) {
       startOnboardingWizard()
     }
   }, [enabled, intro.phase, wizard.phase])
@@ -112,18 +118,56 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
 
   const handleOutcome = useCallback(
     (outcome: OnboardingWizardOutcome) => {
-      completeOnboardingWizard()
-
       // Login mode: no picks to commit — the guided chat IS the setup. Run it
       // whenever inference exists (sign-in completed OR skipped-but-already
       // -configured); without inference there is nothing to guide with.
       if (outcome.mode === 'login') {
-        if (outcome.providerReady !== false) {
+        // The wizard WINDOW's provider snapshot can lag its own sign-in (it
+        // closes on "Connected", sometimes before its classic store flips
+        // configured). This renderer's state is the truth at THIS moment —
+        // dropped a signed-in user at the bare landing page once.
+        const configuredHere = $desktopOnboarding.get().configured === true
+
+        if (outcome.providerReady !== false || configuredHere) {
+          // Kickoff BEFORE the wizard store clears: startChatOnboardingSolo
+          // raises the solo-chat presence while the wizard presence is still
+          // up, so the classic onboarding overlay (gated on presence) never
+          // sees an empty set mid-handoff and can't pop a second sign-in.
           onKickoff('guide')
+        } else {
+          // Neither side confirms inference yet — but the sign-in may still
+          // be LANDING (auth written by the wizard window's gateway; this
+          // renderer's probe hasn't re-run). Watch the classic store briefly:
+          // the overlay's own refresh flips `configured` once the runtime
+          // reports ready, and the guided chat starts then. A user who truly
+          // skipped with no provider never flips it, and the timer disposes
+          // the watcher silently — nothing to guide with.
+          let fired = false
+          let expiry: number | undefined
+
+          const unsubscribe = $desktopOnboarding.subscribe(state => {
+            if (state.configured === true && !fired) {
+              fired = true
+              unsubscribe()
+              window.clearTimeout(expiry)
+              onKickoff('guide')
+            }
+          })
+
+          expiry = window.setTimeout(() => {
+            if (!fired) {
+              fired = true
+              unsubscribe()
+            }
+          }, 30_000)
         }
+
+        completeOnboardingWizard()
 
         return
       }
+
+      completeOnboardingWizard()
 
       if (!outcome.completed) {
         return
