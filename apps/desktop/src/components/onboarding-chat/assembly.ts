@@ -25,7 +25,7 @@ import { setSidebarOpen } from '@/store/layout'
 import { setOnboardingSurfaceActive } from '@/store/onboarding-presence'
 import { onboardingDevStage } from '@/store/onboarding-wizard'
 import { $statusbarVisible } from '@/store/statusbar-prefs'
-import { setTranslucencyMode } from '@/store/translucency'
+import { setTranslucency, setTranslucencyMaterial, setTranslucencyMode } from '@/store/translucency'
 import { setZoomPercent } from '@/store/zoom'
 
 /** True from guide kickoff until the layout pick assembles the app. */
@@ -61,10 +61,18 @@ export function startChatOnboardingSolo(): void {
   $chatOnboardingSolo.set(true)
   $chatLayoutPicked.set(false)
   // First-run look: the glass material is the default face of the app —
-  // the cinematic hands into a translucent window, not a flat slab. The
-  // store guards support itself (clear on non-glass platforms), and this is
-  // a first-run store write on a fresh profile, so no user pref is clobbered.
+  // the cinematic hands into a translucent window, not a flat slab, and the
+  // look PERSISTS after onboarding (the translucency book is localStorage-
+  // backed like any Appearance edit). Mode alone isn't enough: the dark-mac
+  // default is intensity 22 on the titlebar material — vibrancy under the
+  // titlebar only, body effectively opaque — so the blur would vanish the
+  // moment the app assembles. Write the full recipe: under-window (the real
+  // full-window blur) with enough tint pulled off for it to read. The store
+  // guards unsupported platforms, and this is a first-run write on a fresh
+  // profile, so no user pref is clobbered.
   setTranslucencyMode('glass')
+  setTranslucencyMaterial('under-window')
+  setTranslucency(50)
   // First-run type size: the shipped 90% preset reads small in the guided
   // chat (side-by-side screenshots: the wanted size is ~1.3x). 118% is the
   // measured target; real Chromium zoom, so every surface scales coherently
