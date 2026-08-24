@@ -18,6 +18,7 @@ import { useState } from 'react'
 
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '@/components/onboarding-chat/assembly'
+import { rememberOnboardingSubmit } from '@/components/onboarding-chat/retry'
 import { FirstScreenPreview } from '@/components/onboarding-wizard/first-screen'
 import {
   accentsFor,
@@ -59,9 +60,19 @@ function isChatStep(value: string | undefined): value is ChatStep {
   )
 }
 
-/** Report a pick and let the model move on — hidden, so no user bubble. */
+/** Report a pick and let the model move on — hidden, so no user bubble.
+ *  Remembered for the quiet single retry (see retry.ts): if the turn dies
+ *  before delivering anything, the report replays once instead of a red
+ *  HTTP row interrupting the setup. */
 function report(summary: string): boolean {
-  return requestComposerSubmit(`[setup] ${summary}`, { displayKind: 'hidden' })
+  const text = `[setup] ${summary}`
+  const sent = requestComposerSubmit(text, { displayKind: 'hidden' })
+
+  if (sent) {
+    rememberOnboardingSubmit(text)
+  }
+
+  return sent
 }
 
 type CardProps = {

@@ -25,6 +25,7 @@ import { IntroRevealGate } from '@/components/intro-reveal'
 import { NotificationStack } from '@/components/notifications'
 import { DesktopOnboardingOverlay } from '@/components/onboarding'
 import { $chatOnboardingThreadIds, startChatOnboardingSolo } from '@/components/onboarding-chat/assembly'
+import { rememberOnboardingSubmit } from '@/components/onboarding-chat/retry'
 import { OnboardingWizardGate } from '@/components/onboarding-wizard'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
@@ -598,7 +599,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         // around the conversation when the layout card is answered.
         startChatOnboardingSolo()
       }
-
       void (async () => {
         const runtimeId = await createBackendSessionForSend(null)
 
@@ -619,12 +619,21 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         setAwaitingResponse(true)
         setBusy(true)
 
+        const kickoffText = kind === 'guide' ? buildChatOnboardingPrompt() : buildKickoffPrompt($wizardAnswers.get())
+
+        // The kickoff brief is the retryable machine turn par excellence — a
+        // cold-stack failure here strands the user on an empty greeting-less
+        // chat (see retry.ts).
+        if (kind === 'guide') {
+          rememberOnboardingSubmit(kickoffText)
+        }
+
         await requestGateway(
           'prompt.submit',
           {
             display_kind: 'hidden',
             session_id: runtimeId,
-            text: kind === 'guide' ? buildChatOnboardingPrompt() : buildKickoffPrompt($wizardAnswers.get())
+            text: kickoffText
           },
           PROMPT_SUBMIT_REQUEST_TIMEOUT_MS
         ).catch(() => {
