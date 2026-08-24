@@ -46,14 +46,18 @@ const CSS = [
   '.fsx-dateline{align-items:baseline;border-bottom:1px solid var(--border);color:var(--muted-foreground);display:flex;font-family:var(--mono);font-size:10px;gap:10px;justify-content:space-between;margin-top:10px;padding-bottom:8px}',
   '.fsx-regen{background:none;border:0;color:var(--muted-foreground);cursor:pointer;font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:0;transition:color 120ms ease}',
   '.fsx-regen:hover{color:var(--accent)}',
-  '.fsx-sec{margin-top:16px}',
-  '.fsx-sechead{align-items:baseline;display:flex;gap:8px;justify-content:space-between}',
-  '.fsx-seclabel{color:var(--muted-foreground);font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase}',
-  '.fsx-secrun{background:none;border:0;color:var(--muted-foreground);cursor:pointer;font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;padding:0;transition:color 120ms ease}',
-  '.fsx-secrun:hover{color:var(--accent)}',
-  '.fsx-item{border-bottom:1px solid color-mix(in srgb, var(--border) 55%, transparent);cursor:pointer;display:flex;gap:10px;padding:9px 0;transition:background 120ms ease}',
+  '.fsx-sec{background:color-mix(in srgb, var(--card) 72%, transparent);border:1px solid var(--border);border-radius:10px;margin-top:10px;overflow:hidden}',
+  '.fsx-sechead{align-items:center;background:color-mix(in srgb, var(--card) 55%, transparent);border-bottom:1px solid color-mix(in srgb, var(--border) 70%, transparent);display:flex;gap:8px;padding:8px 12px}',
+  '.fsx-dot{border-radius:999px;flex:none;height:6px;width:6px;background:var(--accent)}',
+  '.fsx-seclabel{color:var(--foreground);flex:1;font-size:12px;font-weight:600;letter-spacing:-.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.fsx-kindtag{border:1px solid color-mix(in srgb, var(--muted-foreground) 30%, transparent);border-radius:4px;color:var(--muted-foreground);flex:none;font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;padding:1px 5px;text-transform:uppercase}',
+  '.fsx-secrun{align-items:center;background:var(--primary);border:0;border-radius:999px;color:var(--primary-foreground);cursor:pointer;display:inline-flex;flex:none;font-size:10px;font-weight:600;gap:3px;letter-spacing:.02em;padding:3px 10px;transition:transform 120ms ease,box-shadow 120ms ease}',
+  '.fsx-secrun:hover{box-shadow:0 2px 6px rgba(0,0,0,.3);transform:translateY(-1px)}',
+  '.fsx-secbody{padding:4px 12px 10px}',
+  '.fsx-item{border-bottom:1px solid color-mix(in srgb, var(--border) 45%, transparent);cursor:pointer;display:flex;gap:10px;padding:9px 0;transition:background 120ms ease}',
   '.fsx-item:last-child{border-bottom:0}',
   '.fsx-item:hover{background:color-mix(in srgb, var(--accent) 10%, transparent)}',
+  '.fsx-srcchip{background:color-mix(in srgb, var(--muted-foreground) 12%, transparent);border-radius:4px;color:var(--muted-foreground);flex:none;font-family:var(--mono);font-size:9px;padding:1px 6px}',
   '.fsx-idx{color:var(--accent);flex:none;font-family:var(--mono);font-size:10px;padding-top:2px}',
   '.fsx-itembody{display:flex;flex-direction:column;gap:3px;min-width:0}',
   '.fsx-line{font-weight:500}',
@@ -107,7 +111,6 @@ function fmtDate() {
 /* One clickable content row: index, line, source/tag meta, hover affordance. */
 function FeedItem(props) {
   const it = props.item
-  const meta = [it.source, it.tag].filter(Boolean).join(' \\u00b7 ')
   return h(
     'div',
     { className: 'fsx-item', onClick: () => send('Tell me more about this, briefly: "' + it.line + '"' + (it.source ? ' (' + it.source + ')' : '')) },
@@ -116,7 +119,13 @@ function FeedItem(props) {
       'div',
       { className: 'fsx-itembody' },
       h('span', { className: 'fsx-line' }, it.line),
-      meta ? h('span', { className: 'fsx-meta' }, meta, '  ', h('span', { className: 'fsx-open' }, '\\u2192 open in chat')) : null
+      h(
+        'span',
+        { className: 'fsx-meta' },
+        it.source ? h('span', { className: 'fsx-srcchip' }, it.source) : null,
+        it.tag ? h('span', { className: 'fsx-srcchip' }, it.tag) : null,
+        h('span', { className: 'fsx-open' }, '\\u2192 open in chat')
+      )
     )
   )
 }
@@ -178,10 +187,12 @@ function Section(props) {
     h(
       'div',
       { className: 'fsx-sechead' },
+      h('span', { className: 'fsx-dot' }),
       h('span', { className: 'fsx-seclabel' }, props.label),
-      h('button', { className: 'fsx-secrun', onClick: props.onRun, type: 'button' }, props.runLabel || 'run \\u2192')
+      props.kind ? h('span', { className: 'fsx-kindtag' }, props.kind) : null,
+      h('button', { className: 'fsx-secrun', onClick: props.onRun, type: 'button' }, props.runLabel || 'Run', ' \\u25B8')
     ),
-    props.children
+    h('div', { className: 'fsx-secbody' }, props.children)
   )
 }
 
@@ -320,9 +331,10 @@ export default {
             Section,
             {
               key: block.id,
+              kind: block.kind,
               label: block.label,
               onRun: () => send(block.prompt),
-              runLabel: block.kind === 'feed' ? 'refresh in chat \\u2192' : 'run \\u2192'
+              runLabel: block.kind === 'feed' ? 'Refresh' : 'Run'
             },
             block.kind === 'tool' ? h(ToolPanel, { content: block.content, prompt: block.prompt }) : blockBody(block, freshPending)
           )

@@ -343,7 +343,7 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
     const created = await gateway
       .request<{ session_id?: string }>(
         'session.create',
-        { cols: 96, model: 'z-ai/glm-5.2', provider: 'nous', source: 'desktop' },
+        { cols: 96, model: 'deepseek/deepseek-v4-flash-0731', provider: 'nous', source: 'desktop' },
         CREATE_TIMEOUT_MS
       )
       .catch(() =>
@@ -359,6 +359,13 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
     // The hidden session shows in history — title it honestly.
     void gateway
       .request('session.title', { session_id: sessionId, title: 'First screen content' })
+      .catch(() => undefined)
+
+    // Thinking OFF for this one JSON turn — reasoning buys nothing on a
+    // structured fill and multiplies latency (the exact slow-populate
+    // complaint from live runs).
+    await gateway
+      .request('config.set', { key: 'reasoning', session_id: sessionId, value: 'none' })
       .catch(() => undefined)
 
     const reply = await new Promise<string>((resolve, reject) => {
