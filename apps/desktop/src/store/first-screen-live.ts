@@ -235,17 +235,13 @@ export function advanceSketch(): void {
   const candidates = $moduleCandidates.get()
 
   if (candidates && candidates.length > 0) {
-    // With a speculative fill running (or landed), its writer owns the file —
-    // rewriting from the bare proposals config would erase content the user
-    // is watching appear.
+    // The speculative writer owns the file once a fill exists; either way the
+    // proposals rewrite carries the live keep/drop state so unchecking a box
+    // grays the module out in the pane immediately.
     const fill = $speculativeFill.get()
 
-    if (fill) {
-      if (!speculativeWritesStopped) {
-        void writeScreenText(speculativeFileContent(candidates, fill))
-      }
-    } else {
-      void writeScreenJson(proposalsConfig(candidates))
+    if (!speculativeWritesStopped) {
+      void writeScreenText(speculativeFileContent(candidates, fill ?? { content: {}, extra: [], overrides: {} }))
     }
 
     return
@@ -517,12 +513,15 @@ function speculativeFileContent(modules: DraftModule[], fill: PopulateResult): s
     unknown
   >
 
+  const dropped = new Set($droppedModuleIds.get())
+
   body['blocks'] = config.blocks.map(({ id, kind, label, prompt }) => ({
     id,
     kind: fill.content[id] ? fill.content[id].kind : kind,
     label: fill.overrides[id]?.label ?? label,
     prompt: fill.overrides[id]?.prompt ?? prompt,
-    ...(fill.content[id] ? { content: fill.content[id] } : {})
+    ...(fill.content[id] ? { content: fill.content[id] } : {}),
+    ...(dropped.has(id) ? { dropped: true } : {})
   }))
   // Still mid-fill while the user picks — the pane keeps spinners on the
   // blocks that have no content yet.

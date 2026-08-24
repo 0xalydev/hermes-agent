@@ -111,6 +111,8 @@ const CSS = [
   '.fsx-sketchbar{animation:fsx-shimmer 1.6s linear infinite;background:linear-gradient(90deg, color-mix(in srgb, var(--dt-muted-foreground) 14%, transparent) 25%, color-mix(in srgb, var(--dt-muted-foreground) 26%, transparent) 50%, color-mix(in srgb, var(--dt-muted-foreground) 14%, transparent) 75%);background-size:200px 100%;border-radius:3px;height:6px}',
   '.fsx-stagecap{align-items:center;color:var(--dt-primary);display:flex;font-family:var(--mono);font-size:11px;gap:7px;letter-spacing:.1em;margin-top:14px;text-transform:uppercase}',
   '.fsx-proprow{background:var(--dt-card);border:1px solid var(--dt-border);border-radius:10px;display:flex;flex-direction:column;gap:2px;margin-top:8px;padding:9px 12px}',
+  '.fsx-dropped{opacity:.38}',
+  '.fsx-dropped .fsx-proplabel{text-decoration:line-through}',
   '.fsx-propkind{color:var(--dt-primary);font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase}',
   '.fsx-proplabel{font-size:14px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 
@@ -271,15 +273,14 @@ export default {
       const blocks = (config && config.blocks) || []
       const stage = (config && config.stage) || 'final'
       const populated = Boolean(config && config.populatedAt)
-      // In-progress: the builder stamps populating:true at build and clears it
-      // when content lands (or the fill fails). Age heuristic stays as the
-      // fallback for files written by older builds.
-      const freshPending =
-        !populated &&
-        Boolean(
-          (config && config.populating) ||
-            (config && config.generatedAt && Date.now() - Date.parse(config.generatedAt) < 180000)
-        )
+      // In-progress: populating:true means the fill is STILL RUNNING — that
+      // always wins (a partial write stamps populatedAt with content for only
+      // SOME blocks; the rest must keep shimmering, never say "Press Run").
+      // Age heuristic stays as the fallback for files from older builds.
+      const freshPending = Boolean(
+        (config && config.populating) ||
+          (!populated && config && config.generatedAt && Date.now() - Date.parse(config.generatedAt) < 180000)
+      )
       const filePath = (config && config.path) || '~/.hermes/desktop-plugins/first-screen/screen.json'
 
       const regen = () =>
@@ -319,9 +320,10 @@ export default {
             : blocks.map((block, i) =>
                 h(
                   'div',
-                  { className: 'fsx-proprow', key: block.id || i },
-                  h('span', { className: 'fsx-propkind' }, block.kind || 'module'),
-                  h('span', { className: 'fsx-proplabel' }, block.label)
+                  { className: 'fsx-proprow' + (block.dropped ? ' fsx-dropped' : ''), key: block.id || i },
+                  h('span', { className: 'fsx-propkind' }, block.dropped ? 'dropped' : block.kind || 'module'),
+                  h('span', { className: 'fsx-proplabel' }, block.label),
+                  block.dropped ? null : blockBody(block, true)
                 )
               ),
           null

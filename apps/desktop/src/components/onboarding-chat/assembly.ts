@@ -21,9 +21,11 @@ import type { CSSProperties } from 'react'
 import { allPaneIds, group, type LayoutNode } from '@/components/pane-shell/tree/model'
 import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import { $layoutTree, dismissTreePane, isCollapsePane } from '@/components/pane-shell/tree/store'
+import { registry } from '@/contrib/registry'
+import { redockLivePane } from '@/store/first-screen-live'
 import { setSidebarOpen } from '@/store/layout'
 import { setOnboardingSurfaceActive } from '@/store/onboarding-presence'
-import { onboardingDevStage } from '@/store/onboarding-wizard'
+import { onboardingDevStage, skipOnboardingWizard } from '@/store/onboarding-wizard'
 import { $statusbarVisible } from '@/store/statusbar-prefs'
 import { setTranslucency, setTranslucencyMaterial, setTranslucencyMode } from '@/store/translucency'
 import { setZoomPercent } from '@/store/zoom'
@@ -142,6 +144,28 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
   }
 
   $chatOnboardingSolo.set(false)
+}
+
+/** Skip the guided setup: assemble the default layout so the user lands in
+ *  the full app immediately, and mark onboarding done so nothing resumes it.
+ *  The guided chat stays in the transcript — skipping is about ending the
+ *  questionnaire, not destroying the conversation. */
+export function skipChatOnboarding(): void {
+  const preset = registry.getArea('layouts').find(contribution => contribution.id === 'basic')
+
+  if (preset?.data) {
+    assembleChatOnboarding(preset.id, preset.data as LayoutNode)
+    // Assembly dismisses panes the preset doesn't declare — a mid-flow skip
+    // must not eat the living dashboard the user already has beside the chat.
+    redockLivePane()
+  } else {
+    // No layout contribution (shouldn't happen): at minimum leave solo mode
+    // and put the statusbar back.
+    $chatOnboardingSolo.set(false)
+    $statusbarVisible.set(statusbarWasVisible)
+  }
+
+  skipOnboardingWizard()
 }
 
 // ── Pane entrance ("lego") ───────────────────────────────────────────────────

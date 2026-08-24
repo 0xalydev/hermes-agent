@@ -478,9 +478,12 @@ function FirstScreenCard({ locked = false }: CardProps) {
                   off ? 'border-transparent opacity-45 hover:opacity-70' : 'border-border bg-card hover:border-primary/40'
                 )}
                 key={module.id}
-                onClick={() =>
+                onClick={() => {
                   $droppedModuleIds.set(off ? dropped.filter(id => id !== module.id) : [...dropped, module.id])
-                }
+                  // Mirror the pick into the pane immediately: the dropped
+                  // module grays out beside the chat as the box unchecks.
+                  advanceSketch()
+                }}
                 type="button"
               >
                 <span

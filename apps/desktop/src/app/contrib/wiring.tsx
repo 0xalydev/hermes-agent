@@ -26,6 +26,7 @@ import { NotificationStack } from '@/components/notifications'
 import { DesktopOnboardingOverlay } from '@/components/onboarding'
 import { $chatOnboardingThreadIds, startChatOnboardingSolo } from '@/components/onboarding-chat/assembly'
 import { rememberOnboardingSubmit } from '@/components/onboarding-chat/retry'
+import { OnboardingSkip } from '@/components/onboarding-chat/skip'
 import { OnboardingWizardGate } from '@/components/onboarding-wizard'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
@@ -1181,6 +1182,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
       {!isAuxiliaryWindow() && <DesktopInstallOverlay />}
       {!isAuxiliaryWindow() && <IntroRevealGate enabled={gatewayState === 'open'} />}
       {!isAuxiliaryWindow() && <OnboardingWizardGate enabled={gatewayState === 'open'} onKickoff={kickoffFirstChat} />}
+      {!isAuxiliaryWindow() && <OnboardingSkip />}
       {!isAuxiliaryWindow() && (
         <DesktopOnboardingOverlay
           enabled={gatewayState === 'open'}
