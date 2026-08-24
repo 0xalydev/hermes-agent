@@ -4,6 +4,8 @@ import {
   $firstScreenKind,
   buildTheaterBeats,
   compileFirstScreen,
+  firstScreenFileContent,
+  materializeFirstScreen,
   resetFirstScreenForTests,
   setFirstScreenKind,
   theaterDuration
@@ -77,5 +79,68 @@ describe('first-screen artifact', () => {
 
     setFirstScreenKind(null)
     expect($firstScreenKind.get()).toBeNull()
+  })
+
+  test('screen.json content carries the profile and every block prompt', () => {
+    const config = compileFirstScreen({ focus: ['Coding', 'Automation'], name: 'Ada' }, 'app')
+    const file = firstScreenFileContent(config)
+    const parsed = JSON.parse(file)
+
+    expect(parsed.kind).toBe('app')
+    expect(parsed.title).toContain('Ada')
+    expect(parsed.generatedFrom.name).toBe('Ada')
+    expect(parsed.blocks).toHaveLength(config.blocks.length)
+
+    for (const [i, block] of config.blocks.entries()) {
+      expect(parsed.blocks[i].prompt).toBe(block.prompt)
+      expect(parsed.blocks[i].label).toBe(block.label)
+    }
+
+    // The reveal names this exact shape — the file must parse as one object.
+    expect(() => JSON.parse(file)).not.toThrow()
+  })
+
+  test('materialize writes the file through the bridge', async () => {
+    const calls: Array<{ content: string; path: string }> = []
+    const original = window.hermesDesktop
+
+    Object.defineProperty(window, 'hermesDesktop', {
+      configurable: true,
+      value: {
+        desktopPluginsRoot: async () => '/tmp/hermes/desktop-plugins',
+        mkdirDesktopPlugin: async (name: string) => ({ ok: name === 'first-screen', path: '/tmp/hermes/desktop-plugins/first-screen' }),
+        writeTextFile: async (path: string, content: string) => {
+          calls.push({ content, path })
+
+          return { path }
+        }
+      }
+    })
+
+    try {
+      const config = compileFirstScreen({ focus: ['Writing'], name: 'Sam' }, 'dashboard')
+      const result = await materializeFirstScreen(config)
+
+      expect(result).toEqual({ ok: true, path: '/tmp/hermes/desktop-plugins/first-screen/screen.json' })
+      expect(calls).toHaveLength(1)
+      expect(JSON.parse(calls[0].content).title).toContain('Sam')
+    } finally {
+      Object.defineProperty(window, 'hermesDesktop', { configurable: true, value: original })
+    }
+  })
+
+  test('materialize without a bridge reports no-electron, never throws', async () => {
+    const original = window.hermesDesktop
+
+    Object.defineProperty(window, 'hermesDesktop', { configurable: true, value: undefined })
+
+    try {
+      const result = await materializeFirstScreen(compileFirstScreen({ focus: [], name: '' }, 'document'))
+
+      expect(result.ok).toBe(false)
+      expect(!result.ok && result.error).toBe('no electron bridge')
+    } finally {
+      Object.defineProperty(window, 'hermesDesktop', { configurable: true, value: original })
+    }
   })
 })

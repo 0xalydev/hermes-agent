@@ -194,4 +194,31 @@ export function registerFsIpc({
 
     return true
   })
+
+  // Create a DIRECT CHILD directory under the local desktop-plugins root —
+  // onboarding's first-screen artifact materializes as its own folder there
+  // before fs:writeText fills it. Scoped to one level under the plugins root
+  // (never an arbitrary path) so the renderer can't mkdir into the profile.
+  ipcMain.handle('hermes:fs:mkdirDesktopPlugin', async (_event, name) => {
+    const dirName = String(name ?? '').trim()
+
+    if (!dirName || dirName === '.' || dirName === '..' || /[\\/]/.test(dirName)) {
+      throw new Error('Invalid plugin directory name')
+    }
+
+    const root = await localPluginsRoot('desktop-plugins')
+    const dir = path.join(root, dirName)
+
+    if (path.dirname(dir) !== root) {
+      throw new Error('Invalid plugin directory')
+    }
+
+    try {
+      await fs.promises.mkdir(dir, { recursive: true })
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error), path: dir }
+    }
+
+    return { ok: true, path: dir }
+  })
 }

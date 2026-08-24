@@ -217,3 +217,68 @@ export function theaterDuration(config: FirstScreenConfig): number {
 export function resetFirstScreenForTests(): void {
   $firstScreenKind.set(null)
 }
+
+// ── Materialization ─────────────────────────────────────────────────────────
+
+/** The plugin folder id the artifact lands in, under the LOCAL desktop-plugins
+ *  root. Fixed so a repeat run overwrites the same folder, not a litter of
+ *  suffixed copies. */
+export const FIRST_SCREEN_PLUGIN_DIR = 'first-screen'
+
+/** Serialize a config into the plugin's screen.json — the file the user edits
+ *  later. The prompts carry the profile, and the `generatedFrom` echo is what
+ *  makes the file read as theirs when they open it outside the app. */
+export function firstScreenFileContent(config: FirstScreenConfig): string {
+  return `${JSON.stringify(
+    {
+      blocks: config.blocks.map(({ id, kind, label, prompt }) => ({ id, kind, label, prompt })),
+      generatedAt: new Date().toISOString(),
+      generatedFrom: { focus: config.rationale, name: config.userName },
+      kind: config.kind,
+      title: config.title
+    },
+    null,
+    2
+  )}\n`
+}
+
+export type MaterializeFirstScreenResult =
+  | { ok: true; path: string }
+  | { ok: false; error: string }
+
+/** Persist the artifact into `<desktop-plugins>/first-screen/screen.json`.
+ *  No-op (ok) when there is no Electron bridge — browser runs just don't get
+ *  the file. Called by the wizard window as it hands off, so the reveal's
+ *  promise about the file path is already true when the user opens it. */
+export async function materializeFirstScreen(
+  config: FirstScreenConfig
+): Promise<MaterializeFirstScreenResult> {
+  const desktop = window.hermesDesktop
+
+  if (!desktop?.desktopPluginsRoot) {
+    return { ok: false, error: 'no electron bridge' }
+  }
+
+  try {
+    if (desktop.mkdirDesktopPlugin) {
+      const made = await desktop.mkdirDesktopPlugin(FIRST_SCREEN_PLUGIN_DIR)
+
+      if (!made.ok) {
+        return { ok: false, error: made.error ?? 'mkdir failed' }
+      }
+    }
+
+    const root = await desktop.desktopPluginsRoot()
+    const filePath = `${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`
+
+    if (!desktop.writeTextFile) {
+      return { ok: false, error: 'no writeTextFile' }
+    }
+
+    await desktop.writeTextFile(filePath, firstScreenFileContent(config))
+
+    return { ok: true, path: filePath }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}

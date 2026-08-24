@@ -93,6 +93,10 @@ export interface OnboardingWizardState {
 export interface OnboardingWizardOutcome {
   /** False when the user skipped setup. */
   completed: boolean
+  /** Full-run only: the first-screen artifact the finale built. The main
+   *  window uses it to seed the first chat ("press a button, it does
+   *  something") after the take-over. Absent on skip and in login mode. */
+  firstScreen?: { configJson: string; filePath?: string; kind: string }
   /** False when the run needed a provider and none was configured (the step
    *  was skipped past) — the first-chat kickoff has nothing to greet with. */
   providerReady?: boolean
