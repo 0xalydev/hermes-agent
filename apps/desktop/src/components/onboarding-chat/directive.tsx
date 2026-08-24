@@ -298,6 +298,14 @@ function FirstScreenCard({ locked = false }: CardProps) {
         return
       }
 
+      // The build just dropped a NEW pane contribution (the plugin folder the
+      // disk watcher will register on its next tick). Reveal it now — this is
+      // the moment the guide answers "where did it go" with a real highlight,
+      // instead of the user hunting the rail for a pane that appeared quietly.
+      import('@/components/pane-shell/tree/store').then(({ revealTreePane }) =>
+        revealTreePane('first-screen:pane')
+      )
+
       setBuilt(config)
     })
   }
@@ -305,11 +313,20 @@ function FirstScreenCard({ locked = false }: CardProps) {
   if (built) {
     // The finished artifact stays in the transcript, live — pressing any of
     // its blocks hidden-submits the block's prompt, so the conversation
-    // itself demonstrates "press a button, it does something".
+    // itself demonstrates "press a button, it does something". The rail
+    // callout names what the same thing looks like as a pane, since the
+    // build also wrote a plugin.
     return (
       <div className="my-3 grid max-w-md gap-2" data-onboarding-card>
         <div className="overflow-hidden rounded-[6px] border bg-white">
           <FirstScreenSurface config={built} interactive />
+        </div>
+        <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+          <span aria-hidden>→</span>
+          <span>
+            This also lives as the <strong className="font-medium">your first screen</strong> pane — one click
+            on the rail keeps it open anywhere.
+          </span>
         </div>
       </div>
     )

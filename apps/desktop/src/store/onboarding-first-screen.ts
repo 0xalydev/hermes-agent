@@ -225,6 +225,125 @@ export function resetFirstScreenForTests(): void {
  *  suffixed copies. */
 export const FIRST_SCREEN_PLUGIN_DIR = 'first-screen'
 
+/** The plugin.js source for the first-screen plugin — the artifact's
+ *  renderer. One template string so materializeFirstScreen can write it next
+ *  to screen.json, and the loader hot-reloads it on save. The config is
+ *  embedded at build time; the plugin reads screen.json through the plugin
+ *  filesystem door added in the same change, so a user edit to screen.json
+ *  repaints the pane without an app restart. */
+export const FIRST_SCREEN_PLUGIN_JS = `/** first-screen — the screen onboarding built, kept alive as a pane.
+ *
+ *  screen.json in this folder IS the product: edit it and this pane repaints
+ *  on save. Press Run and the block's prompt goes through your chat's normal
+ *  path. Plain DOM (no JSX) so the runtime loader can import the file as-is.
+ */
+
+import React, { useEffect, useState } from 'react'
+
+import { host } from '@hermes/plugin-sdk'
+
+export default {
+  id: 'first-screen',
+  name: 'First Screen',
+  description: 'The screen Hermes built at first setup, as a live pane.',
+  register(ctx) {
+    function FirstScreenPane() {
+      const [config, setConfig] = useState(() => ctx.storage.get('config', null))
+
+      useEffect(() => {
+        let alive = true
+
+        const load = () =>
+          ctx.os
+            .readPluginFileText('screen.json')
+            .then(({ text }) => {
+              if (alive) setConfig(JSON.parse(text))
+            })
+            .catch(() => {})
+
+        void load()
+
+        const stop = ctx.os.watchPluginFile('screen.json', load)
+
+        return () => {
+          alive = false
+          stop()
+        }
+      }, [])
+
+      const run = prompt =>
+        host.request('prompt.submit', { displayKind: 'hidden', text: prompt }).catch(() => {})
+
+      const h = React.createElement
+      const blocks = config?.blocks ?? []
+
+      return h(
+        'div',
+        { 'data-tour': 'first-screen', style: { padding: 12 } },
+        h('div', { style: { fontSize: 14, fontWeight: 600 } }, config?.title ?? 'your first screen'),
+        h(
+          'div',
+          { style: { fontSize: 11, marginTop: 2, opacity: 0.7 } },
+          config?.rationale ?? 'Your onboarding artifact lives in screen.json — edit it and this pane repaints.'
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 } },
+          blocks.map(block =>
+            h(
+              'button',
+              {
+                key: block.id,
+                onClick: () => run(block.prompt),
+                style: {
+                  alignItems: 'center',
+                  background: 'var(--card)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  padding: '9px 12px',
+                  textAlign: 'left'
+                },
+                type: 'button'
+              },
+              h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, block.label),
+              h(
+                'span',
+                {
+                  style: {
+                    background: 'var(--foreground)',
+                    borderRadius: 999,
+                    color: 'var(--background)',
+                    fontSize: 10,
+                    padding: '2px 8px'
+                  }
+                },
+                'Run'
+              )
+            )
+          )
+        ),
+        h(
+          'div',
+          { style: { color: 'var(--muted-foreground)', fontSize: 10, marginTop: 12 } },
+          'Lives at ~/.hermes/desktop-plugins/first-screen/ — edit screen.json.'
+        )
+      )
+    }
+
+    ctx.register({
+      id: 'pane',
+      area: 'panes',
+      title: 'your first screen',
+      data: { collapsible: true, dock: { pane: 'workspace', pos: 'right' }, minWidth: '280px', placement: 'right' },
+      render: () => React.createElement(FirstScreenPane)
+    })
+  }
+}
+`
+
 /** Serialize a config into the plugin's screen.json — the file the user edits
  *  later. The prompts carry the profile, and the `generatedFrom` echo is what
  *  makes the file read as theirs when they open it outside the app. */
@@ -269,12 +388,17 @@ export async function materializeFirstScreen(
     }
 
     const root = await desktop.desktopPluginsRoot()
-    const filePath = `${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`
+    const dir = `${root}/${FIRST_SCREEN_PLUGIN_DIR}`
+    const filePath = `${dir}/screen.json`
 
     if (!desktop.writeTextFile) {
       return { ok: false, error: 'no writeTextFile' }
     }
 
+    // The pane itself: plugin.js (the renderer) + screen.json (the artifact)
+    // land in the same folder, so the disk-door loader picks the plugin up on
+    // its next scan tick — and any later save to either file hot-reloads it.
+    await desktop.writeTextFile(`${dir}/plugin.js`, FIRST_SCREEN_PLUGIN_JS)
     await desktop.writeTextFile(filePath, firstScreenFileContent(config))
 
     return { ok: true, path: filePath }

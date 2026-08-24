@@ -122,8 +122,12 @@ describe('first-screen artifact', () => {
       const result = await materializeFirstScreen(config)
 
       expect(result).toEqual({ ok: true, path: '/tmp/hermes/desktop-plugins/first-screen/screen.json' })
-      expect(calls).toHaveLength(1)
-      expect(JSON.parse(calls[0].content).title).toContain('Sam')
+      expect(calls).toHaveLength(2)
+
+      const byPath = Object.fromEntries(calls.map(c => [c.path, c.content]))
+
+      expect(byPath['/tmp/hermes/desktop-plugins/first-screen/plugin.js']).toContain("id: 'first-screen'")
+      expect(JSON.parse(byPath['/tmp/hermes/desktop-plugins/first-screen/screen.json']).title).toContain('Sam')
     } finally {
       Object.defineProperty(window, 'hermesDesktop', { configurable: true, value: original })
     }
