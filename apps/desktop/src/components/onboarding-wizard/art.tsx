@@ -30,6 +30,7 @@ interface Plate {
 const STEP_ART: Partial<Record<WizardStepId, Plate>> = {
   appearance: { src: 'onboarding/art-angel.webp' },
   connectors: { src: 'onboarding/art-hermes-run.webp' },
+  'first-screen': { src: 'onboarding/art-sandbox.webp' },
   login: { position: '71% 40%', src: 'onboarding/art-hermes-dither.webp' },
   personalize: { src: 'onboarding/art-caduceus.webp' },
   providers: { position: '71% 40%', src: 'onboarding/art-hermes-dither.webp' },

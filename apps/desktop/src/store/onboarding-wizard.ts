@@ -29,6 +29,8 @@ const DONE_KEY = 'hermes-onboarding-wizard-done-v1'
 const ANSWERS_KEY = 'hermes-onboarding-wizard-answers-v1'
 
 export type WizardStepId =
+  /** Pick what your first screen should be — dashboard, document, or app. */
+  | 'first-screen'
   | 'welcome'
   | 'personalize'
   | 'connectors'
@@ -179,7 +181,7 @@ function buildSteps(includeProviders = wizardNeedsProviderStep()): WizardStepId[
     steps.push('providers')
   }
 
-  steps.push('system', 'finale')
+  steps.push('system', 'first-screen', 'finale')
 
   return steps
 }

@@ -8,6 +8,7 @@ import type { WizardStepId } from '@/store/onboarding-wizard'
 
 import { AppearanceStep } from './appearance'
 import { ConnectorsStep } from './connectors'
+import { FirstScreenStep } from './first-screen'
 import { LoginStep } from './login'
 import { PersonalizeStep } from './personalize'
 import { ProvidersStep } from './providers'
@@ -35,6 +36,9 @@ export function WizardStepBody({ step }: { step: WizardStepId }) {
 
     case 'providers':
       return <ProvidersStep />
+
+    case 'first-screen':
+      return <FirstScreenStep />
 
     case 'login':
       return <LoginStep />
