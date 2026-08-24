@@ -72,6 +72,11 @@ export function resetLiveScreenForTests(): void {
 
 // ── Sketch + rewrite plumbing ────────────────────────────────────────────────
 
+/** "sam" -> "Sam" — the pane masthead reads as a proper title. */
+function titleCaseName(name: string): string {
+  return name.replace(/(^|[\s-])([a-z])/g, (_, sep: string, ch: string) => sep + ch.toUpperCase())
+}
+
 function currentProfile() {
   const answers = $wizardAnswers.get()
 
@@ -147,7 +152,7 @@ function sketchConfig(): FirstScreenConfig {
     kind: 'dashboard',
     rationale: 'Taking shape as you talk…',
     stage: 'sketch',
-    title: name ? `${name}'s screen` : 'Your screen',
+    title: name ? `${titleCaseName(name)}'s Dashboard` : 'Your Dashboard',
     userName: name || 'you'
   }
 }
@@ -267,7 +272,7 @@ function proposalsConfig(candidates: DraftModule[]): FirstScreenConfig {
     kind: 'dashboard',
     rationale: context ? `Sketched around: ${context}` : 'Sketched from what you told me',
     stage: 'proposals',
-    title: name ? `${name}'s screen` : 'Your screen',
+    title: name ? `${titleCaseName(name)}'s Dashboard` : 'Your Dashboard',
     userName: name || 'you'
   }
 }

@@ -40,95 +40,87 @@ const h = React.createElement
 
 const CSS = [
   /* ── Frame ── */
-  '.fsx{--mono:ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;flex-direction:column;height:100%;overflow-y:auto;padding:0 14px 14px;color:var(--dt-foreground);font-size:12.5px;line-height:1.5}',
+  '.fsx{--mono:ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;flex-direction:column;height:100%;overflow-y:auto;padding:0 16px 16px;color:var(--dt-foreground);font-size:14px;line-height:1.55}',
+  '.fsx > *{flex:none}',
   '.fsx *{box-sizing:border-box;min-width:0}',
-  '.fsx-kicker{color:var(--dt-muted-foreground);font-family:var(--mono);font-size:9px;letter-spacing:.14em;margin-top:14px;text-transform:uppercase}',
-  '.fsx-title{font-size:19px;font-weight:650;letter-spacing:-.02em;line-height:1.2;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-  '.fsx-dateline{align-items:center;color:var(--dt-muted-foreground);display:flex;font-family:var(--mono);font-size:9.5px;gap:10px;justify-content:space-between;margin-top:6px;padding-bottom:10px}',
-  '.fsx-regen{align-items:center;background:transparent;border:1px solid var(--dt-border);border-radius:999px;color:var(--dt-muted-foreground);cursor:pointer;display:inline-flex;font-family:var(--mono);font-size:9.5px;gap:4px;letter-spacing:.04em;padding:2.5px 9px;transition:color 120ms ease,border-color 120ms ease}',
+  '.fsx-titlerow{align-items:center;display:flex;gap:10px;justify-content:space-between;margin-top:16px;padding-bottom:6px}',
+  '.fsx-title{font-size:24px;font-weight:650;letter-spacing:-.02em;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  
+  '.fsx-regen{align-items:center;background:transparent;border:1px solid var(--dt-border);border-radius:999px;color:var(--dt-muted-foreground);cursor:pointer;display:inline-flex;flex:none;font-family:var(--mono);font-size:11px;gap:4px;letter-spacing:.04em;padding:4px 12px;transition:color 120ms ease,border-color 120ms ease}',
   '.fsx-regen:hover{border-color:color-mix(in srgb, var(--dt-primary) 50%, var(--dt-border));color:var(--dt-foreground)}',
 
   /* ── Module card ── */
   '.fsx-sec{background:var(--dt-card);border:1px solid var(--dt-border);border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.14);margin-top:10px;overflow:hidden}',
-  '.fsx-sechead{align-items:center;display:flex;gap:8px;padding:10px 12px 8px}',
+  '.fsx-sechead{align-items:center;display:flex;gap:9px;padding:12px 14px 9px}',
   '.fsx-dot{background:var(--dt-primary);border-radius:999px;flex:none;height:6px;width:6px}',
-  '.fsx-seclabel{color:var(--dt-foreground);flex:1;font-size:12.5px;font-weight:600;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-  '.fsx-kindtag{background:color-mix(in srgb, var(--dt-muted-foreground) 10%, transparent);border-radius:4px;color:var(--dt-muted-foreground);flex:none;font-family:var(--mono);font-size:8px;letter-spacing:.1em;padding:2px 6px;text-transform:uppercase}',
-  '.fsx-secrun{align-items:center;background:var(--dt-primary);border:0;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.22);color:var(--dt-primary-foreground);cursor:pointer;display:inline-flex;flex:none;font-size:10px;font-weight:600;gap:3px;letter-spacing:.02em;padding:4px 11px;transition:transform 120ms ease,box-shadow 120ms ease}',
+  '.fsx-seclabel{color:var(--dt-foreground);flex:1;font-size:15px;font-weight:600;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.fsx-kindtag{background:color-mix(in srgb, var(--dt-muted-foreground) 10%, transparent);border-radius:4px;color:var(--dt-muted-foreground);flex:none;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;padding:2.5px 7px;text-transform:uppercase}',
+  '.fsx-secrun{align-items:center;background:var(--dt-primary);border:0;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.22);color:var(--dt-primary-foreground);cursor:pointer;display:inline-flex;flex:none;font-size:12px;font-weight:600;gap:4px;letter-spacing:.02em;padding:5px 14px;transition:transform 120ms ease,box-shadow 120ms ease}',
   '.fsx-secrun:hover{box-shadow:0 2px 7px rgba(0,0,0,.3);transform:translateY(-1px)}',
   '.fsx-secrun[disabled]{cursor:default;opacity:.4;pointer-events:none}',
-  '.fsx-secbody{padding:0 12px 11px}',
+  '.fsx-secbody{padding:0 14px 13px}',
 
   /* ── Feed items: chip-indexed clickable rows ── */
   '.fsx-item{align-items:flex-start;border:1px solid transparent;border-radius:8px;cursor:pointer;display:flex;gap:9px;margin:0 -6px;padding:7px 6px;transition:background 120ms ease,border-color 120ms ease}',
   '.fsx-item:hover{background:color-mix(in srgb, var(--dt-primary) 7%, transparent);border-color:color-mix(in srgb, var(--dt-primary) 22%, transparent)}',
-  '.fsx-idx{background:color-mix(in srgb, var(--dt-primary) 12%, transparent);border-radius:5px;color:var(--dt-primary);flex:none;font-family:var(--mono);font-size:9px;font-weight:600;line-height:1;margin-top:2px;padding:3.5px 5px}',
+  '.fsx-idx{background:color-mix(in srgb, var(--dt-primary) 12%, transparent);border-radius:5px;color:var(--dt-primary);flex:none;font-family:var(--mono);font-size:10.5px;font-weight:600;line-height:1;margin-top:2px;padding:4px 6px}',
   '.fsx-itembody{display:flex;flex:1;flex-direction:column;gap:3px}',
-  '.fsx-line{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;font-size:12px;font-weight:500;line-height:1.45;overflow:hidden}',
-  '.fsx-meta{align-items:center;color:var(--dt-muted-foreground);display:flex;flex-wrap:wrap;font-family:var(--mono);font-size:9.5px;gap:5px}',
-  '.fsx-srcchip{background:color-mix(in srgb, var(--dt-muted-foreground) 11%, transparent);border-radius:4px;color:var(--dt-muted-foreground);flex:none;font-family:var(--mono);font-size:9px;padding:1.5px 6px}',
-  '.fsx-open{color:var(--dt-primary);font-family:var(--mono);font-size:9.5px;opacity:0;transition:opacity 120ms ease;white-space:nowrap}',
+  '.fsx-line{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;font-size:13.5px;font-weight:500;line-height:1.5;overflow:hidden}',
+  '.fsx-meta{align-items:center;color:var(--dt-muted-foreground);display:flex;flex-wrap:wrap;font-family:var(--mono);font-size:11px;gap:6px}',
+  '.fsx-srcchip{background:color-mix(in srgb, var(--dt-muted-foreground) 11%, transparent);border-radius:4px;color:var(--dt-muted-foreground);flex:none;font-family:var(--mono);font-size:10.5px;padding:2px 7px}',
+  '.fsx-open{color:var(--dt-primary);font-family:var(--mono);font-size:11px;opacity:0;transition:opacity 120ms ease;white-space:nowrap}',
   '.fsx-item:hover .fsx-open{opacity:1}',
-  '.fsx-lede{border-left:2px solid var(--dt-primary);color:var(--dt-muted-foreground);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;font-size:12px;font-style:italic;line-height:1.5;margin:2px 0 8px;overflow:hidden;padding:1px 0 1px 10px}',
+  '.fsx-lede{border-left:2px solid var(--dt-primary);color:var(--dt-muted-foreground);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;font-size:13.5px;font-style:italic;line-height:1.55;margin:2px 0 9px;overflow:hidden;padding:1px 0 1px 11px}',
 
   /* ── Action steps: checklist rows ── */
   '.fsx-steps{display:flex;flex-direction:column;gap:2px;margin-top:2px}',
   '.fsx-step{align-items:flex-start;border:1px solid transparent;border-radius:8px;cursor:pointer;display:flex;gap:9px;margin:0 -6px;padding:7px 6px;transition:background 120ms ease,border-color 120ms ease}',
   '.fsx-step:hover{background:color-mix(in srgb, var(--dt-primary) 7%, transparent);border-color:color-mix(in srgb, var(--dt-primary) 22%, transparent)}',
-  '.fsx-mark{border:1.5px solid color-mix(in srgb, var(--dt-muted-foreground) 55%, transparent);border-radius:4px;flex:none;height:11px;margin-top:3px;width:11px;transition:border-color 120ms ease}',
+  '.fsx-mark{border:1.5px solid color-mix(in srgb, var(--dt-muted-foreground) 55%, transparent);border-radius:4px;flex:none;height:13px;margin-top:4px;width:13px;transition:border-color 120ms ease}',
   '.fsx-step:hover .fsx-mark{border-color:var(--dt-primary)}',
-  '.fsx-steptext{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;flex:1;font-size:12px;line-height:1.45;overflow:hidden}',
-  '.fsx-stepgo{color:var(--dt-primary);font-family:var(--mono);font-size:9.5px;margin-top:2px;opacity:0;transition:opacity 120ms ease;white-space:nowrap}',
+  '.fsx-steptext{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;flex:1;font-size:13.5px;line-height:1.5;overflow:hidden}',
+  '.fsx-stepgo{color:var(--dt-primary);font-family:var(--mono);font-size:11px;margin-top:2px;opacity:0;transition:opacity 120ms ease;white-space:nowrap}',
   '.fsx-step:hover .fsx-stepgo{opacity:1}',
 
   /* ── Draft skeleton page ── */
-  '.fsx-page{background:color-mix(in srgb, var(--dt-background) 55%, var(--dt-card));border:1px solid var(--dt-border);border-radius:8px;font-family:var(--mono);font-size:10.5px;line-height:1.7;margin-top:4px;max-height:150px;overflow:hidden;padding:10px 12px;position:relative;white-space:pre-wrap}',
-  '.fsx-page:after{background:linear-gradient(transparent, var(--dt-card));bottom:0;content:"";height:28px;left:0;pointer-events:none;position:absolute;right:0}',
+  '.fsx-page{background:color-mix(in srgb, var(--dt-background) 55%, var(--dt-card));border:1px solid var(--dt-border);border-radius:8px;font-family:var(--mono);font-size:12.5px;line-height:1.7;margin-top:4px;max-height:220px;overflow-y:auto;padding:11px 13px;white-space:pre-wrap}',
   '.fsx-slot{color:var(--dt-primary)}',
 
   /* ── Tool panel ── */
   '.fsx-io{display:flex;flex-direction:column;gap:8px;margin-top:8px}',
-  '.fsx-iolabel{color:var(--dt-muted-foreground);font-family:var(--mono);font-size:9px;letter-spacing:.14em;margin-bottom:3px}',
-  '.fsx-iobox{background:color-mix(in srgb, var(--dt-background) 55%, var(--dt-card));border:1px solid var(--dt-border);border-radius:8px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;font-family:var(--mono);font-size:10.5px;line-height:1.6;overflow:hidden;padding:9px 11px;white-space:pre-wrap}',
-  '.fsx-input{background:color-mix(in srgb, var(--dt-background) 55%, var(--dt-card));border:1px solid var(--dt-border);border-radius:8px;color:var(--dt-foreground);font-family:var(--mono);font-size:11px;line-height:1.6;min-height:58px;outline:none;padding:9px 11px;resize:vertical;transition:border-color 120ms ease;width:100%}',
+  '.fsx-iolabel{color:var(--dt-muted-foreground);font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;margin-bottom:4px}',
+  '.fsx-iobox{background:color-mix(in srgb, var(--dt-background) 55%, var(--dt-card));border:1px solid var(--dt-border);border-radius:8px;font-family:var(--mono);font-size:12px;line-height:1.6;max-height:150px;overflow-y:auto;padding:10px 12px;white-space:pre-wrap}',
+  '.fsx-input{background:color-mix(in srgb, var(--dt-background) 55%, var(--dt-card));border:1px solid var(--dt-border);border-radius:8px;color:var(--dt-foreground);font-family:var(--mono);font-size:12.5px;line-height:1.6;min-height:64px;outline:none;padding:10px 12px;resize:vertical;transition:border-color 120ms ease;width:100%}',
   '.fsx-input:focus{border-color:color-mix(in srgb, var(--dt-primary) 60%, var(--dt-border))}',
-  '.fsx-go{align-items:center;background:var(--dt-primary);border:0;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.22);color:var(--dt-primary-foreground);cursor:pointer;display:inline-flex;font-size:10.5px;font-weight:600;gap:4px;letter-spacing:.02em;margin-top:8px;padding:5px 14px;transition:transform 120ms ease,box-shadow 120ms ease}',
+  '.fsx-go{align-items:center;background:var(--dt-primary);border:0;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.22);color:var(--dt-primary-foreground);cursor:pointer;display:inline-flex;font-size:12px;font-weight:600;gap:4px;letter-spacing:.02em;margin-top:9px;padding:6px 16px;transition:transform 120ms ease,box-shadow 120ms ease}',
   '.fsx-go:hover{box-shadow:0 2px 7px rgba(0,0,0,.3);transform:translateY(-1px)}',
 
   /* ── Pending / writing states ── */
-  '.fsx-pending{align-items:center;color:var(--dt-muted-foreground);display:flex;font-size:11.5px;font-style:italic;gap:7px;padding:8px 0 4px}',
+  '.fsx-pending{align-items:center;color:var(--dt-muted-foreground);display:flex;font-size:13px;font-style:italic;gap:7px;padding:8px 0 4px}',
   '@keyframes fsx-shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}',
   '.fsx-fill{display:flex;flex-direction:column;gap:7px;padding:8px 0 4px}',
   '.fsx-fillbar{animation:fsx-shimmer 1.2s linear infinite;background:linear-gradient(90deg, color-mix(in srgb, var(--dt-muted-foreground) 18%, transparent) 25%, color-mix(in srgb, var(--dt-primary) 40%, transparent) 50%, color-mix(in srgb, var(--dt-muted-foreground) 18%, transparent) 75%);background-size:200px 100%;border-radius:4px;height:9px}',
-  '.fsx-fillnote{align-items:center;color:var(--dt-primary);display:flex;font-family:var(--mono);font-size:9.5px;gap:7px;letter-spacing:.08em;text-transform:uppercase}',
+  '.fsx-fillnote{align-items:center;color:var(--dt-primary);display:flex;font-family:var(--mono);font-size:11px;gap:7px;letter-spacing:.08em;text-transform:uppercase}',
   '@keyframes fsx-spin{to{transform:rotate(360deg)}}',
   '.fsx-spinner{animation:fsx-spin .8s linear infinite;border:2px solid color-mix(in srgb, var(--dt-muted-foreground) 30%, transparent);border-radius:999px;border-top-color:var(--dt-primary);flex:none;height:12px;width:12px}',
 
   /* ── Sketch / proposals stages ── */
   '.fsx-sketchrow{align-items:center;border:1px dashed color-mix(in srgb, var(--dt-muted-foreground) 35%, transparent);border-radius:10px;display:flex;gap:10px;margin-top:8px;min-height:44px;padding:10px 12px}',
-  '.fsx-sketchlabel{color:var(--dt-muted-foreground);font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.fsx-sketchlabel{color:var(--dt-muted-foreground);font-family:var(--mono);font-size:12px;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   '.fsx-sketchbars{display:flex;flex:1;flex-direction:column;gap:4px}',
   '.fsx-sketchbar{animation:fsx-shimmer 1.6s linear infinite;background:linear-gradient(90deg, color-mix(in srgb, var(--dt-muted-foreground) 14%, transparent) 25%, color-mix(in srgb, var(--dt-muted-foreground) 26%, transparent) 50%, color-mix(in srgb, var(--dt-muted-foreground) 14%, transparent) 75%);background-size:200px 100%;border-radius:3px;height:6px}',
-  '.fsx-stagecap{align-items:center;color:var(--dt-primary);display:flex;font-family:var(--mono);font-size:9.5px;gap:7px;letter-spacing:.1em;margin-top:14px;text-transform:uppercase}',
+  '.fsx-stagecap{align-items:center;color:var(--dt-primary);display:flex;font-family:var(--mono);font-size:11px;gap:7px;letter-spacing:.1em;margin-top:14px;text-transform:uppercase}',
   '.fsx-proprow{background:var(--dt-card);border:1px solid var(--dt-border);border-radius:10px;display:flex;flex-direction:column;gap:2px;margin-top:8px;padding:9px 12px}',
-  '.fsx-propkind{color:var(--dt-primary);font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase}',
-  '.fsx-proplabel{font-size:12.5px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.fsx-propkind{color:var(--dt-primary);font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase}',
+  '.fsx-proplabel{font-size:14px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 
-  '.fsx-foot{color:var(--dt-muted-foreground);font-size:10px;line-height:1.6;margin-top:auto;opacity:.75;padding-top:16px}'
+  '.fsx-foot{display:none}'
 ].join('')
 
 /* Send a prompt through the active chat; toast when no surface owns it. */
 function send(prompt) {
   const ok = typeof host.submitPrompt === 'function' && host.submitPrompt(prompt)
   if (!ok) host.notify({ kind: 'info', message: 'Open a chat first. The buttons here send prompts into it.' })
-}
-
-function fmtDate() {
-  try {
-    return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
-  } catch (e) {
-    return ''
-  }
 }
 
 /* One clickable content row: index, line, source/tag meta, hover affordance. */
@@ -297,9 +289,6 @@ export default {
             ' , re-run each block\\u2019s prompt fresh (search the web for feed blocks), and rewrite ONLY the content fields in that file \\u2014 keep the schema and prompts exactly as they are, update populatedAt. Reply in chat with one line when done.'
         )
 
-      const kind = (config && config.kind) || 'dashboard'
-      const kicker =
-        kind === 'document' ? 'The daily brief \\u00b7 issue 01' : kind === 'app' ? 'Custom tool \\u00b7 built to order' : 'Command center'
 
       // ── Living-screen early stages ────────────────────────────────────────
       // sketch: wireframe rows under a "taking shape" caption — the pane is
@@ -311,14 +300,7 @@ export default {
           'div',
           { className: 'fsx', 'data-tour': 'first-screen' },
           h('style', null, CSS),
-          h('div', { className: 'fsx-kicker' }, 'Hermes is building this for ' + ((config && config.userName) || 'you')),
-          h('div', { className: 'fsx-title' }, (config && config.title) || 'Your screen'),
-          h(
-            'div',
-            { className: 'fsx-dateline' },
-            h('span', null, (stage === 'sketch' ? 'Sketch' : 'Draft modules') + ' \\u00b7 ' + fmtDate()),
-            h('span', { className: 'fsx-sketchlabel' }, 'live')
-          ),
+          h('div', { className: 'fsx-titlerow' }, h('div', { className: 'fsx-title' }, (config && config.title) || 'Your Dashboard')),
           h('div', { className: 'fsx-stagecap' }, h('span', { className: 'fsx-spinner' }), stage === 'sketch' ? 'Taking shape as you talk' : 'Drafted from your answers'),
           stage === 'sketch'
             ? blocks.map((block, i) =>
@@ -342,13 +324,7 @@ export default {
                   h('span', { className: 'fsx-proplabel' }, block.label)
                 )
               ),
-          h(
-            'div',
-            { className: 'fsx-foot' },
-            stage === 'sketch'
-              ? 'Keeps taking shape as you answer in the chat.'
-              : 'Pick which ones to keep in the chat.'
-          )
+          null
         )
       }
 
@@ -356,12 +332,10 @@ export default {
         'div',
         { className: 'fsx', 'data-tour': 'first-screen' },
         h('style', null, CSS),
-        h('div', { className: 'fsx-kicker' }, 'Hermes built this for ' + ((config && config.userName) || 'you')),
-        h('div', { className: 'fsx-title' }, (config && config.title) || 'your first screen'),
         h(
           'div',
-          { className: 'fsx-dateline' },
-          h('span', null, kicker + ' \\u00b7 ' + fmtDate()),
+          { className: 'fsx-titlerow' },
+          h('div', { className: 'fsx-title' }, (config && config.title) || 'Your Dashboard'),
           h('button', { className: 'fsx-regen', onClick: regen, title: 'Ask Hermes to rewrite this screen\\u2019s content in place', type: 'button' }, 'regenerate \\u21bb')
         ),
         blocks.map(block =>
@@ -378,11 +352,7 @@ export default {
             block.kind === 'tool' ? h(ToolPanel, { content: block.content, prompt: block.prompt }) : blockBody(block, freshPending)
           )
         ),
-        h(
-          'div',
-          { className: 'fsx-foot' },
-          'This screen is a file: ' + filePath + '. Edit it, or ask Hermes to, and the pane repaints.'
-        )
+        null
       )
     }
 

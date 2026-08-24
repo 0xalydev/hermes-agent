@@ -25,6 +25,7 @@ import { setSidebarOpen } from '@/store/layout'
 import { setOnboardingSurfaceActive } from '@/store/onboarding-presence'
 import { onboardingDevStage } from '@/store/onboarding-wizard'
 import { $statusbarVisible } from '@/store/statusbar-prefs'
+import { setTranslucencyMode } from '@/store/translucency'
 
 /** True from guide kickoff until the layout pick assembles the app. */
 export const $chatOnboardingSolo = atom(false)
@@ -58,6 +59,11 @@ export function startChatOnboardingSolo(): void {
 
   $chatOnboardingSolo.set(true)
   $chatLayoutPicked.set(false)
+  // First-run look: the glass material is the default face of the app —
+  // the cinematic hands into a translucent window, not a flat slab. The
+  // store guards support itself (clear on non-glass platforms), and this is
+  // a first-run store write on a fresh profile, so no user pref is clobbered.
+  setTranslucencyMode('glass')
   // Both the statusbar pref and the layout persist — a dev run killed mid-flow
   // must not leave the bar hidden forever, so the dev:chat stage always
   // restores to visible (a real first run has it visible anyway).

@@ -113,8 +113,9 @@ export function compileFirstScreen(
   const about = context ? ` I'm currently working on: ${context}.` : ''
   // No name yet → speak in second person, never a fake name. "there's
   // command center" shipped once; never again.
-  const userName = name || 'you'
-  const possessive = name ? `${name}'s` : 'Your'
+  const userName = profile.name.trim() || 'you'
+  const displayName = userName === 'you' ? '' : userName.replace(/(^|[\s-])([a-z])/g, (_, sep: string, ch: string) => sep + ch.toUpperCase())
+  const possessive = displayName ? `${displayName}'s` : 'Your'
 
   const generated: FirstScreenBlock[] = (modules ?? []).map(module => ({
     id: module.id,
@@ -212,10 +213,10 @@ export function compileFirstScreen(
     rationale: context ? `Built around what you're working on: ${context}` : `Built around ${focusSummary}`,
     title:
       kind === 'dashboard'
-        ? `${possessive} command center`
+        ? `${possessive} Dashboard`
         : kind === 'document'
-          ? `${possessive} daily brief`
-          : `${possessive} ${primary.toLowerCase()} tool`,
+          ? `${possessive} Daily Brief`
+          : `${possessive} ${primary} Tool`,
     userName
   }
 }
