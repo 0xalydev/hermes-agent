@@ -104,7 +104,7 @@ declare global {
       // (`?win=onboarding`) — the main app window stays hidden until it
       // finishes, so setup never reads as an overlay on the app.
       onboardingWizard?: {
-        open: (payload?: { mode?: 'full' | 'login'; needsProvider?: boolean }) => Promise<{ ok: boolean }>
+        open: (payload?: { mode?: 'full' | 'guide' | 'login'; needsProvider?: boolean }) => Promise<{ ok: boolean }>
         ready: () => void
         done: (payload: OnboardingWizardOutcome) => void
         onDone: (callback: (payload: OnboardingWizardOutcome) => void) => () => void
@@ -115,6 +115,10 @@ declare global {
       // app assembles around it (see onboarding-chat/assembly.ts).
       chatOnboarding?: {
         grow: (deltas: { bottom: number; left: number; right: number; top: number }) => void
+        /** The guided chat is starting with NO wizard window ahead of it — main
+         *  pre-sizes the (hidden) app window to the solo-chat card so the first
+         *  visible frame is already the conversation panel. */
+        soloBoot?: () => void
       }
       // HUD mode: the chrome-free floating chat. A FULL app renderer with its
       // own gateway (like an instance window), sized and skinned as a floating

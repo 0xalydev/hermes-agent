@@ -1,13 +1,14 @@
 /**
- * Login-mode wizard run — the animation → portal sign-in card → in-chat
- * guided onboarding chain. Pins:
+ * Guide-mode first run — the animation → guided in-chat onboarding chain (no
+ * wizard window, no sign-in card). Pins:
  *
- * - startOnboardingWizard() (the finishIntroReveal handoff) runs LOGIN mode:
- *   one step, no finale — the guided chat is the setup.
- * - startOnboardingWizardWindow honors the mode param both ways.
+ * - startOnboardingWizard() (the finishIntroReveal handoff) runs GUIDE mode:
+ *   no window, the wizard settles instantly, the guided chat is the setup.
+ * - startOnboardingWizardWindow still honors an explicit login-mode boot
+ *   (the window machinery is kept), and full mode for the classic dev run.
  * - The classic dev run (devStartOnboardingWizard) stays full-mode.
- * - Gate routing contract: a login outcome with inference hands off to the
- *   guide kickoff; without inference it hands off to nothing.
+ * - shouldStartGuideKickoff: true only while a first-run chain is mid-handoff
+ *   (intro seen this launch + wizard settled).
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,29 +17,36 @@ import {
   $onboardingWizard,
   devStartOnboardingWizard,
   resetOnboardingWizardForTests,
+  shouldResumeOnboardingWizard,
+  shouldStartGuideKickoff,
   startOnboardingWizard,
   startOnboardingWizardWindow
 } from './onboarding-wizard'
 
-describe('onboarding wizard login mode', () => {
+describe('onboarding wizard guide mode', () => {
   beforeEach(() => {
     resetOnboardingWizardForTests()
     localStorage.clear()
     vi.stubEnv('VITE_INTRO_REVEAL', '1')
   })
 
-  it('first-run handoff (startOnboardingWizard) is a one-card login run', () => {
+  it('first-run handoff (startOnboardingWizard) opens NO window and settles', () => {
     startOnboardingWizard()
 
     const s = $onboardingWizard.get()
 
-    expect(s.phase).toBe('active')
-    expect(s.mode).toBe('login')
-    expect(s.steps).toEqual(['login'])
-    expect(s.step).toBe('login')
+    expect(s.phase).toBe('hidden')
+    // The done-key is written (prod semantics); hasCompletedOnboardingWizard
+    // itself always reads false under import.meta.env.DEV by design.
+    expect(localStorage.getItem('hermes-onboarding-wizard-done-v1')).toBe('1')
+    // The gate's guide-kickoff check now holds: intro seen (the handoff marks
+    // it) + wizard settled = mid-handoff.
+    expect(shouldStartGuideKickoff()).toBe(true)
+    // And the resume path must NOT fire — the wizard is done, not unfinished.
+    expect(shouldResumeOnboardingWizard()).toBe(false)
   })
 
-  it('window boot honors login mode and full mode', () => {
+  it('window boot still honors login mode and full mode', () => {
     startOnboardingWizardWindow(true, 'login')
     expect($onboardingWizard.get().steps).toEqual(['login'])
     expect($onboardingWizard.get().mode).toBe('login')
@@ -62,5 +70,13 @@ describe('onboarding wizard login mode', () => {
 
     expect(s.mode).toBe('full')
     expect(s.steps).not.toContain('login')
+  })
+
+  it('guide kickoff requires the intro seen-key (no stale done-key handoff)', () => {
+    // A completed wizard from a PREVIOUS run (done-key set, intro never seen
+    // this launch) must not read as a mid-handoff guide run.
+    localStorage.setItem('hermes-onboarding-wizard-done-v1', '1')
+
+    expect(shouldStartGuideKickoff()).toBe(false)
   })
 })

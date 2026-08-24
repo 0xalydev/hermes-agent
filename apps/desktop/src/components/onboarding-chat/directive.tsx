@@ -19,12 +19,12 @@ import { useState } from 'react'
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '@/components/onboarding-chat/assembly'
 import {
-  AccentSwatch,
   accentsFor,
+  AccentSwatch,
   CONNECTORS,
   FOCUS_OPTIONS,
-  LAYOUTS,
   LayoutPreviewCard,
+  LAYOUTS,
   NOUS_ACCENT
 } from '@/components/onboarding-wizard/options'
 import type { LayoutNode } from '@/components/pane-shell/tree/model'
@@ -33,14 +33,22 @@ import { Button } from '@/components/ui/button'
 import { ConnectorLogo } from '@/components/ui/connector-logo'
 import { Chip } from '@/components/wizard-shell'
 import { registry } from '@/contrib/registry'
+import { cn } from '@/lib/utils'
 import { $wizardAnswers, setWizardAnswers } from '@/store/onboarding-wizard'
 import { useTheme } from '@/themes'
 import { setAccentOverride } from '@/themes/accent-override'
 
-type ChatStep = 'connectors' | 'focus' | 'layout' | 'look'
+type ChatStep = 'connectors' | 'first' | 'focus' | 'layout' | 'look' | 'progress'
 
 function isChatStep(value: string | undefined): value is ChatStep {
-  return value === 'focus' || value === 'connectors' || value === 'look' || value === 'layout'
+  return (
+    value === 'focus' ||
+    value === 'connectors' ||
+    value === 'look' ||
+    value === 'layout' ||
+    value === 'first' ||
+    value === 'progress'
+  )
 }
 
 /** Report a pick and let the model move on — hidden, so no user bubble. */
@@ -257,11 +265,132 @@ function LayoutCard({ locked = false }: CardProps) {
   )
 }
 
-const CARDS: Record<ChatStep, (props: CardProps) => React.JSX.Element> = {
+/**
+ * The "first build" card — the close of the get-to-know-you beat. The model
+ * asks a thoughtful question about what the user wants to BUILD first, then
+ * places this card with the options IT generated from the whole conversation:
+ * `::onboarding{step="first" options="A Discord bot|A habit tracker|…"}`.
+ *
+ * The options are untrusted model output riding the directive attrs — the
+ * card validates (count, length), renders them as tappable chips, and a tap
+ * sends the pick back as the user's next turn (visible — it IS their answer),
+ * so the model continues from a real reply, not a hidden [setup] note.
+ */
+function FirstBuildCard({ attrs, locked = false }: CardProps & { attrs: Record<string, string> }) {
+  const [picked, setPicked] = useState<null | string>(null)
+
+  // Parse + validate the model's options: 2–4 of them, each short enough to
+  // sit on a chip. Garbage in → no card (the directive degrades to prose).
+  const options = (attrs.options ?? '')
+    .split('|')
+    .map(option => option.trim())
+    .filter(option => option.length > 0 && option.length <= 60)
+    .slice(0, 4)
+
+  if (options.length < 2) {
+    return null
+  }
+
+  const pick = (option: string) => {
+    if (picked || locked) {
+      return
+    }
+
+    // The pick is the user's reply — a REAL visible turn, so the model's next
+    // message answers it like anything they typed.
+    if (requestComposerSubmit(option)) {
+      setPicked(option)
+    }
+  }
+
+  return (
+    <div className="my-3 grid max-w-md gap-4" data-onboarding-card inert={locked || undefined}>
+      <div className="flex flex-wrap gap-2">
+        {options.map(option => (
+          <Chip
+            key={option}
+            label={option}
+            on={picked === option}
+            onToggle={() => pick(option)}
+            variant="pill"
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The progress card — the build's live status, inline in the transcript. The
+ * model re-emits `::onboarding{step="progress" title="…"}` as it works; each
+ * emission appends a step row to a session-wide list (module-scope, keyed by
+ * nothing — the onboarding thread is the only consumer), the newest row
+ * pulsing while the turn streams. Read-only: the user watches the build
+ * breathe; permissions prompts ride the session concurrently.
+ *
+ * No fake percentages — the model can't know N-of-M mid-build, so the card
+ * is an honest growing step list, not a bar that lies.
+ */
+const progressSteps: string[] = []
+
+function ProgressCard({ attrs, locked = false }: CardProps & { attrs: Record<string, string> }) {
+  const title = (attrs.title ?? '').trim() || 'Working on it'
+
+  // Append on first sight of a new title (re-emits of the same step are the
+  // model re-rendering mid-stream, not a new step).
+  const [index] = useState(() => {
+    if (progressSteps[progressSteps.length - 1] !== title) {
+      progressSteps.push(title)
+    }
+
+    return progressSteps.length - 1
+  })
+
+  return (
+    <div className="my-3 grid max-w-md gap-1.5" data-onboarding-card>
+      {progressSteps.slice(0, index + 1).map((step, i) => {
+        const current = i === index
+
+        return (
+          <div className="flex items-center gap-2 text-sm" key={`${i}-${step}`}>
+            <span
+              aria-hidden
+              className={cn(
+                'inline-block size-1.5 shrink-0 rounded-full',
+                current ? 'bg-(--ui-accent)' : 'bg-(--ui-text-quaternary)',
+                current && !locked && 'animate-pulse'
+              )}
+            />
+            <span className={current ? 'text-(--ui-text-secondary)' : 'text-(--ui-text-quaternary)'}>
+              {current && !locked ? `${step}…` : step}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+const CARDS: Record<Exclude<ChatStep, 'first' | 'progress'>, (props: CardProps) => React.JSX.Element> = {
   connectors: ConnectorsCard,
   focus: FocusCard,
   layout: LayoutCard,
   look: LookCard
+}
+
+/** Cards that need the directive's raw attrs (the model-written payload). */
+function CardForStep({ attrs, locked, step }: CardProps & { attrs: Record<string, string>; step: ChatStep }) {
+  if (step === 'first') {
+    return <FirstBuildCard attrs={attrs} locked={locked} />
+  }
+
+  if (step === 'progress') {
+    return <ProgressCard attrs={attrs} locked={locked} />
+  }
+
+  const Card = CARDS[step]
+
+  return <Card locked={locked} />
 }
 
 export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<string, string>; streaming: boolean }) {
@@ -274,7 +403,5 @@ export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<st
   // Mount as soon as the directive is parsed — returning null until settle
   // grows the transcript by a card when the turn finishes. Keep it inert
   // mid-stream so the growing paragraph can't be clicked through.
-  const Card = CARDS[step]
-
-  return <Card locked={streaming} />
+  return <CardForStep attrs={attrs} locked={streaming} step={step} />
 }

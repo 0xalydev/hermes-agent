@@ -11838,6 +11838,33 @@ ipcMain.on('hermes:chat-onboarding:grow', (event, deltas) => {
   mainWindow.setBounds({ height, width, x, y }, true)
 })
 
+// The guided chat is starting with NO wizard window ahead of it (the first-run
+// chain is now cinematic → solo chat directly). Pre-size the app window to the
+// solo-chat card — the same dimensions the login-mode outcome used to apply —
+// so the guided chat reads as the small conversation panel, then reveal with
+// the standard fade. Sizing applies even if something (the intro watchdog's
+// safety reveal, a slow gateway) already showed the window full-size: the
+// kickoff is about to strip the layout to chat-only, and a full-size empty
+// shell is exactly the wrong first frame.
+ipcMain.on('hermes:chat-onboarding:solo-boot', event => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    return
+  }
+
+  const area = screen.getDisplayMatching(mainWindow.getBounds()).workArea
+  const width = Math.min(600, area.width)
+  const height = Math.min(640, area.height)
+
+  mainWindow.setBounds({
+    height,
+    width,
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + (area.height - height) / 2)
+  })
+
+  showMainAfterOnboarding()
+})
+
 // ── HUD mode ────────────────────────────────────────────────────────────────
 //
 // The chrome-free floating chat: a transparent, frameless, always-on-top

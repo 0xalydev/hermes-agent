@@ -43,8 +43,13 @@ export function NarrowOverlays() {
   const inTree = useMemo(() => new Set(tree ? allPaneIds(tree) : []), [tree])
 
   const collapsibles = useMemo(
-    () => panes.filter(p => paneChrome(p).collapsible && inTree.has(p.id) && !hiddenPanes.has(p.id)),
-    [panes, inTree, hiddenPanes]
+    // Solo: NO overlay candidates at all. The chat-solo tree adopts panes that
+    // normally live OUTSIDE the tree (sessions = the sidebar, which requires
+    // its SidebarProvider chrome) — an edge-strip reveal here renders them
+    // bare and crashes the contrib boundary. Guarding reveal state alone
+    // still leaves strips + hover paths; empty candidates kills them all.
+    () => (solo ? [] : panes.filter(p => paneChrome(p).collapsible && inTree.has(p.id) && !hiddenPanes.has(p.id))),
+    [solo, panes, inTree, hiddenPanes]
   )
 
   const collapsiblesRef = useRef(collapsibles)

@@ -129,7 +129,8 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   // outward by per-edge pixel deltas, so the chat pane (and the composer under
   // the user's cursor) keeps its screen rect while the app assembles around it.
   chatOnboarding: {
-    grow: deltas => ipcRenderer.send('hermes:chat-onboarding:grow', deltas)
+    grow: deltas => ipcRenderer.send('hermes:chat-onboarding:grow', deltas),
+    soloBoot: () => ipcRenderer.send('hermes:chat-onboarding:solo-boot')
   },
   // HUD mode: the chrome-free floating chat. A full app renderer (own gateway)
   // sized as a floating bar, so it mounts the real composer. Main owns the

@@ -87,6 +87,10 @@ def _(rid, params: dict) -> dict:
             "edit_snapshots": {},
             "explicit_cwd": explicit_cwd,
             "history": history,
+            # Seeded create (e.g. the guided onboarding's runbook + pre-written
+            # greeting): mark so the first submit persists these rows to the
+            # durable transcript exactly like a branch seed.
+            "_seeded_create": bool(history) and not parent_session_id,
             "history_lock": threading.Lock(),
             "history_version": 0,
             "image_counter": 0,
@@ -124,6 +128,18 @@ def _(rid, params: dict) -> dict:
     # without requiring the user to submit a first prompt.
     _schedule_agent_build(sid)
     _schedule_session_cap_enforcement()  # trim detached idle sessions over the cap
+
+    # A SEEDED create (session.create ``messages`` — the guided onboarding's
+    # runbook + pre-written greeting) is real content, not an empty draft:
+    # persist it NOW so any hydration (route change, reconnect, relaunch)
+    # returns these rows instead of an empty transcript that clobbers the
+    # client's optimistic paint. Branches keep their lazy first-submit persist.
+    if history and not parent_session_id:
+        try:
+            _ensure_session_db_row(_sessions[sid])
+            _persist_branch_seed(_sessions[sid])
+        except Exception:
+            logger.warning("session.create: seed history persist failed", exc_info=True)
 
     return _ok(
         rid,

@@ -442,7 +442,10 @@ export function useSessionActions({
   )
 
   const createBackendSessionForSend = useCallback(
-    async (preview: string | null = null): Promise<string | null> => {
+    async (
+      preview: string | null = null,
+      seedMessages?: { content: string; display_kind?: 'hidden'; role: 'assistant' | 'user' }[]
+    ): Promise<string | null> => {
       const startingStoredSessionId = selectedStoredSessionIdRef.current
       const startingRouteToken = getRouteToken()
 
@@ -462,6 +465,14 @@ export function useSessionActions({
               : $currentCwd.get().trim() || resolveNewSessionCwd()
 
         const params = await desktopSessionCreateParams(cwd)
+
+        // Seed history (the guided onboarding's runbook + pre-written
+        // greeting) rides session.create so the rows exist server-side from
+        // the session's first instant — no generation, no prompt round-trip.
+        if (seedMessages?.length) {
+          params.messages = seedMessages
+        }
+
         const created = await requestGateway<SessionCreateResponse>('session.create', params)
         const stored = created.stored_session_id ?? null
 

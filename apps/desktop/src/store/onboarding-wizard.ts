@@ -27,6 +27,18 @@ import { setOnboardingSurfaceActive } from './onboarding-presence'
 
 const DONE_KEY = 'hermes-onboarding-wizard-done-v1'
 const ANSWERS_KEY = 'hermes-onboarding-wizard-answers-v1'
+const GUIDE_KICKED_KEY = 'hermes-onboarding-guide-kicked-v1'
+
+/** Guide handoff beacon — set by the no-window guide run, consumed by the
+ *  gate. An ATOM, not just the localStorage keys, because the done-key is
+ *  written from finishIntroReveal's dynamic-import callback AFTER the intro
+ *  store has already settled to 'hidden': by then every dependency of the
+ *  gate's kickoff effect (enabled, intro.phase, wizard.phase) has gone quiet,
+ *  so a poll-on-render check misses the handoff entirely — the cinematic
+ *  dissolves into a vanilla shell and the guided chat never starts. The
+ *  beacon is reactive state the gate subscribes to, so the write itself
+ *  re-fires the effect. */
+export const $guideKickoffPending = atom(false)
 
 export type WizardStepId =
   | 'welcome'
@@ -45,8 +57,10 @@ export type WizardStepId =
 /** Which run the wizard window hosts:
  *  - 'full'  — the classic multi-step setup (dev:onboarding, screenshots).
  *  - 'login' — one card: portal sign-in, then the guided IN-CHAT setup takes
- *    over (the animation → login → chat chain). */
-export type WizardRunMode = 'full' | 'login'
+ *    over. No longer on the first-run path; kept for the window machinery.
+ *  - 'guide' — NO window: the first-run default. The wizard settles instantly
+ *    and the gate hands straight off to the in-chat guided setup. */
+export type WizardRunMode = 'full' | 'guide' | 'login'
 
 export interface WizardAnswers {
   /** What the user wants to be called. Optional — empty is fine. */
@@ -197,24 +211,75 @@ export function shouldResumeOnboardingWizard(): boolean {
   )
 }
 
+/** The gate's guide-kickoff check: a first-run chain mid-handoff — intro seen
+ *  THIS launch (devResetOnboardingFlow clears it), wizard settled by the
+ *  no-window guide run, guided chat not yet kicked off. Reads the done-key
+ *  directly: hasCompletedOnboardingWizard() is always false in dev builds,
+ *  but the handoff must still hold there (dev:full runs the real chain).
+ *
+ *  The kicked-key is the persistent half of the latch: seen + done survive
+ *  relaunch, so without it every launch of an onboarded install would re-run
+ *  the guided chat (the gate's module flag resets per process). */
+export function shouldStartGuideKickoff(): boolean {
+  return (
+    isIntroRevealEnabled() &&
+    hasSeenIntroReveal() &&
+    readKey(DONE_KEY) === '1' &&
+    readKey(GUIDE_KICKED_KEY) !== '1'
+  )
+}
+
+/** Mid-handoff relaunch: the persistent keys say the guide was settled but
+ *  never launched (app quit between the cinematic and the first chat). Seed
+ *  the beacon at module load so the gate picks the handoff back up. Guarded
+ *  so a plain onboarded install (kicked-key set) boots quiet. */
+export function seedGuideKickoffFromStorage(): void {
+  if (shouldStartGuideKickoff()) {
+    $guideKickoffPending.set(true)
+  }
+}
+
+/** Stamp the guided chat as launched — called by the gate the moment it hands
+ *  off, so a relaunch resumes the normal app instead of re-onboarding. */
+export function markGuideKickoffStarted(): void {
+  writeKey(GUIDE_KICKED_KEY, '1')
+  $guideKickoffPending.set(false)
+}
+
 /** The wizard window closed with no outcome — stand down for this session. */
 export function dismissOnboardingWizardSession(): void {
   settledThisSession = true
   $onboardingWizard.set(INITIAL)
 }
 
-/** Begin (or resume) the wizard. Called by `finishIntroReveal()` and by the
- *  gate on mid-flow restarts. No-ops once done.
+/** Begin (or resume) the wizard. No-ops once done.
  *
- *  The first-run chain runs LOGIN mode: animation → one portal sign-in card →
- *  the guided in-chat setup. The classic multi-step run stays reachable
- *  through the dev entries (`dev:onboarding`, `__onboarding.start`). */
-export function startOnboardingWizard(mode: WizardRunMode = 'login'): void {
+ *  The first-run chain runs GUIDE mode: animation → the guided in-chat setup
+ *  directly — no wizard window, no sign-in card. The classic multi-step run
+ *  stays reachable through the dev entries (`dev:onboarding`,
+ *  `__onboarding.start`). */
+export function startOnboardingWizard(mode: WizardRunMode = 'guide'): void {
   if (!isIntroRevealEnabled() || hasCompletedOnboardingWizard()) {
     return
   }
 
-  const steps: WizardStepId[] = mode === 'login' ? ['login'] : buildSteps()
+  if (mode === 'guide') {
+    // No window at all: mark the wizard settled (the guided chat IS the
+    // setup) and let the gate's effect hand off to the guide kickoff. The
+    // intro's seen-key is the handoff's other half — finishIntroReveal set
+    // it on the real chain, but a direct startOnboardingWizard() (the gate's
+    // resume path, tests) arrives without it, so stamp it here too. The
+    // beacon is what actually wakes the gate (see $guideKickoffPending).
+    settledThisSession = true
+    markDone()
+    writeKey('hermes-intro-reveal-seen-v1', '1')
+    $onboardingWizard.set(INITIAL)
+    $guideKickoffPending.set(true)
+
+    return
+  }
+
+  const steps: WizardStepId[] = ['login']
 
   $onboardingWizard.set({ mode, phase: 'active', step: steps[0], steps })
 }
@@ -312,21 +377,49 @@ export function buildKickoffPrompt(answers: WizardAnswers): string {
   return parts.join(' ')
 }
 
+/** The pre-written opener for the guided chat — painted instantly (seeded as
+ *  a real assistant turn at session.create), so the first thing the user sees
+ *  costs zero generation time. The instruction prompt below tells the model
+ *  this message was already sent on its behalf. */
+export const CHAT_ONBOARDING_GREETING =
+  "Hey, welcome — I'm Hermes. I'll be working alongside you here: building things, doing research, automating the boring parts.\n\nBefore we start, what should I call you?"
+
+/** The seed rows for the guided chat's session.create: the invisible runbook
+ *  (model-visible, never rendered) followed by the pre-written greeting the
+ *  user sees immediately. */
+export function buildChatOnboardingSeedMessages(): {
+  content: string
+  display_kind?: 'hidden'
+  role: 'assistant' | 'user'
+}[] {
+  return [
+    { content: buildChatOnboardingPrompt(), display_kind: 'hidden', role: 'user' },
+    { content: CHAT_ONBOARDING_GREETING, role: 'assistant' }
+  ]
+}
+
 /** The hidden seed for IN-CHAT onboarding — the conversational twin of the
  *  wizard window. Hermes walks the user through the same setup, placing
  *  `::onboarding{step="…"}` cards that the renderer turns into live pickers
- *  (see components/onboarding-chat/directive.tsx). */
+ *  (see components/onboarding-chat/directive.tsx). The flow's runbook lives in
+ *  components/onboarding-chat/FLOW.md — keep the two in sync. */
 export function buildChatOnboardingPrompt(): string {
   return [
     'You are welcoming a brand-new user inside Hermes Desktop, and you are their setup guide.',
     'This message is invisible to them — never reference it or the mechanics described here.',
-    'Walk them through setup conversationally, ONE step per turn, in this order:',
-    '1. Greet them briefly and warmly as Hermes (two short sentences) and ask what you should call them.',
-    '2. After they answer: ask what they want help with, and include the line ::onboarding{step="focus"}',
-    '3. Then the tools they already use, so Hermes can connect to them later: one short sentence, and include the line ::onboarding{step="connectors"}',
-    '4. Then their color: one short sentence, and include the line ::onboarding{step="look"}',
-    '5. Then their layout: one short sentence, and include the line ::onboarding{step="layout"}',
-    '6. Close in two or three sentences: use their name if they gave one, and suggest one concrete first thing to try based on what they said they want help with.',
+    'Your first message has ALREADY been sent for you: it greeted them and asked what you should call them. Do not greet again — their next message is their answer.',
+    'From there, walk them through setup conversationally, ONE step per turn, in this order:',
+    '1. Acknowledge their name warmly in a few words, then their color — one short sentence, and include the line ::onboarding{step="look"}',
+    '2. Then the tools they already use, so Hermes can connect to them later: one short sentence, and include the line ::onboarding{step="connectors"}',
+    '3. Then their layout: one short sentence, and include the line ::onboarding{step="layout"}',
+    '4. Then the fork, in your own words: do they know what they\'d like to build with you? We can automate something they already do on the computer, or figure it out together.',
+    '5. Branch on their answer:',
+    '   - SPECIFIC task in mind: skip the options card — start the task directly (step 6).',
+    '   - GENERAL idea: place a card of options you generated from everything they\'ve said: ::onboarding{step="first" options="First idea|Second idea|Third idea"} — 2 to 4 options, each a short phrase (under 60 chars), spanning simple (a reminder) to complex (a dashboard), all specific to THIS user, separated by |. Their tap IS their reply — the task starts from it.',
+    '   - NOT SURE: ask what they wish they spent less time doing on the computer. If they answer, follow up once to get specific, then the options card above. If they say "idk", ask what they use their computer for, follow up once, then the options card.',
+    '   CRITICAL for every branch: the first task must need NO external account or OAuth (no Gmail, no Slack, no Google sign-in) — connectors get wired later, on their request. Everything else is fair game and the more visible the better: web research with the browser shown to the user as you work, scripts, computer use, a small app, a file-based tracker, a scheduled reminder, a generated page. If their idea needs an account, build the no-auth core first and say the connection is a later step.',
+    '6. START THE TASK in this conversation — really begin the work (plan, scaffold, first artifact). As you start, tell them in one short sentence: you\'ll ask for permissions as you go, and they can say no to anything or redirect you.',
+    '7. While the work runs, place ::onboarding{step="progress" title="what you\'re doing"} as its own paragraph at the start of each status turn — the card shows the build breathing live. Keep the titles short and present-tense ("Scaffolding the project", "Wiring the reminder").',
     'Rules for the ::onboarding lines: emit each EXACTLY as written above, alone as its own paragraph with nothing else on that line.',
     'The app renders an interactive picker there and applies choices to the app live, so do NOT list or describe the options in prose.',
     'Their picks arrive as invisible messages prefixed [setup] — acknowledge each in a few words and move to the next step.',
@@ -336,7 +429,9 @@ export function buildChatOnboardingPrompt(): string {
 
 /** Hard reset for tests. */
 export function resetOnboardingWizardForTests(): void {
+  settledThisSession = false
   $onboardingWizard.set(INITIAL)
+  $guideKickoffPending.set(false)
   $wizardAnswers.set({ ...DEFAULT_ANSWERS })
 }
 
@@ -370,12 +465,14 @@ export function devStartOnboardingWizard(step?: WizardStepId): void {
   $onboardingWizard.set({ mode: 'full', phase: 'active', step: target, steps })
 }
 
-/** Forget everything: intro seen-key, wizard done-key, answers. */
+/** Forget everything: intro seen-key, wizard done-key, kicked-key, answers. */
 export function devResetOnboardingFlow(): void {
   settledThisSession = false
   writeKey(DONE_KEY, null)
+  writeKey(GUIDE_KICKED_KEY, null)
   writeJson(ANSWERS_KEY, null)
   clearIntroRevealSeen()
   $onboardingWizard.set(INITIAL)
+  $guideKickoffPending.set(false)
   $wizardAnswers.set({ ...DEFAULT_ANSWERS })
 }

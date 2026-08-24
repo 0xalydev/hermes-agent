@@ -42,7 +42,13 @@ import { requestVoiceConversationStart } from '@/store/composer'
 import { $activeConnectionId } from '@/store/connections'
 import { $cronReviewRequest, setCronFocusJobId } from '@/store/cron'
 import { $pinnedSessionIds, pinSession, restoreWorktree, unpinSession } from '@/store/layout'
-import { $wizardAnswers, buildChatOnboardingPrompt, buildKickoffPrompt } from '@/store/onboarding-wizard'
+import {
+  $wizardAnswers,
+  buildChatOnboardingSeedMessages,
+  buildKickoffPrompt,
+  CHAT_ONBOARDING_GREETING,
+  markGuideKickoffStarted
+} from '@/store/onboarding-wizard'
 import { $previewTarget } from '@/store/preview'
 import {
   $activeGatewayProfile,
@@ -586,11 +592,13 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     }
   }, [startSessionInWorkspace, startWorkSessionRequest])
 
-  // Onboarding handoff: the first chat starts itself. Create the session,
-  // then submit a HIDDEN prompt (display_kind=hidden — never rendered) so
-  // Hermes speaks first and the transcript opens with its greeting, not ours.
-  // 'greet' seeds the wizard's answers; 'guide' runs the whole setup IN the
-  // chat instead (the ::onboarding card walk — no wizard window at all).
+  // Onboarding handoff: the first chat starts itself.
+  // 'guide' seeds the WHOLE opening at session.create — the invisible runbook
+  // (display_kind=hidden) plus a PRE-WRITTEN assistant greeting — so the
+  // first thing the user sees paints instantly, zero generation wait. No
+  // prompt.submit: the model's first real turn is its reply to the user's
+  // name. 'greet' keeps the classic hidden-kickoff shape (Hermes generates
+  // the opener from the wizard's answers).
   const kickoffFirstChat = useCallback(
     (kind: 'greet' | 'guide' = 'greet') => {
       if (kind === 'guide') {
@@ -598,15 +606,20 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         // around the conversation when the layout card is answered.
         startChatOnboardingSolo()
       }
-
       void (async () => {
-        const runtimeId = await createBackendSessionForSend(null)
+        const seedMessages = kind === 'guide' ? buildChatOnboardingSeedMessages() : undefined
+        const runtimeId = await createBackendSessionForSend(null, seedMessages)
 
         if (!runtimeId) {
           return
         }
 
         if (kind === 'guide') {
+          // The seeded session exists — NOW burn the persistent latch, so a
+          // pre-create crash retries the handoff but a relaunch after this
+          // resumes the normal app.
+          markGuideKickoffStarted()
+
           // Mark this thread as the guided one (transcript treatment, no git
           // strip). Both ids: the thread list keys by the STORED session id
           // (that's what the route and sidebar select), the composer by the
@@ -614,6 +627,21 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           const storedId = $selectedStoredSessionId.get()
 
           $chatOnboardingThreadIds.set(storedId ? [storedId, runtimeId] : [runtimeId])
+
+          // Paint the pre-written greeting into the local view NOW — the
+          // seed rows live server-side; the optimistic row makes the first
+          // frame instant. Hydration on any later resume yields the same row.
+          setMessages(current => [
+            ...current,
+            {
+              id: `onboarding-greeting-${runtimeId}`,
+              parts: [{ text: CHAT_ONBOARDING_GREETING, type: 'text' }],
+              role: 'assistant',
+              timestamp: Date.now() / 1000
+            }
+          ])
+
+          return
         }
 
         setAwaitingResponse(true)
@@ -624,7 +652,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           {
             display_kind: 'hidden',
             session_id: runtimeId,
-            text: kind === 'guide' ? buildChatOnboardingPrompt() : buildKickoffPrompt($wizardAnswers.get())
+            text: buildKickoffPrompt($wizardAnswers.get())
           },
           PROMPT_SUBMIT_REQUEST_TIMEOUT_MS
         ).catch(() => {

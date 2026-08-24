@@ -3052,15 +3052,20 @@ def _ensure_session_db_row(session: dict) -> None:
 
 
 def _persist_branch_seed(session: dict) -> None:
-    """First-turn persist of a branch's copied transcript.
+    """First-turn persist of a session's seeded transcript.
 
-    A branch is a draft until its first submit: the parent's messages live only
-    in ``session["history"]`` (they ride into the agent as ``conversation_history``,
-    which ``_flush_messages_to_session_db`` skips by identity). Without this the
-    branch row would resume missing its pre-branch context. Runs once; the row +
-    parent link are written by ``_ensure_session_db_row`` just before this.
+    Two shapes share this path: a BRANCH (parent's copied messages) and a
+    SEEDED CREATE (session.create ``messages`` — the guided onboarding's
+    runbook + pre-written greeting). Either way the rows live only in
+    ``session["history"]`` until the first submit (they ride into the agent as
+    ``conversation_history``, which ``_flush_messages_to_session_db`` skips by
+    identity). Without this the row would resume missing that context. Runs
+    once; the row (+ parent link, when a branch) is written by
+    ``_ensure_session_db_row`` just before this.
     """
-    if not session.get("parent_session_id") or session.get("_branch_seed_persisted"):
+    if session.get("_branch_seed_persisted"):
+        return
+    if not session.get("parent_session_id") and not session.get("_seeded_create"):
         return
     key = session.get("session_key")
     if not key:
@@ -7805,7 +7810,13 @@ def _coerce_seed_history(value: Any) -> list[dict]:
         if not isinstance(content, str) or not content.strip():
             continue
 
-        history.append({"role": role, "content": content})
+        row = {"role": role, "content": content}
+        # Same whitelist as prompt.submit: a seed row may be model-visible but
+        # hidden from clients (the guided onboarding seeds its instruction
+        # prompt this way, ahead of a pre-written assistant greeting).
+        if item.get("display_kind") == "hidden":
+            row["display_kind"] = "hidden"
+        history.append(row)
 
     return history
 

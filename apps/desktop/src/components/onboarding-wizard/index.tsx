@@ -29,6 +29,7 @@ import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import { registry } from '@/contrib/registry'
 import { $introReveal, startIntroReveal } from '@/store/intro-reveal'
 import {
+  $guideKickoffPending,
   $onboardingWizard,
   completeOnboardingWizard,
   devResetOnboardingFlow,
@@ -38,7 +39,9 @@ import {
   onboardingDevStage,
   type OnboardingWizardOutcome,
   reloadWizardAnswers,
+  seedGuideKickoffFromStorage,
   shouldResumeOnboardingWizard,
+  shouldStartGuideKickoff,
   startOnboardingWizard,
   type WizardAnswers,
   wizardNeedsProviderStep,
@@ -54,6 +57,9 @@ const wizardBridge = () => window.hermesDesktop?.onboardingWizard
 // One auto-launch per process: the `npm run dev:{movie,onboarding,kickoff,full}`
 // entry points bake a stage the gate drops into as soon as the gateway is up.
 let devStageLaunched = false
+// One guide kickoff per process: the no-window guide run settles the store and
+// the gate's effect hands off exactly once.
+let guideKickoffHandled = false
 
 export interface OnboardingWizardGateProps {
   enabled: boolean
@@ -93,6 +99,31 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
     }
   }, [enabled, intro.phase, wizard.phase])
 
+  // Guide mode opens NO window — the guide run raises $guideKickoffPending
+  // (reactive beacon) and this effect hands off to the guided chat. A beacon,
+  // not a poll: the done-key lands in finishIntroReveal's dynamic-import
+  // callback AFTER intro.phase settles to 'hidden', so by the time the keys
+  // exist every other dependency here has gone quiet and a poll-on-render
+  // misses the handoff (splash → vanilla shell, no guided chat). Seeding from
+  // storage covers the mid-handoff relaunch (quit between splash and chat).
+  const guidePending = useStore($guideKickoffPending)
+
+  useEffect(() => {
+    seedGuideKickoffFromStorage()
+  }, [])
+
+  useEffect(() => {
+    if (!enabled || !guidePending || intro.phase !== 'hidden' || wizard.phase !== 'hidden') {
+      return
+    }
+
+    if (shouldStartGuideKickoff() && !guideKickoffHandled) {
+      guideKickoffHandled = true
+      handleOutcome({ completed: true, mode: 'guide' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleOutcome is stable for this handoff
+  }, [enabled, guidePending, intro.phase, wizard.phase])
+
   // Everything the wizard decided that must outlive it, applied in THIS
   // renderer: the window ran its own module instances, so sync theme state
   // from the shared storage, then commit the layout preset.
@@ -113,6 +144,20 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
   const handleOutcome = useCallback(
     (outcome: OnboardingWizardOutcome) => {
       completeOnboardingWizard()
+
+      // Guide mode: no picks to commit — the guided chat IS the setup. The
+      // wizard window never opened, so the app window is still hidden from
+      // the intro: ask main to pre-size it to the solo chat and reveal it.
+      // The persistent kicked-latch is NOT stamped here — kickoffFirstChat
+      // burns it only once the seeded session really exists, so a crash or
+      // reload anywhere in between retries the handoff instead of stranding
+      // a vanilla shell.
+      if (outcome.mode === 'guide') {
+        window.hermesDesktop?.chatOnboarding?.soloBoot?.()
+        onKickoff('guide')
+
+        return
+      }
 
       // Login mode: no picks to commit — the guided chat IS the setup. Run it
       // whenever inference exists (sign-in completed OR skipped-but-already
