@@ -45,6 +45,9 @@ export interface FirstScreenConfig {
 }
 
 export interface FirstScreenProfile {
+  /** One-line summary of what they're working on right now (their words,
+   *  captured by the guide). Empty until the context step lands. */
+  context?: string
   focus: string[]
   name: string
 }
@@ -73,8 +76,12 @@ export function setFirstScreenKind(kind: FirstScreenKind | null): void {
 export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScreenKind): FirstScreenConfig {
   const focus = profile.focus.filter(Boolean)
   const name = profile.name.trim()
+  const context = (profile.context ?? '').trim()
   const primary = focus[0] ?? 'your day'
   const secondary = focus[1] ?? focus[0] ?? 'your projects'
+  // Their live project, threaded into every prompt: the focus chips are
+  // taxonomy; the context line is the actual work on their plate this week.
+  const about = context ? ` I'm currently working on: ${context}.` : ''
   // No name yet → speak in second person, never a fake name. "there's
   // command center" shipped once; never again.
   const userName = name || 'you'
@@ -87,21 +94,21 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
             id: 'start',
             kind: 'action',
             label: `Start today's ${primary.toLowerCase()}`,
-            prompt: `Find my single best next task for today in ${primary.toLowerCase()}${focus.length > 1 ? ` or ${secondary.toLowerCase()}` : ''}: one sentence on why it's the one, then the first three concrete steps. No preamble.`,
+            prompt: `Find my single best next task for today in ${primary.toLowerCase()}${focus.length > 1 ? ` or ${secondary.toLowerCase()}` : ''}.${about} One sentence on why it's the one, then the first three concrete steps. No preamble.`,
             stepLine: `Wiring your ${primary.toLowerCase()} starter`
           },
           {
             id: 'draft',
             kind: 'draft',
             label: 'Draft in your voice',
-            prompt: `Draft what I describe, in my voice: plain, direct, short sentences. Show me the draft, ask at most one clarifying question, then revise.`,
+            prompt: `Draft what I describe, in my voice: plain, direct, short sentences.${about} Show me the draft, ask at most one clarifying question, then revise.`,
             stepLine: 'Teaching it your voice'
           },
           {
             id: 'brief',
             kind: 'feed',
             label: 'Morning brief',
-            prompt: `Assemble my morning brief: three items on ${primary.toLowerCase()}${focus.length > 1 ? `, two on ${secondary.toLowerCase()}` : ''}, one line each with a source, then one sentence on what I should look at first. Offer to save it as a recurring morning job.`,
+            prompt: `Assemble my morning brief: three items on ${primary.toLowerCase()}${focus.length > 1 ? `, two on ${secondary.toLowerCase()}` : ''}, one line each with a source.${about} Close with one sentence on what I should look at first. Offer to save it as a recurring morning job.`,
             stepLine: 'Setting your morning brief'
           }
         ]
@@ -111,7 +118,7 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
               id: 'brief',
               kind: 'feed',
               label: 'Your first issue',
-              prompt: `Write the first issue of my personal brief. Lead with ${primary.toLowerCase()}: the three most useful things from the last day, one line each with a source. ${focus.length > 1 ? `Then a short ${secondary.toLowerCase()} section with two items. ` : ''}Close with one concrete suggestion for today.`,
+              prompt: `Write the first issue of my personal brief. Lead with ${primary.toLowerCase()}: the three most useful things from the last day, one line each with a source. ${focus.length > 1 ? `Then a short ${secondary.toLowerCase()} section with two items. ` : ''}${about ? `For context,${about} ` : ''}Close with one concrete suggestion for today.`,
               stepLine: 'Composing your first issue'
             },
             {
@@ -134,7 +141,7 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
               id: 'tool',
               kind: 'tool',
               label: `${primary} helper`,
-              prompt: `Act as my ${primary.toLowerCase()} helper, a tool rather than a conversation: I paste raw material, you return exactly one shaped result${focus.length > 1 ? ` about ${primary.toLowerCase()} or ${secondary.toLowerCase()}` : ''}, nothing else. If my input is ambiguous, pick the most likely reading and show it. Three sections maximum.`,
+              prompt: `Act as my ${primary.toLowerCase()} helper, a tool rather than a conversation: I paste raw material, you return exactly one shaped result${focus.length > 1 ? ` about ${primary.toLowerCase()} or ${secondary.toLowerCase()}` : ''}, nothing else.${about} If my input is ambiguous, pick the most likely reading and show it. Three sections maximum.`,
               stepLine: `Building your ${primary.toLowerCase()} helper`
             },
             {
@@ -163,7 +170,7 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
   return {
     blocks,
     kind,
-    rationale: `Built around ${focusSummary}`,
+    rationale: context ? `Built around what you're working on: ${context}` : `Built around ${focusSummary}`,
     title:
       kind === 'dashboard'
         ? `${possessive} command center`
@@ -343,16 +350,17 @@ export default {
           'style',
           null,
           '.fs-card{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--foreground);display:flex;flex-direction:column;width:100%}' +
-            '.fs-row{align-items:center;background:transparent;border:0;color:var(--foreground);cursor:pointer;display:flex;font-size:12px;justify-content:space-between;gap:10px;padding:9px 12px;text-align:left;transition:background 120ms ease;width:100%}' +
+            '.fs-row{align-items:center;background:transparent;border:0;color:var(--foreground);cursor:pointer;display:flex;font-size:12px;font-weight:500;justify-content:space-between;gap:10px;padding:9px 12px;text-align:left;transition:background 120ms ease;width:100%}' +
             '.fs-row:hover{background:color-mix(in srgb, var(--accent) 24%, transparent)}' +
             '.fs-row:active{background:color-mix(in srgb, var(--accent) 38%, transparent)}' +
-            '.fs-pill{background:var(--primary);border-radius:999px;color:var(--primary-foreground);font-size:10px;font-weight:500;opacity:.85;padding:2px 9px;transition:opacity 120ms ease}' +
-            '.fs-row:hover .fs-pill{opacity:1}' +
+            '.fs-pill{align-items:center;background:var(--primary);border:1px solid color-mix(in srgb, var(--primary-foreground) 18%, transparent);border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.25);color:var(--primary-foreground);display:inline-flex;flex:none;font-size:10px;font-weight:600;gap:3px;letter-spacing:.02em;padding:3px 10px;transition:transform 120ms ease,box-shadow 120ms ease}' +
+            '.fs-row:hover .fs-pill{box-shadow:0 2px 6px rgba(0,0,0,.35);transform:translateY(-1px)}' +
+            '.fs-row:active .fs-pill{transform:translateY(0)}' +
             '.fs-body{border-top:1px solid var(--border);display:flex;flex-direction:column;font-size:11px;gap:6px;padding:8px 12px 10px}' +
-            '.fs-item{display:flex;gap:8px;justify-content:space-between;line-height:1.45}' +
-            '.fs-src{color:var(--muted-foreground);flex:none;font-size:10px}' +
+            '.fs-item{color:var(--muted-foreground);display:flex;gap:8px;justify-content:space-between;line-height:1.45}' +
+            '.fs-src{color:var(--muted-foreground);flex:none;font-size:9px;font-style:italic;opacity:.75}' +
             '.fs-skel{color:var(--muted-foreground);white-space:pre-wrap}' +
-            '.fs-steps{margin:0;padding-left:16px}.fs-steps li{line-height:1.5}'
+            '.fs-steps{color:var(--muted-foreground);margin:0;padding-left:16px}.fs-steps li{line-height:1.5}'
         ),
         h(
           'div',
@@ -365,7 +373,7 @@ export default {
                 'button',
                 { className: 'fs-row', onClick: () => run(block.prompt), type: 'button' },
                 h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, block.label),
-                h('span', { className: 'fs-pill' }, 'Run')
+                h('span', { className: 'fs-pill' }, 'Run', h('span', { 'aria-hidden': true }, '\u25B8'))
               ),
               body(block)
             )

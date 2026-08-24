@@ -40,7 +40,7 @@ const OPTIONS: Array<{ blurb: string; kind: FirstScreenKind; title: string }> = 
 export function FirstScreenStep() {
   const answers = useStore($wizardAnswers)
   const picked = useStore($firstScreenKind)
-  const profile = { focus: answers.focus, name: answers.name }
+  const profile = { context: answers.context, focus: answers.focus, name: answers.name }
 
   return (
     <div>

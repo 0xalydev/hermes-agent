@@ -47,12 +47,13 @@ import { $wizardAnswers, setWizardAnswers } from '@/store/onboarding-wizard'
 import { useTheme } from '@/themes'
 import { setAccentOverride } from '@/themes/accent-override'
 
-type ChatStep = 'connectors' | 'first-screen' | 'focus' | 'layout' | 'look' | 'name'
+type ChatStep = 'connectors' | 'context' | 'first-screen' | 'focus' | 'layout' | 'look' | 'name'
 
 function isChatStep(value: string | undefined): value is ChatStep {
   return (
     value === 'focus' ||
     value === 'connectors' ||
+    value === 'context' ||
     value === 'look' ||
     value === 'layout' ||
     value === 'first-screen' ||
@@ -299,7 +300,7 @@ function FirstScreenCard({ locked = false }: CardProps) {
   const picked = useStore($firstScreenKind)
   const [building, setBuilding] = useState(false)
   const [built, setBuilt] = useState<null | ReturnType<typeof compileFirstScreen>>(null)
-  const profile = { focus: answers.focus, name: answers.name }
+  const profile = { context: answers.context, focus: answers.focus, name: answers.name }
 
   // Continue = build. The config compiles synchronously, then materializes
   // (screen.json lands on disk) before the model is told — so when the chat
@@ -414,6 +415,8 @@ function FirstScreenCard({ locked = false }: CardProps) {
 
 const CARDS: Record<ChatStep, (props: CardProps) => React.JSX.Element> = {
   connectors: ConnectorsCard,
+  // 'context' is data like 'name': what they're working on, in their words.
+  context: () => <></>,
   'first-screen': FirstScreenCard,
   focus: FocusCard,
   layout: LayoutCard,
@@ -431,13 +434,14 @@ export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<st
     return null
   }
 
-  // The name directive is data, not UI: store it (idempotent) and render
-  // nothing. The model interpolates the user's actual answer into `value`.
-  if (step === 'name') {
+  // Data directives (no UI): the model hands the renderer what the user
+  // said — the name, and the one-line summary of what they're working on.
+  // Stored idempotently; the artifact compiler reads both.
+  if (step === 'name' || step === 'context') {
     const value = (attrs.value ?? '').trim()
 
-    if (value && $wizardAnswers.get().name !== value) {
-      setWizardAnswers({ name: value })
+    if (value && $wizardAnswers.get()[step] !== value) {
+      setWizardAnswers({ [step]: value })
     }
 
     return null

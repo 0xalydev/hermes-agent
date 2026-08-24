@@ -53,6 +53,10 @@ export type WizardRunMode = 'full' | 'login'
 export interface WizardAnswers {
   /** What the user wants to be called. Optional — empty is fine. */
   name: string
+  /** What they're actually working on right now, in their own words —
+   *  the free-text answer that makes the first screen THEIRS instead of a
+   *  template. Captured conversationally in the guided chat. */
+  context: string
   /** Focus areas picked on the personalize step. */
   focus: string[]
   /** Connector ids toggled on (fake for now — stored, not wired). */
@@ -72,6 +76,7 @@ export interface WizardAnswers {
 export const DEFAULT_ANSWERS: WizardAnswers = {
   accent: null,
   connectors: [],
+  context: '',
   focus: [],
   keepInDock: true,
   layout: 'basic',
@@ -332,12 +337,13 @@ export function buildChatOnboardingPrompt(): string {
     'Walk them through setup conversationally, ONE step per turn, in this order:',
     '1. Greet them briefly and warmly as Hermes (two short sentences) and ask what you should call them.',
     '2. After they tell you their name: include the line ::onboarding{step="name" value="THEIR_NAME"} with THEIR_NAME replaced by the actual name they gave (this line renders as nothing — it just saves the name). Then ask what they want help with, and include the line ::onboarding{step="focus"}',
-    '3. Then the tools they already use, so Hermes can connect to them later: one short sentence, and include the line ::onboarding{step="connectors"}',
-    '4. Then their color: one short sentence, and include the line ::onboarding{step="look"}',
-    '5. Then their layout: one short sentence, and include the line ::onboarding{step="layout"}',
-    '6. Now the payoff: tell them you\'ve been taking notes, and ask whether their first screen should be a Dashboard, a Document, or an App — one short sentence explaining the difference in plain terms, then include the line ::onboarding{step="first-screen"}',
-    '7. When their pick arrives as [setup] built…: celebrate it in one sentence (use its name), tell them the file lives at ~/.hermes/desktop-plugins/first-screen/screen.json and they can edit it directly, and invite them to press one of its buttons right here to watch it work.',
-    '8. Then stand down — they are doing the product now.',
+    '3. Then ask, in one warm sentence, what they are actually working on right now — the real project, deadline, or problem on their plate this week. This is the answer that makes their first screen theirs, so if they are vague, ask ONE short follow-up for a concrete detail. After their answer: include the line ::onboarding{step="context" value="THEIR_ANSWER"} with THEIR_ANSWER replaced by a one-line summary of what they said (verbatim key details, under 140 characters).',
+    '4. Then the tools they already use, so Hermes can connect to them later: one short sentence, and include the line ::onboarding{step="connectors"}',
+    '5. Then their color: one short sentence, and include the line ::onboarding{step="look"}',
+    '6. Then their layout: one short sentence, and include the line ::onboarding{step="layout"}',
+    '7. Now the payoff: tell them you\'ve been taking notes, and ask whether their first screen should be a Dashboard, a Document, or an App — one short sentence explaining the difference in plain terms, then include the line ::onboarding{step="first-screen"}',
+    '8. When their pick arrives as [setup] built…: their screen just opened as a pane beside this chat, pre-filled with starter content about what they told you, and its config lives at ~/.hermes/desktop-plugins/first-screen/screen.json (theirs to edit anytime — the pane repaints on save). Tell them that in one or two sentences, naming the project you built it around.',
+    '9. Invite them to press a button on the pane to watch it work. Then stand down — they are doing the product now.',
     'Rules for the ::onboarding lines: emit each EXACTLY as written above, alone as its own paragraph — a blank line before and after, never two directives on the same line.',
     'The app renders an interactive picker there and applies choices to the app live, so do NOT list or describe the options in prose.',
     'Their picks arrive as invisible messages prefixed [setup] — acknowledge each in a few words and move to the next step.',

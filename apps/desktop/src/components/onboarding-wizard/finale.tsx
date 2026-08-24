@@ -32,7 +32,7 @@ export function Finale({ leaving = false }: { leaving?: boolean }) {
   const kind = pickedKind ?? 'dashboard'
 
   const config = useMemo(
-    () => compileFirstScreen({ focus: answers.focus, name: answers.name }, kind),
+    () => compileFirstScreen({ context: answers.context, focus: answers.focus, name: answers.name }, kind),
     // Compiled once at mount from the finished profile — the theater replays
     // it, it must not re-derive mid-sequence.
     // eslint-disable-next-line react-hooks/exhaustive-deps

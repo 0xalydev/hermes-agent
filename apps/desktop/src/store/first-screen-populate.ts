@@ -62,7 +62,7 @@ export function buildPopulatePrompt(config: FirstScreenConfig): string {
 
   return [
     `Fill in the starter screen you just built for ${config.userName === 'you' ? 'the user' : config.userName} (${config.rationale.toLowerCase()}).`,
-    'Each block below carries the prompt it will run later; produce the content a user would expect to ALREADY see on a well-made screen before pressing anything.',
+    'Each block below carries the prompt it will run later; produce the content a user would expect to ALREADY see on a well-made screen before pressing anything. Everything must be specific to what the user is working on (named in the blocks and rationale) — generic filler defeats the screen.',
     'For "feed" blocks: use web search to find 3 genuinely current items matching the block\'s prompt; each item is {"line": one plain sentence <=100 chars, "source": publication or site name only}. Real items only — if search fails, return fewer or none rather than inventing.',
     'For "draft" blocks: {"skeleton": a fill-in-the-blank template <=300 chars in a plain, direct voice with [bracketed] slots} matching the block\'s prompt.',
     'For "action" blocks: {"steps": [3 concrete steps, each <=80 chars]} the user could take right now, specific to the block\'s prompt.',

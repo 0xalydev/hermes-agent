@@ -111,7 +111,7 @@ export function mountOnboardingWizard(): void {
                     const answers = $wizardAnswers.get()
 
                     const config = compileFirstScreen(
-                      { focus: answers.focus, name: answers.name },
+                      { context: answers.context, focus: answers.focus, name: answers.name },
                       $firstScreenKind.get() ?? 'dashboard'
                     )
 

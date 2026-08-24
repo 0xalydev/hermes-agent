@@ -169,7 +169,7 @@ export function WizardSurface({ onComplete, onSkip }: WizardSurfaceProps) {
       const a = $wizardAnswers.get()
       const kind = $firstScreenKind.get() ?? 'dashboard'
 
-      return theaterDuration(compileFirstScreen({ focus: a.focus, name: a.name }, kind))
+      return theaterDuration(compileFirstScreen({ context: a.context, focus: a.focus, name: a.name }, kind))
     },
     // Recomputed only when the finale mounts — the profile is final by then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
