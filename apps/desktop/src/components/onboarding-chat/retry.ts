@@ -22,7 +22,10 @@ import { requestComposerSubmit } from '@/app/chat/composer/focus'
 
 import { $chatOnboardingSolo, $chatOnboardingThreadIds } from './assembly'
 
-const RETRY_DELAY_MS = 2500
+// Wide enough to ride out fresh-key propagation on top of the backend's own
+// in-turn retries (~15s); the session stays busy so the user just sees the
+// turn take a longer breath.
+const RETRY_DELAY_MS = 6000
 
 let lastSubmit: { retried: boolean; text: string } | null = null
 
@@ -30,6 +33,17 @@ let lastSubmit: { retried: boolean; text: string } | null = null
  *  so a transient turn failure can replay it once. */
 export function rememberOnboardingSubmit(text: string): void {
   lastSubmit = { retried: false, text }
+}
+
+/** Remember a Run-button submit (the artifact's canned prompts) — but only
+ *  while the guided onboarding is live, so a Run click in normal use later
+ *  can never be replayed into the onboarding thread by mistake. Visible
+ *  turns replay HIDDEN: the user bubble already landed; only the answer is
+ *  missing. */
+export function rememberOnboardingRunSubmit(text: string): void {
+  if ($chatOnboardingSolo.get() || $chatOnboardingThreadIds.get().length > 0) {
+    lastSubmit = { retried: false, text }
+  }
 }
 
 /** DEV/tests: forget the remembered submit. */

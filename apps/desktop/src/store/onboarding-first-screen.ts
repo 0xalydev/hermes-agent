@@ -290,12 +290,17 @@ export default {
 
       return h(
         'div',
-        { 'data-tour': 'first-screen', style: { padding: 12 } },
+        { 'data-tour': 'first-screen', style: { display: 'flex', flexDirection: 'column', height: '100%', padding: 12 } },
         h('div', { style: { fontSize: 14, fontWeight: 600 } }, config?.title ?? 'your first screen'),
+        config?.rationale ? h('div', { style: { fontSize: 11, marginTop: 2, opacity: 0.7 } }, config.rationale) : null,
         h(
-          'div',
-          { style: { fontSize: 11, marginTop: 2, opacity: 0.7 } },
-          config?.rationale ?? 'Your onboarding artifact lives in screen.json — edit it and this pane repaints.'
+          'style',
+          null,
+          '.fs-row{align-items:center;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--foreground);cursor:pointer;display:flex;font-size:12px;justify-content:space-between;gap:10px;padding:9px 12px;text-align:left;transition:background 120ms ease,border-color 120ms ease;width:100%}' +
+            '.fs-row:hover{background:color-mix(in srgb, var(--accent) 24%, transparent);border-color:color-mix(in srgb, var(--primary) 45%, var(--border))}' +
+            '.fs-row:active{background:color-mix(in srgb, var(--accent) 38%, transparent)}' +
+            '.fs-pill{background:var(--primary);border-radius:999px;color:var(--primary-foreground);font-size:10px;font-weight:500;opacity:.85;padding:2px 9px;transition:opacity 120ms ease}' +
+            '.fs-row:hover .fs-pill{opacity:1}'
         ),
         h(
           'div',
@@ -303,43 +308,16 @@ export default {
           blocks.map(block =>
             h(
               'button',
-              {
-                key: block.id,
-                onClick: () => run(block.prompt),
-                style: {
-                  alignItems: 'center',
-                  background: 'var(--card)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  padding: '9px 12px',
-                  textAlign: 'left'
-                },
-                type: 'button'
-              },
+              { className: 'fs-row', key: block.id, onClick: () => run(block.prompt), type: 'button' },
               h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, block.label),
-              h(
-                'span',
-                {
-                  style: {
-                    background: 'var(--foreground)',
-                    borderRadius: 999,
-                    color: 'var(--background)',
-                    fontSize: 10,
-                    padding: '2px 8px'
-                  }
-                },
-                'Run'
-              )
+              h('span', { className: 'fs-pill' }, 'Run')
             )
           )
         ),
         h(
           'div',
-          { style: { color: 'var(--muted-foreground)', fontSize: 10, marginTop: 12 } },
-          'Lives at ~/.hermes/desktop-plugins/first-screen/ — edit screen.json.'
+          { style: { color: 'var(--muted-foreground)', fontSize: 10, marginTop: 'auto', paddingTop: 12 } },
+          'Yours to change: edit screen.json in ~/.hermes/desktop-plugins/first-screen/ and this pane repaints.'
         )
       )
     }

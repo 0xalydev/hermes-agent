@@ -16,6 +16,7 @@ import { useStore } from '@nanostores/react'
 import { type CSSProperties } from 'react'
 
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
+import { rememberOnboardingRunSubmit } from '@/components/onboarding-chat/retry'
 import { FONT_MONO } from '@/components/wizard-shell'
 import { cn } from '@/lib/utils'
 import type { FirstScreenConfig, TheaterBeat } from '@/store/onboarding-first-screen'
@@ -93,7 +94,13 @@ export function FirstScreenSurface({
   interactive?: boolean
   mini?: boolean
 }) {
-  const run = (prompt: string) => requestComposerSubmit(prompt)
+  const run = (prompt: string) => {
+    if (requestComposerSubmit(prompt)) {
+      // Guided onboarding only (no-op afterwards): a transient failure on
+      // this canned turn replays once instead of erroring the setup.
+      rememberOnboardingRunSubmit(prompt)
+    }
+  }
 
   const block = (b: FirstScreenConfig['blocks'][number]) =>
     interactive && !mini ? (
