@@ -83,10 +83,10 @@ const CSS = [
   '.fsx-pending{color:var(--muted-foreground);font-style:italic;padding:10px 0}',
   '@keyframes fsx-shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}',
   '.fsx-fill{display:flex;flex-direction:column;gap:7px;padding:10px 0}',
-  '.fsx-fillbar{animation:fsx-shimmer 1.4s linear infinite;background:linear-gradient(90deg, color-mix(in srgb, var(--muted-foreground) 12%, transparent) 25%, color-mix(in srgb, var(--muted-foreground) 26%, transparent) 50%, color-mix(in srgb, var(--muted-foreground) 12%, transparent) 75%);background-size:200px 100%;border-radius:4px;height:9px}',
-  '.fsx-fillnote{align-items:center;color:var(--muted-foreground);display:flex;font-family:var(--mono);font-size:9.5px;gap:6px;letter-spacing:.06em;text-transform:uppercase}',
+  '.fsx-fillbar{animation:fsx-shimmer 1.2s linear infinite;background:linear-gradient(90deg, color-mix(in srgb, var(--muted-foreground) 22%, transparent) 25%, color-mix(in srgb, var(--accent) 55%, transparent) 50%, color-mix(in srgb, var(--muted-foreground) 22%, transparent) 75%);background-size:200px 100%;border-radius:4px;height:10px}',
+  '.fsx-fillnote{align-items:center;color:var(--accent);display:flex;font-family:var(--mono);font-size:10px;gap:7px;letter-spacing:.08em;text-transform:uppercase}',
   '@keyframes fsx-spin{to{transform:rotate(360deg)}}',
-  '.fsx-spinner{animation:fsx-spin .9s linear infinite;border:1.5px solid color-mix(in srgb, var(--muted-foreground) 30%, transparent);border-radius:999px;border-top-color:var(--accent);flex:none;height:10px;width:10px}',
+  '.fsx-spinner{animation:fsx-spin .8s linear infinite;border:2px solid color-mix(in srgb, var(--muted-foreground) 35%, transparent);border-radius:999px;border-top-color:var(--accent);flex:none;height:13px;width:13px}',
   '.fsx-secrun[disabled]{cursor:default;opacity:.35;pointer-events:none}',
   '.fsx-sketchrow{align-items:center;border:1px dashed color-mix(in srgb, var(--muted-foreground) 40%, transparent);display:flex;gap:10px;margin-top:8px;min-height:44px;padding:10px 12px;transition:border-color 400ms ease}',
   '.fsx-sketchlabel{color:var(--muted-foreground);font-family:var(--mono);font-size:11px;letter-spacing:.04em}',
@@ -211,7 +211,7 @@ function blockBody(block, freshPending) {
       return h(
         'div',
         { className: 'fsx-fill' },
-        h('div', { className: 'fsx-fillnote' }, h('span', { className: 'fsx-spinner' }), 'writing'),
+        h('div', { className: 'fsx-fillnote' }, h('span', { className: 'fsx-spinner' }), 'writing yours now'),
         h('div', { className: 'fsx-fillbar', style: { width: '86%' } }),
         h('div', { className: 'fsx-fillbar', style: { width: '64%' } }),
         h('div', { className: 'fsx-fillbar', style: { width: '73%' } })
