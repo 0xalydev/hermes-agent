@@ -340,6 +340,24 @@ export default {
       data: { collapsible: true, dock: { pane: 'workspace', pos: 'right' }, minWidth: '280px', placement: 'right' },
       render: () => React.createElement(FirstScreenPane)
     })
+
+    // Sidebar row: "your first screen" alongside the built-ins. Clicking
+    // reveals the pane (no route to navigate to — the pane is the product).
+    // isNew marks the row fresh-out-of-onboarding until the user sees it.
+    ctx.register({
+      id: 'nav',
+      area: 'sidebar.nav',
+      isNew: true,
+      data: {
+        codicon: 'sparkle',
+        label: 'your first screen',
+        onClick: () => {
+          if (typeof host.revealPane === 'function') {
+            host.revealPane('first-screen:pane')
+          }
+        }
+      }
+    })
   }
 }
 `

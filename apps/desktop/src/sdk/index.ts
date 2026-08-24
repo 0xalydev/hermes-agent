@@ -807,6 +807,20 @@ export const host = {
    *  (`typeof host.paneVisibility === 'function'`). */
   paneVisibility: (paneId: string): ReadableAtom<boolean> => $paneVisible(paneId),
 
+  /** Bring a contributed pane on screen — dismisses its hidden state and
+   *  reveals its zone. The narrowest "show me" verb a plugin's own nav row
+   *  or action button should use (the first-screen sidebar entry and the
+   *  finish card in onboarding both call it on their pane id). */
+  revealPane: (paneId: string): void => {
+    const id = (paneId ?? '').trim()
+
+    if (!id) {
+      return
+    }
+
+    revealTreePane(id)
+  },
+
   /** HEAR the gateway stream (message deltas, session lifecycle, tool
    *  activity, …) by event type — `'*'` for everything. Returns a disposer.
    *  Listeners are isolated; a throw can't affect app dispatch. */
