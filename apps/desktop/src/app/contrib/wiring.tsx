@@ -627,13 +627,12 @@ export function ContribWiring({ children }: { children: ReactNode }) {
             title: 'Welcome to Hermes'
           }).catch(() => undefined)
 
-          // Pin the guided turns to the fast lane, session-scoped: the walk
-          // is short scripted replies where flagship-model latency (and a
-          // thinking pass) reads as the app hanging between cards. DeepSeek
-          // v4 flash is the speed pick (GLM 'medium' populated far too
-          // slowly in live runs); reasoning off below keeps turns snappy.
-          // --session keeps the user's real default untouched — their first
-          // OWN chat runs whatever setup resolved for the profile.
+          // Pin the guided turns to the fast lane AND make it the profile
+          // default: DeepSeek v4 flash with thinking off is the app's
+          // out-of-box model until the user changes it (Settings → Model or
+          // the composer pill) — post-onboarding sessions stay fast instead
+          // of falling back to a slow flagship default. Session pin first
+          // (takes effect this turn), then the global persist.
           // confirm_expensive_model=true: with no agent built yet the switch
           // otherwise returns confirm_required (selection warning) instead of
           // switching — the exact silent-miss that left a live run on the
@@ -647,6 +646,18 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           }).catch(() => undefined)
           await requestGateway('config.set', {
             key: 'reasoning',
+            session_id: runtimeId,
+            value: 'none'
+          }).catch(() => undefined)
+          await requestGateway('config.set', {
+            confirm_expensive_model: true,
+            key: 'model',
+            session_id: runtimeId,
+            value: 'deepseek/deepseek-v4-flash-0731 --provider nous --global'
+          }).catch(() => undefined)
+          await requestGateway('config.set', {
+            key: 'reasoning',
+            scope: 'global',
             session_id: runtimeId,
             value: 'none'
           }).catch(() => undefined)

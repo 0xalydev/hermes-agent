@@ -247,8 +247,8 @@ function blockBody(block, freshPending) {
 
 export default {
   id: 'first-screen',
-  name: 'First Screen',
-  description: 'The interface Hermes built at first setup — a live, editable pane.',
+  name: 'Onboarding Dashboard',
+  description: 'The example dashboard Hermes built during onboarding — a live, editable pane.',
   register(ctx) {
     function FirstScreenPane() {
       const [config, setConfig] = useState(() => ctx.storage.get('config', null))
@@ -361,7 +361,7 @@ export default {
     ctx.register({
       id: 'pane',
       area: 'panes',
-      title: 'your first screen',
+      title: 'Onboarding Dashboard',
       data: { collapsible: true, dock: { pane: 'workspace', pos: 'right' }, minWidth: '340px', placement: 'right', width: '430px' },
       render: () => React.createElement(FirstScreenPane)
     })
@@ -372,7 +372,7 @@ export default {
       isNew: true,
       data: {
         codicon: 'sparkle',
-        label: 'your first screen',
+        label: 'Onboarding Dashboard',
         onClick: () => {
           if (typeof host.revealPane === 'function') {
             host.revealPane('first-screen:pane')

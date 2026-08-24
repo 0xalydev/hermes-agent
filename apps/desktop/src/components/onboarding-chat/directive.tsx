@@ -442,8 +442,8 @@ function FirstScreenCard({ locked = false }: CardProps) {
       <div className="my-3 flex items-center gap-1.5 text-muted-foreground text-xs" data-onboarding-card>
         <span aria-hidden>✓</span>
         <span>
-          <strong className="font-medium text-foreground">{built.title}</strong> is open beside this chat. It stays in
-          your sidebar as <strong className="font-medium">your first screen</strong>.
+          <strong className="font-medium text-foreground">{built.title}</strong> is open beside this chat and sits in
+          your sidebar as <strong className="font-medium">Onboarding Dashboard</strong>.
         </span>
       </div>
     )

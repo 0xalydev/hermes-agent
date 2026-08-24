@@ -21,7 +21,9 @@ cp ~/.hermes/auth.json "$PROFILE/auth.json"
 cat > "$PROFILE/config.yaml" <<'EOF'
 model:
   provider: nous
-  default: z-ai/glm-5.2
+  default: deepseek/deepseek-v4-flash-0731
+agent:
+  reasoning_effort: false
 web:
   backend: nous
 tts:
