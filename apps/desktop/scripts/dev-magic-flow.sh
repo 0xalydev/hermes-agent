@@ -30,7 +30,19 @@ image_gen:
   provider: nous
 EOF
 
-# 3. Launch.
+# 3. Vite: start it if 5176 isn't already serving (it dies with the terminal
+# session that started it; the chain must not depend on that).
+if ! curl -s -o /dev/null --max-time 2 http://127.0.0.1:5176; then
+  cd "$WORKTREE/apps/desktop"
+  nohup env VITE_INTRO_REVEAL=1 npx vite --host 127.0.0.1 --port 5176 \
+    > /tmp/magic-flow-vite.log 2>&1 &
+  for _ in $(seq 1 30); do
+    curl -s -o /dev/null --max-time 1 http://127.0.0.1:5176 && break
+    sleep 1
+  done
+fi
+
+# 4. Launch.
 cd "$WORKTREE/apps/desktop"
 exec env HERMES_HOME="$PROFILE" HERMES_DESKTOP_USER_DATA_DIR="$PROFILE" \
   HERMES_DESKTOP_CDP_PORT=9224 HERMES_DESKTOP_DEV_SERVER=http://127.0.0.1:5176 \
