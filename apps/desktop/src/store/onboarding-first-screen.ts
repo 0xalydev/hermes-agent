@@ -79,7 +79,6 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
   // command center" shipped once; never again.
   const userName = name || 'you'
   const possessive = name ? `${name}'s` : 'Your'
-  const theirName = name || 'the user'
 
   const blocks: FirstScreenBlock[] =
     kind === 'dashboard'
@@ -88,21 +87,21 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
             id: 'start',
             kind: 'action',
             label: `Start today's ${primary.toLowerCase()}`,
-            prompt: `You are ${theirName}'s daily starter. They care most about ${primary.toLowerCase()}${focus.length > 1 ? ` and ${secondary.toLowerCase()}` : ''}. Give them the single best next task for today, one sentence of why, and the first three concrete steps. No preamble.`,
+            prompt: `Find my single best next task for today in ${primary.toLowerCase()}${focus.length > 1 ? ` or ${secondary.toLowerCase()}` : ''}: one sentence on why it's the one, then the first three concrete steps. No preamble.`,
             stepLine: `Wiring your ${primary.toLowerCase()} starter`
           },
           {
             id: 'draft',
             kind: 'draft',
             label: 'Draft in your voice',
-            prompt: `You are ${theirName}'s writing hand. Match their natural voice — plain, direct, short sentences. Draft what they ask for; if they ask about ${primary.toLowerCase()} or ${secondary.toLowerCase()}, fold in what you know about their focus. Show the draft, ask one clarification at most, then revise.`,
+            prompt: `Draft what I describe, in my voice: plain, direct, short sentences. Show me the draft, ask at most one clarifying question, then revise.`,
             stepLine: 'Teaching it your voice'
           },
           {
             id: 'brief',
             kind: 'feed',
             label: 'Morning brief',
-            prompt: `Once each morning, assemble ${theirName}'s brief: three items on ${primary.toLowerCase()}${focus.length > 1 ? `, two on ${secondary.toLowerCase()}` : ''}, each one line with a source. Then one sentence answering "what should you look at first". Offer to save it as a recurring job.`,
+            prompt: `Assemble my morning brief: three items on ${primary.toLowerCase()}${focus.length > 1 ? `, two on ${secondary.toLowerCase()}` : ''}, one line each with a source, then one sentence on what I should look at first. Offer to save it as a recurring morning job.`,
             stepLine: 'Setting your morning brief'
           }
         ]
@@ -112,21 +111,21 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
               id: 'brief',
               kind: 'feed',
               label: 'Your first issue',
-              prompt: `Write the first issue of ${theirName}'s personal brief. Lead with ${primary.toLowerCase()}: the three most useful things from the last day, one line each with a source. ${focus.length > 1 ? `Then a short ${secondary.toLowerCase()} section with two items. ` : ''}Close with one concrete suggestion for today.${name ? ' Address them by name once, at the top.' : ''}`,
+              prompt: `Write the first issue of my personal brief. Lead with ${primary.toLowerCase()}: the three most useful things from the last day, one line each with a source. ${focus.length > 1 ? `Then a short ${secondary.toLowerCase()} section with two items. ` : ''}Close with one concrete suggestion for today.`,
               stepLine: 'Composing your first issue'
             },
             {
               id: 'recurring',
               kind: 'action',
               label: 'Make it daily',
-              prompt: `Set up a paused recurring job that regenerates ${theirName}'s brief every morning, same shape as the first issue. Confirm it's paused and tell them exactly how to turn it on.`,
+              prompt: `Set up a paused recurring job that regenerates my brief every morning, same shape as the first issue. Confirm it's paused and tell me exactly how to turn it on.`,
               stepLine: 'Setting the daily cadence'
             },
             {
               id: 'notebook',
               kind: 'draft',
               label: 'A page that remembers',
-              prompt: `Keep a running page for ${theirName}. When they paste anything — a quote, a link, a thought — file it under ${primary.toLowerCase()} or ${secondary.toLowerCase()} and acknowledge in one line. When they ask "what do I have on X", summarize what's been filed.`,
+              prompt: `Keep a running page for me. When I paste anything, a quote, a link, a thought, file it under ${primary.toLowerCase()} or ${secondary.toLowerCase()} and acknowledge in one line. When I ask what I have on a topic, summarize what's filed.`,
               stepLine: 'Opening your notebook'
             }
           ]
@@ -135,21 +134,21 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
               id: 'tool',
               kind: 'tool',
               label: `${primary} helper`,
-              prompt: `You are a small tool, not a conversation. ${theirName} pastes raw material; you return exactly one shaped result about ${primary.toLowerCase()}${focus.length > 1 ? ` or ${secondary.toLowerCase()}` : ''}, nothing else. If the input is ambiguous, pick the most likely reading and show it — do not ask questions. Three sections maximum.`,
+              prompt: `Act as my ${primary.toLowerCase()} helper, a tool rather than a conversation: I paste raw material, you return exactly one shaped result${focus.length > 1 ? ` about ${primary.toLowerCase()} or ${secondary.toLowerCase()}` : ''}, nothing else. If my input is ambiguous, pick the most likely reading and show it. Three sections maximum.`,
               stepLine: `Building your ${primary.toLowerCase()} helper`
             },
             {
               id: 'refine',
               kind: 'action',
               label: 'Refine the last result',
-              prompt: `Take the tool's last output and ${theirName}'s one-line correction. Return a revised result in the same shape. If the correction changes the rules, say what changed in one sentence.`,
+              prompt: `Take your last result and my one-line correction, and return a revised result in the same shape. If my correction changes the rules, say what changed in one sentence.`,
               stepLine: 'Wiring the refine loop'
             },
             {
               id: 'share',
               kind: 'draft',
               label: 'Save as a template',
-              prompt: `Turn the current inputs into a reusable template for ${theirName}: name it, describe the input it expects in one line, and store it so the next run starts from it. Confirm the name.`,
+              prompt: `Turn the current inputs into a reusable template: name it, describe the input it expects in one line, and store it so the next run starts from it. Confirm the name.`,
               stepLine: 'Making it repeatable'
             }
           ]

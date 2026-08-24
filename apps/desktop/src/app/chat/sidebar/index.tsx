@@ -1473,7 +1473,7 @@ export function ChatSidebar({
           <SidebarGroupContent>
             <SidebarMenu className="gap-px">
               {[...SIDEBAR_NAV, ...contributedNav].map(item => {
-                const isInteractive = Boolean(item.action) || Boolean(item.route)
+                const isInteractive = Boolean(item.action) || Boolean(item.route) || Boolean(item.onClick)
 
                 const active =
                   (item.id === 'skills' && currentView === 'skills') ||

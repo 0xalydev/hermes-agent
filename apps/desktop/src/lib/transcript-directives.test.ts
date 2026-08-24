@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseTranscriptDirective } from './transcript-directives'
+import { parseTranscriptDirective, parseTranscriptDirectiveList } from './transcript-directives'
 
 describe('parseTranscriptDirective', () => {
   it('parses a bare directive with no attributes', () => {
@@ -46,6 +46,34 @@ describe('parseTranscriptDirective', () => {
 
   it('rejects unquoted attribute values', () => {
     expect(parseTranscriptDirective('::preview{file=demo.html}')?.attrs).toEqual({})
+  })
+
+  describe('parseTranscriptDirectiveList', () => {
+    it('parses a single directive as a one-element list', () => {
+      expect(parseTranscriptDirectiveList('::tasks{id="1"}')).toEqual([
+        { name: 'tasks', attrs: { id: '1' }, source: '::tasks{id="1"}' }
+      ])
+    })
+
+    it('parses two directives merged onto one line (the model-slop case)', () => {
+      const parsed = parseTranscriptDirectiveList('::onboarding{step="name" value="karan"} ::onboarding{step="focus"}')
+
+      expect(parsed).toHaveLength(2)
+      expect(parsed?.[0].attrs).toEqual({ step: 'name', value: 'karan' })
+      expect(parsed?.[1].attrs).toEqual({ step: 'focus' })
+    })
+
+    it('parses directives split across lines in one paragraph', () => {
+      const parsed = parseTranscriptDirectiveList('::onboarding{step="look"}\n::onboarding{step="layout"}')
+
+      expect(parsed?.map(p => p.attrs.step)).toEqual(['look', 'layout'])
+    })
+
+    it('rejects directives interleaved with prose', () => {
+      expect(parseTranscriptDirectiveList('::onboarding{step="focus"} pick one ::onboarding{step="look"}')).toBeNull()
+      expect(parseTranscriptDirectiveList('see ::onboarding{step="focus"}')).toBeNull()
+      expect(parseTranscriptDirectiveList('::onboarding{step="focus"} trailing words')).toBeNull()
+    })
   })
 
   it('bounds pathological input instead of scanning it', () => {

@@ -80,9 +80,10 @@ function TheaterRow({ beat, t }: { beat: TheaterBeat; t: number }) {
 
 /** The finished thing — full-frame at the reveal, miniaturized inside the
  *  theater, AND interactive on the chat card that hands it over. This is the
- *  `FirstScreen` grammar: same sections, three skins. `interactive` is set by
- *  the in-chat card only — the Run buttons then really run (hidden prompt
- *  submit), which is the payoff of building it in-chat. */
+ *  `FirstScreen` grammar: same sections, three skins, theme-native (the card
+ *  paints from the app's tokens — never a hardcoded white island). When
+ *  `interactive`, EVERY block runs: the click submits the block's prompt
+ *  visibly through the composer, so the user's click becomes a real turn. */
 export function FirstScreenSurface({
   config,
   interactive = false,
@@ -92,89 +93,58 @@ export function FirstScreenSurface({
   interactive?: boolean
   mini?: boolean
 }) {
+  const run = (prompt: string) => requestComposerSubmit(prompt)
+
+  const block = (b: FirstScreenConfig['blocks'][number]) =>
+    interactive && !mini ? (
+      <button
+        className="group flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3.5 py-2.5 text-left text-[13px] text-foreground transition-colors hover:border-primary/50 hover:bg-accent/40"
+        key={b.id}
+        onClick={() => run(b.prompt)}
+        type="button"
+      >
+        <span className="truncate">{b.label}</span>
+        <span className="shrink-0 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-medium text-primary-foreground opacity-80 transition-opacity group-hover:opacity-100">
+          Run
+        </span>
+      </button>
+    ) : (
+      <div
+        className={cn(
+          'flex items-center justify-between gap-2 rounded-md border border-border bg-card text-foreground',
+          mini ? 'px-2 py-1 text-[9px]' : 'px-3.5 py-2.5 text-[13px]'
+        )}
+        key={b.id}
+      >
+        <span className="truncate">{b.label}</span>
+        {!mini && <span className="shrink-0 rounded-full bg-primary/70 px-2.5 py-0.5 text-[11px] font-medium text-primary-foreground">Run</span>}
+      </div>
+    )
+
   return (
-    <div
-      className={cn(
-        'flex flex-col overflow-hidden rounded-lg bg-white text-neutral-900',
-        mini ? 'size-full p-3' : 'size-full p-8'
-      )}
-    >
-      <div className={cn('font-medium tracking-tight', mini ? 'text-[13px]' : 'text-[26px]')}>{config.title}</div>
-      <div className={cn('text-neutral-500', mini ? 'mt-0.5 text-[10px]' : 'mt-1 text-[13px]')}>
+    <div className={cn('flex flex-col overflow-hidden rounded-lg bg-background text-foreground', mini ? 'size-full p-2.5' : 'size-full p-5')}>
+      <div className={cn('font-medium tracking-tight', mini ? 'text-[12px]' : 'text-[17px]')}>{config.title}</div>
+      <div className={cn('text-muted-foreground', mini ? 'mt-0.5 text-[9px]' : 'mt-0.5 text-[12px]')}>
         {config.rationale}
       </div>
 
-      <div className={cn('flex flex-col', mini ? 'mt-2.5 gap-1.5' : 'mt-6 gap-3')}>
-        {config.kind === 'dashboard' &&
-          config.blocks.map(block =>
-            interactive && !mini ? (
-              <button
-                className="flex items-center justify-between rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3 text-left text-[14px] transition-colors hover:border-neutral-900 hover:bg-white"
-                key={block.id}
-                onClick={() => requestComposerSubmit(block.prompt)}
-                type="button"
-              >
-                <span className="truncate">{block.label}</span>
-                <span className="rounded-full bg-neutral-900 px-2.5 py-1 text-[11px] font-medium text-white">Run</span>
-              </button>
-            ) : (
-              <div
-                className={cn(
-                  'flex items-center justify-between rounded-md border border-neutral-200 bg-neutral-50',
-                  mini ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-[14px]'
-                )}
-                key={block.id}
-              >
-                <span className="truncate">{block.label}</span>
-                <span
-                  className={cn(
-                    'rounded-full bg-neutral-900 font-medium text-white',
-                    mini ? 'px-1.5 py-0.5 text-[8px]' : 'px-2.5 py-1 text-[11px]'
-                  )}
-                >
-                  Run
-                </span>
-              </div>
-            )
-          )}
-
-        {config.kind === 'document' && (
-          <div className={cn('flex flex-col', mini ? 'gap-1.5' : 'gap-3')}>
-            {config.blocks.map(block => (
-              <div className={mini ? 'text-[10px]' : 'text-[14px]'} key={block.id}>
-                <div className="font-semibold">{block.label}</div>
-                {!mini && <div className="mt-1 line-clamp-2 text-[12px] text-neutral-500">{block.prompt}</div>}
-              </div>
-            ))}
+      <div className={cn('flex flex-col', mini ? 'mt-2 gap-1' : 'mt-4 gap-2')}>
+        {config.kind === 'app' && (
+          <div
+            className={cn(
+              'rounded-md border border-dashed border-border text-muted-foreground',
+              mini ? 'p-1.5 text-[8px]' : 'p-3.5 text-[12px]'
+            )}
+          >
+            Drop something here, or press a button below
           </div>
         )}
-
-        {config.kind === 'app' && (
-          <>
-            <div
-              className={cn(
-                'rounded-md border border-dashed border-neutral-300 bg-neutral-50',
-                mini ? 'p-1.5 text-[9px]' : 'p-4 text-[12px]'
-              )}
-            >
-              Drop something here — {config.blocks[0]?.label.toLowerCase()}
-            </div>
-            <div
-              className={cn(
-                'self-start rounded-md bg-neutral-900 font-medium text-white',
-                mini ? 'px-2 py-0.5 text-[9px]' : 'px-4 py-2 text-[13px]'
-              )}
-            >
-              {config.blocks[0]?.label ?? 'Run'}
-            </div>
-          </>
-        )}
+        {config.blocks.map(block)}
       </div>
 
       {!mini && (
-        <div className="mt-auto pt-6 text-[11px] text-neutral-400">
-          This is <span className="font-mono">~/.hermes/desktop-plugins/first-screen/screen.json</span> — change
-          anything.
+        <div className="mt-auto pt-4 text-[11px] text-muted-foreground">
+          Yours to change: <span className="font-mono">~/.hermes/desktop-plugins/first-screen/screen.json</span>
         </div>
       )}
     </div>
@@ -209,21 +179,21 @@ export function FirstScreenTheater({
 
       {/* Assembling artifact */}
       <div className="min-w-0 flex-1">
-        <div className="flex size-full flex-col overflow-hidden rounded-lg bg-white text-neutral-900 shadow-[0_24px_64px_rgba(0,0,0,0.25)]">
-          <div className="border-b border-neutral-100 p-3">
+        <div className="flex size-full flex-col overflow-hidden rounded-lg border border-white/10 bg-background text-foreground shadow-[0_24px_64px_rgba(0,0,0,0.35)]">
+          <div className="border-b border-border p-3">
             <div className="text-[13px] font-medium">{assembledCount > 0 ? config.title : ' '}</div>
           </div>
           <div className="flex flex-1 flex-col gap-1.5 p-3">
             {assembledBlocks.map(block => (
               <div
-                className="animate-[first-screen-block-in_500ms_cubic-bezier(0.22,1,0.36,1)_both] rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1.5 text-[10px]"
+                className="animate-[first-screen-block-in_500ms_cubic-bezier(0.22,1,0.36,1)_both] rounded-md border border-border bg-card px-2 py-1.5 text-[10px]"
                 key={block.id}
               >
                 {block.label}
               </div>
             ))}
             {assembledCount === 0 && (
-              <div className="grid flex-1 place-items-center text-[10px] text-neutral-300">assembling…</div>
+              <div className="grid flex-1 place-items-center text-[10px] text-muted-foreground">assembling…</div>
             )}
           </div>
         </div>

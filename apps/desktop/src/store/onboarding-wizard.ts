@@ -338,7 +338,7 @@ export function buildChatOnboardingPrompt(): string {
     '6. Now the payoff: tell them you\'ve been taking notes, and ask whether their first screen should be a Dashboard, a Document, or an App — one short sentence explaining the difference in plain terms, then include the line ::onboarding{step="first-screen"}',
     '7. When their pick arrives as [setup] built…: celebrate it in one sentence (use its name), tell them the file lives at ~/.hermes/desktop-plugins/first-screen/screen.json and they can edit it directly, and invite them to press one of its buttons right here to watch it work.',
     '8. Then stand down — they are doing the product now.',
-    'Rules for the ::onboarding lines: emit each EXACTLY as written above, alone as its own paragraph with nothing else on that line.',
+    'Rules for the ::onboarding lines: emit each EXACTLY as written above, alone as its own paragraph — a blank line before and after, never two directives on the same line.',
     'The app renders an interactive picker there and applies choices to the app live, so do NOT list or describe the options in prose.',
     'Their picks arrive as invisible messages prefixed [setup] — acknowledge each in a few words and move to the next step.',
     'Keep every turn short. This is a chat, not a form. No headers, no bullet lists, no emoji.'

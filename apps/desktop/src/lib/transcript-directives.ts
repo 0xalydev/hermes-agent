@@ -80,3 +80,62 @@ export function parseTranscriptDirective(text: string): ParsedTranscriptDirectiv
 
   return { name: match[1], attrs, source: trimmed }
 }
+
+// A directive ANYWHERE in the paragraph (used by the list parser, which then
+// verifies the matches tile the whole string — same no-prose guarantee).
+const DIRECTIVE_ANY_RE = /::([a-z][a-z0-9-]{0,63})(?:\{([^{}]{0,1024})\})?/g
+
+/**
+ * Parse a paragraph that is ENTIRELY directives — one or more, separated by
+ * whitespace (spaces or newlines). Models sometimes emit two directives on
+ * one line ("::onboarding{step=name} ::onboarding{step=focus}"); the strict
+ * single parse refused those and the raw markup leaked into the transcript.
+ * Returns null if anything in the paragraph is not a directive, so prose is
+ * never hijacked — same contract as the single parse, generalized.
+ */
+export function parseTranscriptDirectiveList(text: string): ParsedTranscriptDirective[] | null {
+  const trimmed = text.trim()
+
+  if (!trimmed.startsWith('::') || trimmed.length > 4800) {
+    return null
+  }
+
+  const single = parseTranscriptDirective(trimmed)
+
+  if (single) {
+    return [single]
+  }
+
+  const out: ParsedTranscriptDirective[] = []
+  let cursor = 0
+
+  DIRECTIVE_ANY_RE.lastIndex = 0
+
+  for (const match of trimmed.matchAll(DIRECTIVE_ANY_RE)) {
+    const start = match.index ?? 0
+
+    // Anything but whitespace between directives → prose, not a directive
+    // paragraph. Bail entirely.
+    if (trimmed.slice(cursor, start).trim() !== '') {
+      return null
+    }
+
+    const attrs: Record<string, string> = {}
+
+    if (match[2]) {
+      for (const pair of match[2].matchAll(ATTR_RE)) {
+        attrs[pair[1].toLowerCase()] = pair[2] ?? pair[3] ?? ''
+      }
+    }
+
+    out.push({ name: match[1], attrs, source: match[0] })
+    cursor = start + match[0].length
+  }
+
+  // Trailing prose after the last directive → not a directive paragraph.
+  if (out.length < 2 || trimmed.slice(cursor).trim() !== '') {
+    return null
+  }
+
+  return out
+}

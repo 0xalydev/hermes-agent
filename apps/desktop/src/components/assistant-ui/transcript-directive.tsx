@@ -1,19 +1,25 @@
 import type { FC, ReactNode } from 'react'
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 
 import { type Contribution, useContributions } from '@/contrib'
-import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
+import { ContribBoundary } from '@/contrib/react/boundary'
 import {
-  parseTranscriptDirective,
+  type ParsedTranscriptDirective,
+  parseTranscriptDirectiveList,
   TRANSCRIPT_DIRECTIVE_AREA,
   type TranscriptDirectiveContribution
 } from '@/lib/transcript-directives'
 
 /**
  * The transcript's directive slot. Given a paragraph's raw text, renders the
- * registered plugin component when the whole paragraph is a claimed
- * `::name{...}` directive; returns null otherwise so the caller keeps its
+ * registered plugin component(s) when the whole paragraph is claimed
+ * `::name{...}` directives; returns null otherwise so the caller keeps its
  * plain `<p>` — an unclaimed directive is just prose.
+ *
+ * A paragraph may carry SEVERAL directives (models merge lines under
+ * formatting pressure); each claimed one renders in order, and the no-prose
+ * guarantee holds for the paragraph as a whole (see
+ * parseTranscriptDirectiveList).
  *
  * Resolution is registry-backed (`transcript.directives`), so hot-loading a
  * plugin upgrades already-rendered paragraphs in place, exactly like every
@@ -39,47 +45,67 @@ function claimFor(contributions: readonly Contribution[], name: string) {
   return contributions.find(c => (c.data as TranscriptDirectiveContribution | undefined)?.name === name)
 }
 
-export const TranscriptDirectiveLeaf: FC<{ text: string; streaming?: boolean }> = ({ text, streaming }) => {
-  const contributions = useContributions(TRANSCRIPT_DIRECTIVE_AREA)
-  const parsed = useMemo(() => parseTranscriptDirective(text), [text])
-  const match = parsed ? claimFor(contributions, parsed.name) : undefined
-  const contribution = match?.data as TranscriptDirectiveContribution | undefined
-  const render = contribution?.render
+const DirectiveEntry: FC<{
+  contribution: Contribution
+  parsed: ParsedTranscriptDirective
+  streaming: boolean
+}> = ({ contribution, parsed, streaming }) => {
+  const render = (contribution.data as TranscriptDirectiveContribution).render
 
-  // Streaming flips at settle. Baking it into the render identity remounts
-  // the widget (a card-sized jump). Keep the component stable and read
-  // streaming from a ref so the same mount receives the update.
-  const streamingRef = useRef(streaming ?? false)
-  streamingRef.current = streaming ?? false
-
-  // Stable component identity for ContribRender (which mounts this AS a
-  // component): a fresh closure per render would remount the widget on
-  // every parent render.
-  const renderLeaf = useMemo(
+  // Stable component IDENTITY per (render, parsed) — a fresh type per parent
+  // render would remount the widget (card-sized jump). Streaming arrives as a
+  // real prop on that stable type, so the settle flip re-renders the same
+  // mount instead of being memo-skipped (ref-only reads were exactly that).
+  const Leaf = useMemo(
     () =>
-      render && parsed
-        ? () => render({ attrs: parsed.attrs, source: parsed.source, streaming: streamingRef.current })
-        : null,
+      function DirectiveLeafHost({ streaming: live }: { streaming: boolean }) {
+        return <>{render({ attrs: parsed.attrs, source: parsed.source, streaming: live })}</>
+      },
     [render, parsed]
   )
 
-  if (!match || !renderLeaf) {
-    return null
-  }
-
   return (
-    <ContribBoundary id={match.id} variant="chip">
-      <ContribRender render={renderLeaf} />
+    <ContribBoundary id={contribution.id} variant="chip">
+      <Leaf streaming={streaming} />
     </ContribBoundary>
   )
 }
 
-/** True when the paragraph text will resolve to a registered directive —
- *  callers that must decide `<p>` vs slot before rendering use this with the
- *  same registry snapshot the leaf reads. */
+export const TranscriptDirectiveLeaf: FC<{ text: string; streaming?: boolean }> = ({ text, streaming }) => {
+  const contributions = useContributions(TRANSCRIPT_DIRECTIVE_AREA)
+  const parsedList = useMemo(() => parseTranscriptDirectiveList(text), [text])
+
+  const entries = useMemo(() => {
+    if (!parsedList) {
+      return []
+    }
+
+    return parsedList.flatMap(parsed => {
+      const match = claimFor(contributions, parsed.name)
+
+      return match ? [{ key: `${match.id}:${parsed.source}`, match, parsed }] : []
+    })
+  }, [contributions, parsedList])
+
+  if (entries.length === 0) {
+    return null
+  }
+
+  return (
+    <>
+      {entries.map(entry => (
+        <DirectiveEntry contribution={entry.match} key={entry.key} parsed={entry.parsed} streaming={streaming ?? false} />
+      ))}
+    </>
+  )
+}
+
+/** True when the paragraph text will resolve to at least one registered
+ *  directive — callers that must decide `<p>` vs slot before rendering use
+ *  this with the same registry snapshot the leaf reads. */
 export function useIsClaimedDirective(text: string | null): boolean {
   const contributions = useContributions(TRANSCRIPT_DIRECTIVE_AREA)
-  const parsed = text === null ? null : parseTranscriptDirective(text)
+  const parsedList = text === null ? null : parseTranscriptDirectiveList(text)
 
-  return parsed !== null && claimFor(contributions, parsed.name) !== undefined
+  return parsedList !== null && parsedList.some(parsed => claimFor(contributions, parsed.name) !== undefined)
 }

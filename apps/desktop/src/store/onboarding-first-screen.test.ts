@@ -14,13 +14,16 @@ import {
 describe('first-screen artifact', () => {
   beforeEach(() => resetFirstScreenForTests())
 
-  test('every block prompt interpolates the profile', () => {
+  test('prompts speak in the user voice; the title carries the name', () => {
     const config = compileFirstScreen({ focus: ['Writing', 'Research'], name: 'Sam' }, 'dashboard')
 
     expect(config.title).toContain('Sam')
 
     for (const block of config.blocks) {
-      expect(block.prompt).toContain('Sam')
+      // First person, never third-person narration about the user.
+      expect(block.prompt).toMatch(/\b(my|me|I)\b/)
+      expect(block.prompt).not.toContain("Sam's daily starter")
+      expect(block.prompt).not.toMatch(/^You are/)
     }
 
     expect(config.blocks[0].prompt.toLowerCase()).toContain('writing')
