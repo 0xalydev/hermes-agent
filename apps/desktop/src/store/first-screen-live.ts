@@ -346,11 +346,11 @@ export function generateModuleCandidates(): void {
       const created = await gateway
         .request<{ session_id?: string }>(
           'session.create',
-          { cols: 96, model: 'deepseek/deepseek-v4-flash-0731', provider: 'nous', source: 'desktop' },
+          { cols: 96, hidden: true, model: 'deepseek/deepseek-v4-flash-0731', provider: 'nous', source: 'desktop' },
           CREATE_TIMEOUT_MS
         )
         .catch(() =>
-          gateway.request<{ session_id?: string }>('session.create', { cols: 96, source: 'desktop' }, CREATE_TIMEOUT_MS)
+          gateway.request<{ session_id?: string }>('session.create', { cols: 96, hidden: true, source: 'desktop' }, CREATE_TIMEOUT_MS)
         )
 
       sessionId = created?.session_id ?? ''

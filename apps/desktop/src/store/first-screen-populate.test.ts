@@ -6,18 +6,24 @@ import { compileFirstScreen } from './onboarding-first-screen'
 const CONFIG = compileFirstScreen({ focus: ['Coding', 'Research'], name: 'Karan' }, 'dashboard')
 
 describe('first-screen population', () => {
-  test('prompt carries every block id and the JSON-only contract', () => {
-    const prompt = buildPopulatePrompt(CONFIG)
+  test('the two passes split the blocks: fast without feed, feed alone', () => {
+    const fast = buildPopulatePrompt(CONFIG, 'fast')
+    const feed = buildPopulatePrompt(CONFIG, 'feed')
 
     for (const block of CONFIG.blocks) {
-      expect(prompt).toContain(block.id)
+      const target = block.kind === 'feed' ? feed : fast
+
+      expect(target).toContain(block.id)
     }
-    expect(prompt).toContain('ONLY a JSON object')
-    expect(prompt).toContain('web search')
+
+    expect(fast).toContain('Do NOT use any tools')
+    expect(fast).toContain('ONLY a JSON object')
+    expect(feed).toContain('web search')
   })
 
   test('parses a fenced reply and clamps lengths', () => {
     const long = 'x'.repeat(400)
+
     const reply = [
       'Here you go:',
       '```json',
@@ -40,6 +46,7 @@ describe('first-screen population', () => {
 
     const brief = content['brief']
     expect(brief?.kind).toBe('feed')
+
     if (brief?.kind === 'feed') {
       expect(brief.items).toHaveLength(2)
       expect(brief.items[0].line.length).toBeLessThanOrEqual(110)
@@ -48,12 +55,14 @@ describe('first-screen population', () => {
 
     const draft = content['draft']
     expect(draft?.kind).toBe('draft')
+
     if (draft?.kind === 'draft') {
       expect(draft.skeleton.length).toBeLessThanOrEqual(320)
     }
 
     const start = content['start']
     expect(start?.kind).toBe('action')
+
     if (start?.kind === 'action') {
       expect(start.steps[0]).toBe('Do the thing first')
       expect(start.steps[1].length).toBeLessThanOrEqual(90)
@@ -84,6 +93,7 @@ describe('first-screen population', () => {
 
   test('tool example validates on the app kind', () => {
     const appConfig = compileFirstScreen({ focus: ['Writing'], name: '' }, 'app')
+
     const reply = JSON.stringify({
       blocks: { tool: { example: { input: 'raw paste', output: 'shaped result' } } }
     })

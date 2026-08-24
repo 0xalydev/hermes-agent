@@ -104,7 +104,7 @@ const CSS = [
 /* Send a prompt through the active chat; toast when no surface owns it. */
 function send(prompt) {
   const ok = typeof host.submitPrompt === 'function' && host.submitPrompt(prompt)
-  if (!ok) host.notify({ kind: 'info', message: 'Open a chat first — this screen drives it.' })
+  if (!ok) host.notify({ kind: 'info', message: 'Open a chat first. The buttons here send prompts into it.' })
 }
 
 function fmtDate() {
@@ -302,7 +302,7 @@ export default {
             h('span', null, (stage === 'sketch' ? 'Sketch' : 'Draft modules') + ' \\u00b7 ' + fmtDate()),
             h('span', { className: 'fsx-sketchlabel' }, 'live')
           ),
-          h('div', { className: 'fsx-stagecap' }, stage === 'sketch' ? 'Taking shape as you talk' : 'Drafted from your answers \\u2014 keep talking'),
+          h('div', { className: 'fsx-stagecap' }, stage === 'sketch' ? 'Taking shape as you talk' : 'Drafted from your answers'),
           stage === 'sketch'
             ? blocks.map((block, i) =>
                 h(
@@ -329,8 +329,8 @@ export default {
             'div',
             { className: 'fsx-foot' },
             stage === 'sketch'
-              ? 'Every answer you give in the chat refines this screen.'
-              : 'You\\u2019ll choose which of these to keep in a moment \\u2014 in the chat.'
+              ? 'Keeps taking shape as you answer in the chat.'
+              : 'Pick which ones to keep in the chat.'
           )
         )
       }
@@ -364,7 +364,7 @@ export default {
         h(
           'div',
           { className: 'fsx-foot' },
-          'This screen is a file: ' + filePath + ' \\u2014 edit it, or ask Hermes to, and the pane repaints. regenerate \\u21bb does exactly that.'
+          'This screen is a file: ' + filePath + '. Edit it, or ask Hermes to, and the pane repaints.'
         )
       )
     }

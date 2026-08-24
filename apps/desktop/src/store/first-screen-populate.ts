@@ -78,12 +78,16 @@ const clamp = (value: string, max: number) => {
 /** One prompt for the whole screen: every block populated in a single turn.
  *  The agent is told which blocks want live lookups (feed) and which are
  *  written from the profile alone, and must answer with ONLY a JSON object. */
-export function buildPopulatePrompt(config: FirstScreenConfig): string {
-  const blocks = config.blocks.map(({ id, kind, label, prompt }) => ({ id, kind, label, prompt }))
+export function buildPopulatePrompt(config: FirstScreenConfig, phase: 'fast' | 'feed' = 'fast'): string {
+  const wanted = phase === 'feed' ? config.blocks.filter(b => b.kind === 'feed') : config.blocks.filter(b => b.kind !== 'feed')
+  const blocks = wanted.map(({ id, kind, label, prompt }) => ({ id, kind, label, prompt }))
 
   return [
     `Fill in the starter screen you just built for ${config.userName === 'you' ? 'the user' : config.userName} (${config.rationale.toLowerCase()}).`,
-    'Each block below carries the prompt it will run later; produce the content a user would expect to ALREADY see on a well-made screen before pressing anything. Everything must be specific to what the user is working on (named in the blocks and rationale) — generic filler defeats the screen.',
+    'Each block below carries the prompt it will run later; produce the content a user would expect to ALREADY see on a well-made screen before pressing anything. Everything must be specific to what the user is working on (named in the blocks and rationale). Generic filler defeats the screen.',
+    phase === 'fast'
+      ? 'Answer IMMEDIATELY from what you know. Do NOT use any tools. No web search.'
+      : 'These are live-content blocks: use web search to find genuinely current items. One or two quick searches, then answer.',
     'For "feed" blocks: use web search to find 3 genuinely current items matching the block\'s prompt; each item is {"line": one plain sentence <=100 chars, "source": publication or site name only}. Real items only — if search fails, return fewer or none rather than inventing.',
     'For "draft" blocks: {"skeleton": a fill-in-the-blank template <=300 chars in a plain, direct voice with [bracketed] slots} matching the block\'s prompt.',
     'For "action" blocks: {"steps": [3 concrete steps, each <=80 chars]} the user could take right now, specific to the block\'s prompt.',
@@ -269,7 +273,8 @@ export function parsePopulateReply(text: string, blocks: FirstScreenBlock[]): Fi
  *  the full PopulateResult or a bare content map (legacy callers/tests). */
 export function populatedFileContent(
   config: FirstScreenConfig,
-  result: FirstScreenContentMap | PopulateResult
+  result: FirstScreenContentMap | PopulateResult,
+  options: { stillPopulating?: boolean } = {}
 ): string {
   const authored: PopulateResult =
     'content' in result && ('overrides' in result || 'extra' in result)
@@ -306,6 +311,7 @@ export function populatedFileContent(
       kind: config.kind,
       ...(config.path ? { path: config.path } : {}),
       populatedAt: new Date().toISOString(),
+      ...(options.stillPopulating ? { populating: true } : {}),
       title: config.title
     },
     null,
@@ -317,6 +323,8 @@ export function populatedFileContent(
 
 const COMPLETE_TIMEOUT_MS = 150_000
 const CREATE_TIMEOUT_MS = 20_000
+// The no-tools pass must FEEL instant — cap it tight; a miss falls to catch.
+const FAST_TIMEOUT_MS = 45_000
 
 /** Fire-and-forget: generate content for every block and rewrite screen.json.
  *  Resolves true when the file was rewritten with at least one populated
@@ -344,11 +352,11 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
     const created = await gateway
       .request<{ session_id?: string }>(
         'session.create',
-        { cols: 96, model: 'deepseek/deepseek-v4-flash-0731', provider: 'nous', source: 'desktop' },
+        { cols: 96, hidden: true, model: 'deepseek/deepseek-v4-flash-0731', provider: 'nous', source: 'desktop' },
         CREATE_TIMEOUT_MS
       )
       .catch(() =>
-        gateway.request<{ session_id?: string }>('session.create', { cols: 96, source: 'desktop' }, CREATE_TIMEOUT_MS)
+        gateway.request<{ session_id?: string }>('session.create', { cols: 96, hidden: true, source: 'desktop' }, CREATE_TIMEOUT_MS)
       )
 
     sessionId = created?.session_id ?? ''
@@ -369,55 +377,83 @@ export async function populateFirstScreenArtifact(config: FirstScreenConfig): Pr
       .request('config.set', { key: 'reasoning', session_id: sessionId, value: 'none' })
       .catch(() => undefined)
 
-    // The fill turn may run TOOLS (web search for feed items) — tool-using
-    // turns emit interim message.completes per assistant segment, and the
-    // FIRST one is usually prose ("let me search…"), not the JSON. Resolve
-    // only when a matching complete actually PARSES into content; keep
-    // listening otherwise (live failure: resolved on segment one, dropped
-    // the real JSON that landed 40s later).
-    const authored = await new Promise<PopulateResult>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
-        off()
-        reject(new Error('populate timeout'))
-      }, COMPLETE_TIMEOUT_MS)
-
-      const off = gateway.onEvent(event => {
-        if (event.type !== 'message.complete' || event.session_id !== sessionId) {
-          return
-        }
-
-        const payload = (event.payload ?? {}) as { status?: string; text?: string }
-
-        if (payload.status === 'error') {
-          window.clearTimeout(timer)
+    // TWO PASSES so the pane fills FAST:
+    //  1. fast — steps/skeletons/examples straight from the profile, tools
+    //     forbidden. Lands in seconds; the pane loses most of its shimmer on
+    //     the first rewrite.
+    //  2. feed — live-content blocks only, web search allowed. Lands when it
+    //     lands; the file keeps populating:true until then so those blocks
+    //     keep their spinner.
+    // Both listeners are parse-gated: tool-using turns emit an interim
+    // message.complete per assistant segment and the first is usually prose,
+    // not the JSON (live failure: resolved on segment one, dropped the real
+    // JSON that landed 40s later).
+    const runPass = (phase: 'fast' | 'feed', timeoutMs: number) =>
+      new Promise<PopulateResult>((resolve, reject) => {
+        const timer = window.setTimeout(() => {
           off()
-          reject(new Error('populate turn failed'))
+          reject(new Error('populate timeout'))
+        }, timeoutMs)
 
-          return
-        }
+        const off = gateway.onEvent(event => {
+          if (event.type !== 'message.complete' || event.session_id !== sessionId) {
+            return
+          }
 
-        const parsed = parsePopulate(payload.text ?? '', config.blocks)
+          const payload = (event.payload ?? {}) as { status?: string; text?: string }
 
-        if (Object.keys(parsed.content).length > 0 || parsed.extra.length > 0) {
-          window.clearTimeout(timer)
-          off()
-          resolve(parsed)
-        }
-        // Unparseable segment: an interim tool-turn message. Keep waiting.
+          if (payload.status === 'error') {
+            window.clearTimeout(timer)
+            off()
+            reject(new Error('populate turn failed'))
+
+            return
+          }
+
+          const parsed = parsePopulate(payload.text ?? '', config.blocks)
+
+          if (Object.keys(parsed.content).length > 0 || parsed.extra.length > 0) {
+            window.clearTimeout(timer)
+            off()
+            resolve(parsed)
+          }
+          // Unparseable segment: an interim tool-turn message. Keep waiting.
+        })
+
+        void gateway
+          .request('prompt.submit', { session_id: sessionId, text: buildPopulatePrompt(config, phase) })
+          .catch(error => {
+            window.clearTimeout(timer)
+            off()
+            reject(error instanceof Error ? error : new Error(String(error)))
+          })
       })
 
-      void gateway
-        .request('prompt.submit', { session_id: sessionId, text: buildPopulatePrompt(config) })
-        .catch(error => {
-          window.clearTimeout(timer)
-          off()
-          reject(error instanceof Error ? error : new Error(String(error)))
-        })
-    })
-
     const root = await desktop.desktopPluginsRoot()
+    const filePath = `${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`
+    const hasFeed = config.blocks.some(block => block.kind === 'feed')
 
-    await desktop.writeTextFile(`${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`, populatedFileContent(config, authored))
+    const fast = await runPass('fast', FAST_TIMEOUT_MS)
+
+    await desktop.writeTextFile(filePath, populatedFileContent(config, fast, { stillPopulating: hasFeed }))
+
+    if (hasFeed) {
+      // Second turn in the same session: live items for the feed blocks.
+      // Failure keeps the fast content and clears the flag below.
+      try {
+        const feed = await runPass('feed', COMPLETE_TIMEOUT_MS)
+
+        const merged: PopulateResult = {
+          content: { ...fast.content, ...feed.content },
+          extra: [...fast.extra, ...feed.extra],
+          overrides: { ...fast.overrides, ...feed.overrides }
+        }
+
+        await desktop.writeTextFile(filePath, populatedFileContent(config, merged))
+      } catch {
+        await desktop.writeTextFile(filePath, populatedFileContent(config, fast))
+      }
+    }
 
     return true
   } catch {

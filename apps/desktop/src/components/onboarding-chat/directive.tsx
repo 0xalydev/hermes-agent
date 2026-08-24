@@ -19,7 +19,6 @@ import { useState } from 'react'
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '@/components/onboarding-chat/assembly'
 import { rememberOnboardingSubmit } from '@/components/onboarding-chat/retry'
-import { FirstScreenPreview } from '@/components/onboarding-wizard/first-screen'
 import {
   accentsFor,
   AccentSwatch,
@@ -46,11 +45,8 @@ import {
   redockLivePane
 } from '@/store/first-screen-live'
 import {
-  $firstScreenKind,
   compileFirstScreen,
-  type FirstScreenKind,
-  materializeFirstScreen,
-  setFirstScreenKind
+  materializeFirstScreen
 } from '@/store/onboarding-first-screen'
 import { $wizardAnswers, setWizardAnswers } from '@/store/onboarding-wizard'
 import { useTheme } from '@/themes'
@@ -306,15 +302,9 @@ function LayoutCard({ locked = false }: CardProps) {
   )
 }
 
-const FIRST_SCREEN_OPTIONS: Array<{ blurb: string; kind: FirstScreenKind; title: string }> = [
-  { blurb: 'Buttons that start things: a brief, a draft, a feed.', kind: 'dashboard', title: 'Dashboard' },
-  { blurb: 'A page that arrives written for you, on a cadence you set.', kind: 'document', title: 'Document' },
-  { blurb: 'One small machine: drop something in, get one shaped thing out.', kind: 'app', title: 'App' }
-]
 
 function FirstScreenCard({ locked = false }: CardProps) {
   const answers = useStore($wizardAnswers)
-  const picked = useStore($firstScreenKind)
   const [building, setBuilding] = useState(false)
   const [built, setBuilt] = useState<null | ReturnType<typeof compileFirstScreen>>(null)
   const profile = { context: answers.context, focus: answers.focus, name: answers.name }
@@ -330,17 +320,15 @@ function FirstScreenCard({ locked = false }: CardProps) {
   // says "it's built", the pane IS ALREADY OPEN beside the conversation —
   // the app assembles itself around the user; nobody hunts for a button.
   const build = () => {
-    if (building || (candidates ? keptCount === 0 : !picked)) {
+    if (building || (candidates !== null && keptCount === 0)) {
       return
     }
 
     setBuilding(true)
-    const config = candidates ? compileLiveScreen(picked ?? 'dashboard') : compileFirstScreen(profile, picked ?? 'dashboard')
+    const config = candidates ? compileLiveScreen('dashboard') : compileFirstScreen(profile, 'dashboard')
 
     void materializeFirstScreen(config).then(result => {
-      const shape = FIRST_SCREEN_OPTIONS.find(o => o.kind === (picked ?? 'dashboard'))
-
-      // Population runs behind the reveal: a hidden fast-lane session fills
+            // Population runs behind the reveal: a hidden fast-lane session fills
       // every block with real content (feed items via live search, skeletons,
       // steps) and rewrites screen.json — the pane's file watcher repaints it
       // as the content lands, seconds after it opens. Fire-and-forget: any
@@ -353,7 +341,7 @@ function FirstScreenCard({ locked = false }: CardProps) {
 
       if (
         !report(
-          `built their first screen: ${shape?.title.toLowerCase() ?? config.kind} "${config.title}" with ${config.blocks.length} modules${candidates ? ' they hand-picked' : ''}${result.ok ? `, saved to ${result.path}` : ''} — it just OPENED as a pane beside this chat and is filling itself in with live content; tell them to look right and press any of its parts`
+          `built their dashboard "${config.title}" with ${config.blocks.length} modules${candidates ? ' they hand-picked' : ''}${result.ok ? `, saved to ${result.path}` : ''}. It just opened beside this chat and is writing its starter content now; tell them it is filling in and will be ready to press in under a minute. Do NOT tell them to press anything yet.`
         )
       ) {
         setBuilding(false)
@@ -400,8 +388,8 @@ function FirstScreenCard({ locked = false }: CardProps) {
       <div className="my-3 flex items-center gap-1.5 text-muted-foreground text-xs" data-onboarding-card>
         <span aria-hidden>✓</span>
         <span>
-          <strong className="font-medium text-foreground">{built.title}</strong> is open beside this chat, and lives on
-          as <strong className="font-medium">your first screen</strong> in the sidebar.
+          <strong className="font-medium text-foreground">{built.title}</strong> is open beside this chat. It stays in
+          your sidebar as <strong className="font-medium">your first screen</strong>.
         </span>
       </div>
     )
@@ -450,52 +438,15 @@ function FirstScreenCard({ locked = false }: CardProps) {
             )
           })}
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">Arrange as</span>
-          {FIRST_SCREEN_OPTIONS.map(option => (
-            <button
-              className={cn(
-                'rounded-full border px-2.5 py-0.5 text-[11px] transition-colors',
-                (picked ?? 'dashboard') === option.kind
-                  ? 'border-primary bg-primary/15 text-foreground'
-                  : 'border-border text-muted-foreground hover:border-primary/40'
-              )}
-              key={option.kind}
-              onClick={() => setFirstScreenKind(option.kind)}
-              type="button"
-            >
-              {option.title}
-            </button>
-          ))}
-        </div>
       </CardFrame>
     )
   }
 
   return (
-    <CardFrame disabled={!picked} done={built !== null} locked={locked || building} onContinue={build}>
-      <div className="flex flex-col gap-2">
-        {FIRST_SCREEN_OPTIONS.map(option => {
-          const config = compileFirstScreen(profile, option.kind)
-
-          return (
-            <button
-              className={cn(
-                'grid grid-cols-[120px_1fr] items-center gap-3 rounded-[8px] border p-2 text-left transition-colors',
-                picked === option.kind ? 'border-primary bg-primary/10' : 'border-transparent hover:bg-accent/40'
-              )}
-              key={option.kind}
-              onClick={() => setFirstScreenKind(option.kind)}
-              type="button"
-            >
-              <FirstScreenPreview config={config} />
-              <span>
-                <span className="block text-[13px] font-medium">{option.title}</span>
-                <span className="block text-xs text-muted-foreground">{option.blurb}</span>
-              </span>
-            </button>
-          )
-        })}
+    <CardFrame done={built !== null} locked={locked || building} onContinue={build}>
+      <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+        <span className="grid size-4 flex-none place-items-center rounded-[4px] border border-primary bg-primary text-[10px] leading-none text-primary-foreground">✓</span>
+        Your dashboard is drafted from what you told me. Press Continue and it opens beside this chat.
       </div>
     </CardFrame>
   )
