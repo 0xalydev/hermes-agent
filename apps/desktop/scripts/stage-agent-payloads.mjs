@@ -425,7 +425,7 @@ function stageManagedRuntimes(target, outDir, pythonExe) {
     outDir,
     "--target",
     targetKey,
-    ...["git", "agent-browser", "cua-driver"]
+    ...["git", "cua-driver"]
       .flatMap((tool) => ["--extra", tool]),
     "--archive-cache",
     path.join(REPO_ROOT, "apps", "desktop", "build", "pin-archives"),
