@@ -117,7 +117,11 @@ function FocusCard({ locked = false }: CardProps) {
       done={done}
       locked={locked}
       onContinue={() => {
-        if (report(`they want help with: ${answers.focus.length > 0 ? answers.focus.join(', ') : 'no picks — keep it open'}`)) {
+        if (
+          report(
+            `they want help with: ${answers.focus.length > 0 ? answers.focus.join(', ') : 'no picks — keep it open'}`
+          )
+        ) {
           setDone(true)
         }
       }}
@@ -312,7 +316,22 @@ function FirstScreenCard({ locked = false }: CardProps) {
     void materializeFirstScreen(config).then(result => {
       const tile = FIRST_SCREEN_OPTIONS.find(o => o.kind === picked)
 
-      if (!report(`built their first screen: ${tile?.title.toLowerCase() ?? config.kind} "${config.title}"${result.ok ? `, saved to ${result.path}` : ''} — it just OPENED as a pane beside this chat; tell them to look right and press any of its buttons`)) {
+      // Population runs behind the reveal: a hidden fast-lane session fills
+      // every block with real content (feed items via live search, skeletons,
+      // steps) and rewrites screen.json — the pane's file watcher repaints it
+      // as the content lands, seconds after it opens. Fire-and-forget: any
+      // failure leaves the deterministic screen exactly as materialized.
+      if (result.ok) {
+        void import('@/store/first-screen-populate').then(({ populateFirstScreenArtifact }) =>
+          populateFirstScreenArtifact(config)
+        )
+      }
+
+      if (
+        !report(
+          `built their first screen: ${tile?.title.toLowerCase() ?? config.kind} "${config.title}"${result.ok ? `, saved to ${result.path}` : ''} — it just OPENED as a pane beside this chat and is filling itself in with live content; tell them to look right and press any of its buttons`
+        )
+      ) {
         setBuilding(false)
 
         return
@@ -357,20 +376,15 @@ function FirstScreenCard({ locked = false }: CardProps) {
       <div className="my-3 flex items-center gap-1.5 text-muted-foreground text-xs" data-onboarding-card>
         <span aria-hidden>✓</span>
         <span>
-          <strong className="font-medium text-foreground">{built.title}</strong> is open beside this chat, and
-          lives on as <strong className="font-medium">your first screen</strong> in the sidebar.
+          <strong className="font-medium text-foreground">{built.title}</strong> is open beside this chat, and lives on
+          as <strong className="font-medium">your first screen</strong> in the sidebar.
         </span>
       </div>
     )
   }
 
   return (
-    <CardFrame
-      disabled={!picked}
-      done={built !== null}
-      locked={locked || building}
-      onContinue={build}
-    >
+    <CardFrame disabled={!picked} done={built !== null} locked={locked || building} onContinue={build}>
       <div className="flex flex-col gap-2">
         {FIRST_SCREEN_OPTIONS.map(option => {
           const config = compileFirstScreen(profile, option.kind)

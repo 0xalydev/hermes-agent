@@ -154,7 +154,11 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
           ]
 
   const focusSummary =
-    focus.length === 0 ? 'your day' : focus.length === 1 ? primary.toLowerCase() : `${primary.toLowerCase()} and ${secondary.toLowerCase()}`
+    focus.length === 0
+      ? 'your day'
+      : focus.length === 1
+        ? primary.toLowerCase()
+        : `${primary.toLowerCase()} and ${secondary.toLowerCase()}`
 
   return {
     blocks,
@@ -190,7 +194,11 @@ export function buildTheaterBeats(config: FirstScreenConfig): TheaterBeat[] {
   const beats: TheaterBeat[] = []
   const beatMs = 1900
 
-  beats.push({ cue: 'header', t: 0, text: `Making ${config.userName === 'you' ? 'your' : `${config.userName}'s`} ${config.kind}` })
+  beats.push({
+    cue: 'header',
+    t: 0,
+    text: `Making ${config.userName === 'you' ? 'your' : `${config.userName}'s`} ${config.kind}`
+  })
 
   config.blocks.forEach((block, i) => {
     const t = 900 + i * beatMs
@@ -288,29 +296,78 @@ export default {
       const h = React.createElement
       const blocks = config?.blocks ?? []
 
+      // A populated block renders its content under the header (feed items,
+      // draft skeleton, steps, example); an unpopulated one stays a compact
+      // row. Same file, both states — population is a rewrite of screen.json.
+      const body = block => {
+        const c = block.content
+
+        if (!c) return null
+        if (c.kind === 'feed' && Array.isArray(c.items) && c.items.length)
+          return h(
+            'div',
+            { className: 'fs-body' },
+            c.items.map((item, i) =>
+              h(
+                'div',
+                { className: 'fs-item', key: i },
+                h('span', null, item.line),
+                item.source ? h('span', { className: 'fs-src' }, item.source) : null
+              )
+            )
+          )
+        if (c.kind === 'draft' && c.skeleton) return h('div', { className: 'fs-body fs-skel' }, c.skeleton)
+        if (c.kind === 'action' && Array.isArray(c.steps) && c.steps.length)
+          return h(
+            'ol',
+            { className: 'fs-body fs-steps' },
+            c.steps.map((step, i) => h('li', { key: i }, step))
+          )
+        if (c.kind === 'tool' && c.example)
+          return h(
+            'div',
+            { className: 'fs-body' },
+            h('div', { className: 'fs-item' }, h('span', { className: 'fs-src' }, 'in'), h('span', null, c.example.input)),
+            h('div', { className: 'fs-item' }, h('span', { className: 'fs-src' }, 'out'), h('span', null, c.example.output))
+          )
+
+        return null
+      }
+
       return h(
         'div',
-        { 'data-tour': 'first-screen', style: { display: 'flex', flexDirection: 'column', height: '100%', padding: 12 } },
+        { 'data-tour': 'first-screen', style: { display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: 12 } },
         h('div', { style: { fontSize: 14, fontWeight: 600 } }, config?.title ?? 'your first screen'),
         config?.rationale ? h('div', { style: { fontSize: 11, marginTop: 2, opacity: 0.7 } }, config.rationale) : null,
         h(
           'style',
           null,
-          '.fs-row{align-items:center;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--foreground);cursor:pointer;display:flex;font-size:12px;justify-content:space-between;gap:10px;padding:9px 12px;text-align:left;transition:background 120ms ease,border-color 120ms ease;width:100%}' +
-            '.fs-row:hover{background:color-mix(in srgb, var(--accent) 24%, transparent);border-color:color-mix(in srgb, var(--primary) 45%, var(--border))}' +
+          '.fs-card{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--foreground);display:flex;flex-direction:column;width:100%}' +
+            '.fs-row{align-items:center;background:transparent;border:0;color:var(--foreground);cursor:pointer;display:flex;font-size:12px;justify-content:space-between;gap:10px;padding:9px 12px;text-align:left;transition:background 120ms ease;width:100%}' +
+            '.fs-row:hover{background:color-mix(in srgb, var(--accent) 24%, transparent)}' +
             '.fs-row:active{background:color-mix(in srgb, var(--accent) 38%, transparent)}' +
             '.fs-pill{background:var(--primary);border-radius:999px;color:var(--primary-foreground);font-size:10px;font-weight:500;opacity:.85;padding:2px 9px;transition:opacity 120ms ease}' +
-            '.fs-row:hover .fs-pill{opacity:1}'
+            '.fs-row:hover .fs-pill{opacity:1}' +
+            '.fs-body{border-top:1px solid var(--border);display:flex;flex-direction:column;font-size:11px;gap:6px;padding:8px 12px 10px}' +
+            '.fs-item{display:flex;gap:8px;justify-content:space-between;line-height:1.45}' +
+            '.fs-src{color:var(--muted-foreground);flex:none;font-size:10px}' +
+            '.fs-skel{color:var(--muted-foreground);white-space:pre-wrap}' +
+            '.fs-steps{margin:0;padding-left:16px}.fs-steps li{line-height:1.5}'
         ),
         h(
           'div',
           { style: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 } },
           blocks.map(block =>
             h(
-              'button',
-              { className: 'fs-row', key: block.id, onClick: () => run(block.prompt), type: 'button' },
-              h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, block.label),
-              h('span', { className: 'fs-pill' }, 'Run')
+              'div',
+              { className: 'fs-card', key: block.id },
+              h(
+                'button',
+                { className: 'fs-row', onClick: () => run(block.prompt), type: 'button' },
+                h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, block.label),
+                h('span', { className: 'fs-pill' }, 'Run')
+              ),
+              body(block)
             )
           )
         ),
@@ -368,17 +425,13 @@ export function firstScreenFileContent(config: FirstScreenConfig): string {
   )}\n`
 }
 
-export type MaterializeFirstScreenResult =
-  | { ok: true; path: string }
-  | { ok: false; error: string }
+export type MaterializeFirstScreenResult = { ok: true; path: string } | { ok: false; error: string }
 
 /** Persist the artifact into `<desktop-plugins>/first-screen/screen.json`.
  *  No-op (ok) when there is no Electron bridge — browser runs just don't get
  *  the file. Called by the wizard window as it hands off, so the reveal's
  *  promise about the file path is already true when the user opens it. */
-export async function materializeFirstScreen(
-  config: FirstScreenConfig
-): Promise<MaterializeFirstScreenResult> {
+export async function materializeFirstScreen(config: FirstScreenConfig): Promise<MaterializeFirstScreenResult> {
   const desktop = window.hermesDesktop
 
   if (!desktop?.desktopPluginsRoot) {

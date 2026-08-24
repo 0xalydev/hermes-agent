@@ -29,6 +29,7 @@ import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import { registry } from '@/contrib/registry'
 import { $introReveal, startIntroReveal } from '@/store/intro-reveal'
 import { $desktopOnboarding } from '@/store/onboarding'
+import type { FirstScreenConfig } from '@/store/onboarding-first-screen'
 import {
   $onboardingWizard,
   completeOnboardingWizard,
@@ -174,6 +175,22 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
       }
 
       commitAnswers(reloadWizardAnswers())
+
+      // Full run: the wizard window materialized the deterministic artifact
+      // as it closed; the gateway lives HERE, so this renderer runs the
+      // population pass (hidden fast-lane session → real content → rewrite
+      // screen.json; the pane repaints on the file watcher). Fire-and-forget.
+      if (outcome.firstScreen?.configJson) {
+        try {
+          const config = JSON.parse(outcome.firstScreen.configJson) as FirstScreenConfig
+
+          void import('@/store/first-screen-populate').then(({ populateFirstScreenArtifact }) =>
+            populateFirstScreenArtifact(config)
+          )
+        } catch {
+          // Malformed payload — the deterministic screen stands.
+        }
+      }
 
       // No kickoff without inference: the run needed a provider and the user
       // skipped past the step — there is nothing to greet with. (The classic
