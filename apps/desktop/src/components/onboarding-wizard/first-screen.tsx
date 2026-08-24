@@ -15,6 +15,7 @@
 import { useStore } from '@nanostores/react'
 import { type CSSProperties } from 'react'
 
+import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { FONT_MONO } from '@/components/wizard-shell'
 import { cn } from '@/lib/utils'
 import type { FirstScreenConfig, TheaterBeat } from '@/store/onboarding-first-screen'
@@ -78,8 +79,19 @@ function TheaterRow({ beat, t }: { beat: TheaterBeat; t: number }) {
 }
 
 /** The finished thing — full-frame at the reveal, miniaturized inside the
- *  theater. This is the `FirstScreen` grammar: same sections, three skins. */
-export function FirstScreenSurface({ config, mini = false }: { config: FirstScreenConfig; mini?: boolean }) {
+ *  theater, AND interactive on the chat card that hands it over. This is the
+ *  `FirstScreen` grammar: same sections, three skins. `interactive` is set by
+ *  the in-chat card only — the Run buttons then really run (hidden prompt
+ *  submit), which is the payoff of building it in-chat. */
+export function FirstScreenSurface({
+  config,
+  interactive = false,
+  mini = false
+}: {
+  config: FirstScreenConfig
+  interactive?: boolean
+  mini?: boolean
+}) {
   return (
     <div
       className={cn(
@@ -94,25 +106,37 @@ export function FirstScreenSurface({ config, mini = false }: { config: FirstScre
 
       <div className={cn('flex flex-col', mini ? 'mt-2.5 gap-1.5' : 'mt-6 gap-3')}>
         {config.kind === 'dashboard' &&
-          config.blocks.map(block => (
-            <div
-              className={cn(
-                'flex items-center justify-between rounded-md border border-neutral-200 bg-neutral-50',
-                mini ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-[14px]'
-              )}
-              key={block.id}
-            >
-              <span className="truncate">{block.label}</span>
-              <span
-                className={cn(
-                  'rounded-full bg-neutral-900 font-medium text-white',
-                  mini ? 'px-1.5 py-0.5 text-[8px]' : 'px-2.5 py-1 text-[11px]'
-                )}
+          config.blocks.map(block =>
+            interactive && !mini ? (
+              <button
+                className="flex items-center justify-between rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3 text-left text-[14px] transition-colors hover:border-neutral-900 hover:bg-white"
+                key={block.id}
+                onClick={() => requestComposerSubmit(block.prompt, { displayKind: 'hidden' })}
+                type="button"
               >
-                Run
-              </span>
-            </div>
-          ))}
+                <span className="truncate">{block.label}</span>
+                <span className="rounded-full bg-neutral-900 px-2.5 py-1 text-[11px] font-medium text-white">Run</span>
+              </button>
+            ) : (
+              <div
+                className={cn(
+                  'flex items-center justify-between rounded-md border border-neutral-200 bg-neutral-50',
+                  mini ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-[14px]'
+                )}
+                key={block.id}
+              >
+                <span className="truncate">{block.label}</span>
+                <span
+                  className={cn(
+                    'rounded-full bg-neutral-900 font-medium text-white',
+                    mini ? 'px-1.5 py-0.5 text-[8px]' : 'px-2.5 py-1 text-[11px]'
+                  )}
+                >
+                  Run
+                </span>
+              </div>
+            )
+          )}
 
         {config.kind === 'document' && (
           <div className={cn('flex flex-col', mini ? 'gap-1.5' : 'gap-3')}>

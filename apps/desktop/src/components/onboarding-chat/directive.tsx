@@ -18,13 +18,14 @@ import { useState } from 'react'
 
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '@/components/onboarding-chat/assembly'
+import { FirstScreenPreview, FirstScreenSurface } from '@/components/onboarding-wizard/first-screen'
 import {
-  AccentSwatch,
   accentsFor,
+  AccentSwatch,
   CONNECTORS,
   FOCUS_OPTIONS,
-  LAYOUTS,
   LayoutPreviewCard,
+  LAYOUTS,
   NOUS_ACCENT
 } from '@/components/onboarding-wizard/options'
 import type { LayoutNode } from '@/components/pane-shell/tree/model'
@@ -33,14 +34,21 @@ import { Button } from '@/components/ui/button'
 import { ConnectorLogo } from '@/components/ui/connector-logo'
 import { Chip } from '@/components/wizard-shell'
 import { registry } from '@/contrib/registry'
+import {
+  $firstScreenKind,
+  compileFirstScreen,
+  type FirstScreenKind,
+  materializeFirstScreen,
+  setFirstScreenKind
+} from '@/store/onboarding-first-screen'
 import { $wizardAnswers, setWizardAnswers } from '@/store/onboarding-wizard'
 import { useTheme } from '@/themes'
 import { setAccentOverride } from '@/themes/accent-override'
 
-type ChatStep = 'connectors' | 'focus' | 'layout' | 'look'
+type ChatStep = 'connectors' | 'first-screen' | 'focus' | 'layout' | 'look'
 
 function isChatStep(value: string | undefined): value is ChatStep {
-  return value === 'focus' || value === 'connectors' || value === 'look' || value === 'layout'
+  return value === 'focus' || value === 'connectors' || value === 'look' || value === 'layout' || value === 'first-screen'
 }
 
 /** Report a pick and let the model move on — hidden, so no user bubble. */
@@ -257,8 +265,90 @@ function LayoutCard({ locked = false }: CardProps) {
   )
 }
 
+const FIRST_SCREEN_OPTIONS: Array<{ blurb: string; kind: FirstScreenKind; title: string }> = [
+  { blurb: 'Buttons that start things: a brief, a draft, a feed.', kind: 'dashboard', title: 'Dashboard' },
+  { blurb: 'A page that arrives written for you, on a cadence you set.', kind: 'document', title: 'Document' },
+  { blurb: 'One small machine: drop something in, get one shaped thing out.', kind: 'app', title: 'App' }
+]
+
+function FirstScreenCard({ locked = false }: CardProps) {
+  const answers = useStore($wizardAnswers)
+  const picked = useStore($firstScreenKind)
+  const [building, setBuilding] = useState(false)
+  const [built, setBuilt] = useState<null | ReturnType<typeof compileFirstScreen>>(null)
+  const profile = { focus: answers.focus, name: answers.name }
+
+  // Continue = build. The config compiles synchronously, then materializes
+  // (screen.json lands on disk) before the model is told — so when the chat
+  // says "it's built", the (now interactive) card IS the finished thing.
+  const build = () => {
+    if (!picked || building) {
+      return
+    }
+
+    setBuilding(true)
+    const config = compileFirstScreen(profile, picked)
+
+    void materializeFirstScreen(config).then(result => {
+      const tile = FIRST_SCREEN_OPTIONS.find(o => o.kind === picked)
+
+      if (!report(`built their first screen: ${tile?.title.toLowerCase() ?? config.kind} "${config.title}"${result.ok ? `, saved to ${result.path}` : ''} — tell them it's ready and one tap on a block runs it`)) {
+        setBuilding(false)
+
+        return
+      }
+
+      setBuilt(config)
+    })
+  }
+
+  if (built) {
+    // The finished artifact stays in the transcript, live — pressing any of
+    // its blocks hidden-submits the block's prompt, so the conversation
+    // itself demonstrates "press a button, it does something".
+    return (
+      <div className="my-3 grid max-w-md gap-2" data-onboarding-card>
+        <div className="overflow-hidden rounded-[6px] border bg-white">
+          <FirstScreenSurface config={built} interactive />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <CardFrame
+      disabled={!picked}
+      done={built !== null}
+      locked={locked || building}
+      onContinue={build}
+    >
+      <div className="flex flex-col gap-2">
+        {FIRST_SCREEN_OPTIONS.map(option => {
+          const config = compileFirstScreen(profile, option.kind)
+
+          return (
+            <button
+              className="grid grid-cols-[120px,1fr] items-center gap-3 text-left"
+              key={option.kind}
+              onClick={() => setFirstScreenKind(option.kind)}
+              type="button"
+            >
+              <FirstScreenPreview config={config} />
+              <span>
+                <span className="block text-[13px] font-medium">{option.title}</span>
+                <span className="block text-xs text-muted-foreground">{option.blurb}</span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </CardFrame>
+  )
+}
+
 const CARDS: Record<ChatStep, (props: CardProps) => React.JSX.Element> = {
   connectors: ConnectorsCard,
+  'first-screen': FirstScreenCard,
   focus: FocusCard,
   layout: LayoutCard,
   look: LookCard

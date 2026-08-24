@@ -90,8 +90,8 @@ export function compileFirstScreen(profile: FirstScreenProfile, kind: FirstScree
           {
             id: 'draft',
             kind: 'draft',
-            label: 'Draft in their voice',
-            prompt: `You are ${userName}'s writing hand. Match their registered style — plain, direct, short sentences. Draft what they ask for; if they ask about ${primary.toLowerCase()} or ${secondary.toLowerCase()}, fold in what you know about their focus. Show the draft, ask one clarification at most, then revise.`,
+            label: 'Draft in your voice',
+            prompt: `You are ${userName}'s writing hand. Match their natural voice — plain, direct, short sentences. Draft what they ask for; if they ask about ${primary.toLowerCase()} or ${secondary.toLowerCase()}, fold in what you know about their focus. Show the draft, ask one clarification at most, then revise.`,
             stepLine: 'Teaching it your voice'
           },
           {
