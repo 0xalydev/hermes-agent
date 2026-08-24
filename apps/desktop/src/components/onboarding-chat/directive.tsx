@@ -14,7 +14,7 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '@/components/onboarding-chat/assembly'
@@ -37,6 +37,7 @@ import { registry } from '@/contrib/registry'
 import { cn } from '@/lib/utils'
 import {
   $droppedModuleIds,
+  $livePaneOpen,
   $moduleCandidates,
   $speculativeFill,
   advanceSketch,
@@ -316,6 +317,21 @@ function FirstScreenCard({ locked = false }: CardProps) {
   const candidates = useStore($moduleCandidates)
   const dropped = useStore($droppedModuleIds)
   const keptCount = candidates ? candidates.length - dropped.length : 0
+  // This card now appears right after the context answer, so generation is
+  // usually still in flight for its first seconds: show an honest designing
+  // state, and degrade to the template confirm only if generation never
+  // lands (grace expires).
+  const [waitedOut, setWaitedOut] = useState(false)
+
+  useEffect(() => {
+    if (candidates) {
+      return
+    }
+
+    const grace = window.setTimeout(() => setWaitedOut(true), 45_000)
+
+    return () => window.clearTimeout(grace)
+  }, [candidates])
 
   // Continue = build. The config compiles synchronously, then materializes
   // (screen.json lands on disk) before the model is told — so when the chat
@@ -348,20 +364,16 @@ function FirstScreenCard({ locked = false }: CardProps) {
 
       if (
         !report(
-          `built their dashboard "${config.title}" with ${config.blocks.length} modules${candidates ? ' they hand-picked' : ''}${result.ok ? `, saved to ${result.path}` : ''}. It just opened beside this chat and is writing its starter content now; tell them it is filling in and will be ready to press in under a minute. Do NOT tell them to press anything yet.`
+          `built their dashboard "${config.title}" with ${config.blocks.length} modules${candidates ? ' they hand-picked' : ''}${result.ok ? `, saved to ${result.path}` : ''}. It is open beside this chat and writes itself while you finish the remaining setup steps together — acknowledge briefly and move to the next step.`
         )
       ) {
         setBuilding(false)
 
         return
       }
-      // The disk watcher registers the new plugin pane on its next tick
-      // (~5s). Then OPEN it as a real split beside the chat — the moment of
-      // the whole flow: the app grows a new limb in front of the user. The
-      // window widens for it (same native glide as the layout pick) so the
-      // pane ADDS space instead of squeezing the conversation. Poll briefly
-      // for the contribution (registration is async); a miss degrades to the
-      // sidebar row, never an error.
+      // The living pane is usually ALREADY open (since the focus step). Only
+      // a run where the sketch never opened needs the grow+dock; otherwise a
+      // reveal is enough — growing again would widen the window twice.
       void (async () => {
         const [{ registry }, { dockPaneBeside, revealTreePane }] = await Promise.all([
           import('@/contrib/registry'),
@@ -372,7 +384,10 @@ function FirstScreenCard({ locked = false }: CardProps) {
 
         while (Date.now() < deadline) {
           if (registry.getArea('panes').some(c => c.id === 'first-screen:pane')) {
-            window.hermesDesktop?.chatOnboarding?.grow({ bottom: 0, left: 0, right: 380, top: 0 })
+            if (!$livePaneOpen.get()) {
+              window.hermesDesktop?.chatOnboarding?.grow({ bottom: 0, left: 0, right: 380, top: 0 })
+            }
+
             dockPaneBeside('first-screen:pane', 'workspace')
             revealTreePane('first-screen:pane')
 
@@ -398,6 +413,18 @@ function FirstScreenCard({ locked = false }: CardProps) {
           <strong className="font-medium text-foreground">{built.title}</strong> is open beside this chat. It stays in
           your sidebar as <strong className="font-medium">your first screen</strong>.
         </span>
+      </div>
+    )
+  }
+
+  if (!candidates && !waitedOut) {
+    // Generation in flight — honest designing state with a live spinner.
+    // Continue stays away entirely; the card swaps to keep/drop rows the
+    // moment candidates land.
+    return (
+      <div className="my-3 flex items-center gap-2.5 text-[12px] text-muted-foreground" data-onboarding-card>
+        <span className="size-3.5 flex-none animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+        Designing your dashboard from what you told me…
       </div>
     )
   }
