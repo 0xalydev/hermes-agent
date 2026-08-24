@@ -614,6 +614,25 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           const storedId = $selectedStoredSessionId.get()
 
           $chatOnboardingThreadIds.set(storedId ? [storedId, runtimeId] : [runtimeId])
+
+          // Pin the guided turns to the fast lane, session-scoped: the walk
+          // is short scripted replies where flagship-model latency (and a
+          // thinking pass) reads as the app hanging between cards. GLM is
+          // the cost-safe silent default (PREFERRED_SILENT_DEFAULT_MODEL,
+          // hermes_cli/models.py) and every tier serves it. --session keeps
+          // the user's real default untouched — their first OWN chat runs
+          // whatever setup resolved for the profile. Best-effort: a refusal
+          // leaves the guide on the profile default, which still works.
+          await requestGateway('config.set', {
+            key: 'model',
+            session_id: runtimeId,
+            value: 'z-ai/glm-5.2 --provider nous --session'
+          }).catch(() => undefined)
+          await requestGateway('config.set', {
+            key: 'reasoning',
+            session_id: runtimeId,
+            value: 'none'
+          }).catch(() => undefined)
         }
 
         setAwaitingResponse(true)

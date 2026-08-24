@@ -235,6 +235,20 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
 
     if (bridge && !openRequested.current) {
       openRequested.current = true
+
+      // Login mode no longer opens a window at all: guest inference exists
+      // from first boot, so the portal sign-in card is gone from the chain —
+      // animation hands straight to the guided chat. Synthesizing the done
+      // payload (instead of special-casing intro-reveal) reuses the whole
+      // outcome path: main sizes the hidden app to the solo chat, reveals
+      // it, and handleOutcome starts the guide + marks the run complete.
+      // Sign-in still lives in the chat's connect step and Settings.
+      if (wizard.mode === 'login') {
+        bridge.done({ completed: true, mode: 'login', soloChat: true })
+
+        return
+      }
+
       void bridge.open({ mode: wizard.mode, needsProvider: wizardNeedsProviderStep() }).catch(() => undefined)
     }
   }, [wizard.mode, wizard.phase])
