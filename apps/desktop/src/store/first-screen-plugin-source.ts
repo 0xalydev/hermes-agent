@@ -124,7 +124,7 @@ const CSS = [
   '.fsx-go[disabled]{cursor:default;opacity:.4;pointer-events:none}',
   '@keyframes fsx-pop{0%{transform:scale(.5)}60%{transform:scale(1.22)}100%{transform:scale(1)}}',
   '@keyframes fsx-cardin{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}',
-  '.fsx-sec{animation:fsx-cardin 380ms cubic-bezier(.22,1,.36,1) both}',
+  '.fsx-sec{animation:fsx-cardin 380ms cubic-bezier(.22,1,.36,1) both;position:relative}',
   '@keyframes fsx-arrive{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}',
   '@keyframes fsx-glowring{0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--dt-primary) 34%, transparent)}100%{box-shadow:0 0 0 14px transparent}}',
   '.fsx-arrived{animation:fsx-glowring 750ms ease-out 1,fsx-cardin 380ms cubic-bezier(.22,1,.36,1) both}',
@@ -138,14 +138,15 @@ const CSS = [
   '.fsx-opt{transition:background 120ms ease,border-color 120ms ease,transform 90ms ease}',
   '.fsx-item:active{transform:scale(.99)}',
   '.fsx-regen:active{transform:scale(.94)}',
-  '@keyframes fsx-levelup{0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--dt-primary) 45%, transparent);transform:scale(1)}30%{transform:scale(1.012)}100%{box-shadow:0 0 0 22px transparent;transform:scale(1)}}',
+  '@keyframes fsx-levelup{0%{transform:scale(1)}30%{transform:scale(1.012)}100%{transform:scale(1)}}',
   '.fsx-skillup{animation:fsx-levelup 900ms cubic-bezier(.22,1,.36,1)}',
-  '.fsx-skillbadge{align-items:center;background:color-mix(in srgb, var(--dt-primary) 14%, transparent);border-radius:999px;color:var(--dt-primary);display:inline-flex;flex:none;font-family:var(--mono);font-size:10.5px;font-weight:700;gap:4px;letter-spacing:.04em;padding:2.5px 9px}',
+  '.fsx-skillbadge{align-items:center;background:color-mix(in srgb, var(--tool-memory-legendary-mid, var(--dt-primary)) 14%, transparent);border-radius:999px;display:inline-flex;flex:none;font-family:var(--mono);font-size:10.5px;font-weight:700;gap:4px;letter-spacing:.04em;padding:2.5px 9px}',
+  '.fsx-skillbadge span{background-image:linear-gradient(105deg, var(--tool-memory-legendary-from, var(--dt-primary)) 0%, var(--tool-memory-legendary-mid, var(--dt-primary)) 48%, var(--tool-memory-legendary-to, var(--dt-primary)) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}',
   '@keyframes fsx-badgepop{0%{transform:scale(.6)}60%{transform:scale(1.25)}100%{transform:scale(1)}}',
   '.fsx-skillbadge-pop{animation:fsx-badgepop 420ms cubic-bezier(.34,1.56,.64,1)}',
-  '.fsx-learned{border-left:2px solid color-mix(in srgb, var(--dt-primary) 45%, transparent);display:flex;flex-direction:column;gap:7px;margin-top:2px;padding-left:11px}',
+  '.fsx-learned{border-left:2px solid color-mix(in srgb, var(--tool-memory-legendary-mid, var(--dt-primary)) 45%, transparent);display:flex;flex-direction:column;gap:7px;margin-top:2px;padding-left:11px}',
   '.fsx-learnedline{font-size:13px;line-height:1.5}',
-  '.fsx-learnedline-new{animation:fsx-arrive 500ms ease both;color:var(--dt-primary)}',
+  '.fsx-learnedline-new{animation:fsx-arrive 500ms ease both;color:var(--tool-memory-legendary-meta, var(--dt-primary))}',
   '.fsx-skillfoot{color:var(--dt-muted-foreground);font-size:11px;margin-top:9px;opacity:.85}',
   '.fsx-foot{display:none}'
 ].join('')
@@ -299,7 +300,7 @@ function SkillCard(props) {
   useEffect(() => {
     if (version > prevRef.current) {
       setLeveled(true)
-      const t = setTimeout(() => setLeveled(false), 1000)
+      const t = setTimeout(() => setLeveled(false), 1800)
       prevRef.current = version
       return () => clearTimeout(t)
     }
@@ -310,6 +311,21 @@ function SkillCard(props) {
   return h(
     'div',
     { className: leveled ? 'fsx-skillup' : undefined },
+    // Level-up ring: the SAME arc-border the chat wears (styles.css), aimed
+    // at the whole card (.fsx-sec is the positioned host), recolored to the
+    // legendary gold\\u2192purple of the in-chat self-improvement row.
+    leveled
+      ? h('span', {
+          className: 'arc-border',
+          style: {
+            '--arc-c0': 'var(--tool-memory-legendary-from)',
+            '--arc-c1': 'var(--tool-memory-legendary-mid)',
+            '--arc-c2': 'var(--tool-memory-legendary-to)',
+            '--arc-radius': '12px',
+            '--arc-standoff': '2px'
+          }
+        })
+      : null,
     h(
       'div',
       { className: 'fsx-learned' },
@@ -338,7 +354,7 @@ function Section(props) {
       { className: 'fsx-sechead' },
       h('span', { className: 'fsx-dot' }),
       h('span', { className: 'fsx-seclabel' }, props.label),
-      props.skillVersion ? h('span', { className: 'fsx-skillbadge' + (props.arrived ? ' fsx-skillbadge-pop' : '') }, 'v' + props.skillVersion) : null,
+      props.skillVersion ? h('span', { className: 'fsx-skillbadge' + (props.arrived ? ' fsx-skillbadge-pop' : '') }, h('span', null, 'v' + props.skillVersion)) : null,
       props.progress ? h('span', { className: props.progressDone ? 'fsx-progress fsx-progress-done' : 'fsx-progress' }, props.progressDone ? props.progress + ' \\u2713' : props.progress) : null,
       props.kind && !props.skillVersion ? h('span', { className: 'fsx-kindtag' }, props.kind) : null,
       props.noRun ? null : h('button', { className: 'fsx-secrun', disabled: props.busy || undefined, onClick: props.onRun, type: 'button' }, props.busy ? (props.runLabel && props.runLabel.indexOf('\\u2026') >= 0 ? props.runLabel : 'Writing\\u2026') : (props.runLabel || 'Run'), props.busy ? null : ' \\u25B8')
