@@ -20,7 +20,13 @@ import type { CSSProperties } from 'react'
 
 import { allPaneIds, group, type LayoutNode } from '@/components/pane-shell/tree/model'
 import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
-import { $layoutTree, dismissTreePane, isCollapsePane } from '@/components/pane-shell/tree/store'
+import {
+  $layoutTree,
+  adoptContributedPanes,
+  dismissTreePane,
+  isCollapsePane,
+  setActiveTreePane
+} from '@/components/pane-shell/tree/store'
 import { registry } from '@/contrib/registry'
 import { redockLivePane } from '@/store/first-screen-live'
 import { setSidebarOpen } from '@/store/layout'
@@ -166,6 +172,19 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
   // intent to see it, so open the side through its store (truthful toggle),
   // the same way resetLayoutTree reopens bound sides.
   setSidebarOpen(true)
+
+  // Dock invariants normally run at boot/registry time, so assembling out of
+  // the solo tree would leave adopted panes beside their solo-group sibling —
+  // the Bots pane landed as a tab in the CHAT zone. Re-run adoption now: the
+  // enforce-dock hints re-home it into the sessions strip immediately.
+  adoptContributedPanes()
+
+  // First-run sidebar payoff: the user's only conversations at this moment
+  // are bot canonicals (Setup + soon their task bot), which the Sessions
+  // list hides — so its tab would front as an EMPTY pane. Front the roster
+  // instead: the sidebar's first face is their agents. One-shot at assembly;
+  // any later tab click or drag wins. No-op if the bots plugin is absent.
+  setActiveTreePane('hermes-bots:pane')
 
   if (statusbarWasVisible) {
     $statusbarVisible.set(true)

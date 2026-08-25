@@ -144,23 +144,15 @@ export function setTreePaneHidden(paneId: string, hidden: boolean) {
   }
 }
 
-/** Make `paneId` the active tab in its group without touching side collapse
- *  or zone-minimized state — the safe "make it visible next time the column
- *  is shown" primitive that reactive unhides need. */
-function frontPaneInGroup(paneId: string) {
+/** Make `paneId` the active tab in its group UNCONDITIONALLY — for one-shot
+ *  moments that own the choice (first-run assembly fronting the bot roster
+ *  over an empty Sessions tab). Reactive unhides must keep using the
+ *  non-stealing frontPaneInGroup path instead. */
+export function setActiveTreePane(paneId: string): void {
   const tree = $layoutTree.get()
   const group = tree ? findGroupOfPane(tree, paneId) : null
 
   if (!tree || !group || group.active === paneId) {
-    return
-  }
-
-  // Don't steal the active tab from a pane the user is already viewing. In the
-  // Focus layout `files` shares a group with `workspace`, so a reactive unhide
-  // (cwd arrives on the first reply) would otherwise yank the active tab off
-  // the new session onto files. Only take the active slot when the current
-  // active pane isn't itself showable — then fronting picks a valid tab.
-  if (group.active && !$hiddenTreePanes.get().has(group.active)) {
     return
   }
 
@@ -169,6 +161,25 @@ function frontPaneInGroup(paneId: string) {
   if (next !== tree) {
     commit(next)
   }
+}
+
+/** Make `paneId` the active tab in its group without touching side collapse
+ *  or zone-minimized state — the safe "make it visible next time the column
+ *  is shown" primitive that reactive unhides need. */
+function frontPaneInGroup(paneId: string) {
+  const tree = $layoutTree.get()
+  const group = tree ? findGroupOfPane(tree, paneId) : null
+
+  // Don't steal the active tab from a pane the user is already viewing. In the
+  // Focus layout `files` shares a group with `workspace`, so a reactive unhide
+  // (cwd arrives on the first reply) would otherwise yank the active tab off
+  // the new session onto files. Only take the active slot when the current
+  // active pane isn't itself showable — then fronting picks a valid tab.
+  if (group?.active && group.active !== paneId && !$hiddenTreePanes.get().has(group.active)) {
+    return
+  }
+
+  setActiveTreePane(paneId)
 }
 
 /**
@@ -1315,7 +1326,7 @@ function enforceDockedPanes(
   return next
 }
 
-function adoptContributedPanes(): void {
+export function adoptContributedPanes(): void {
   const tree = $layoutTree.get()
 
   if (!tree) {
