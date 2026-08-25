@@ -107,11 +107,23 @@ function CardFrame({
   onContinue: () => void
 }) {
   return (
-    <div className="my-3 grid w-full min-w-0 max-w-md gap-4" data-onboarding-card inert={locked || undefined}>
+    <div
+      className={cn(
+        'my-3 grid w-full min-w-0 max-w-md gap-4 duration-300 animate-in fade-in-0 slide-in-from-bottom-2',
+        done && 'opacity-75 transition-opacity duration-500'
+      )}
+      data-onboarding-card
+      inert={locked || undefined}
+    >
       {children}
       <div className="flex justify-start">
-        <Button disabled={done || disabled || locked} onClick={onContinue} size="sm">
-          {done ? 'Done' : 'Continue'}
+        <Button
+          className={cn(done && 'scale-95 transition-transform duration-200')}
+          disabled={done || disabled || locked}
+          onClick={onContinue}
+          size="sm"
+        >
+          {done ? '✓ Done' : 'Continue'}
         </Button>
       </div>
     </div>

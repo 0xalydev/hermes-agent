@@ -105,12 +105,12 @@ const CSS = [
   '.fsx-spinner{animation:fsx-spin .8s linear infinite;border:2px solid color-mix(in srgb, var(--dt-muted-foreground) 30%, transparent);border-radius:999px;border-top-color:var(--dt-primary);flex:none;height:12px;width:12px}',
 
   /* ── Sketch / proposals stages ── */
-  '.fsx-sketchrow{align-items:center;border:1px dashed color-mix(in srgb, var(--dt-muted-foreground) 35%, transparent);border-radius:10px;display:flex;gap:10px;margin-top:8px;min-height:44px;padding:10px 12px}',
+  '.fsx-sketchrow{animation:fsx-cardin 380ms cubic-bezier(.22,1,.36,1) both;align-items:center;border:1px dashed color-mix(in srgb, var(--dt-muted-foreground) 35%, transparent);border-radius:10px;display:flex;gap:10px;margin-top:8px;min-height:44px;padding:10px 12px}',
   '.fsx-sketchlabel{color:var(--dt-muted-foreground);font-family:var(--mono);font-size:12px;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   '.fsx-sketchbars{display:flex;flex:1;flex-direction:column;gap:4px}',
   '.fsx-sketchbar{animation:fsx-shimmer 1.6s linear infinite;background:linear-gradient(90deg, color-mix(in srgb, var(--dt-muted-foreground) 14%, transparent) 25%, color-mix(in srgb, var(--dt-muted-foreground) 26%, transparent) 50%, color-mix(in srgb, var(--dt-muted-foreground) 14%, transparent) 75%);background-size:200px 100%;border-radius:3px;height:6px}',
   '.fsx-stagecap{align-items:center;color:var(--dt-primary);display:flex;font-family:var(--mono);font-size:11px;gap:7px;letter-spacing:.1em;margin-top:14px;text-transform:uppercase}',
-  '.fsx-proprow{background:var(--dt-card);border:1px solid var(--dt-border);border-radius:10px;display:flex;flex-direction:column;gap:2px;margin-top:8px;padding:9px 12px}',
+  '.fsx-proprow{animation:fsx-cardin 380ms cubic-bezier(.22,1,.36,1) both;background:var(--dt-card);border:1px solid var(--dt-border);border-radius:10px;display:flex;flex-direction:column;gap:2px;margin-top:8px;padding:9px 12px}',
   '.fsx-dropped{opacity:.38}',
   '.fsx-dropped .fsx-proplabel{text-decoration:line-through}',
   '.fsx-propkind{color:var(--dt-primary);font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase}',
@@ -122,6 +122,22 @@ const CSS = [
   '.fsx-opt{background:color-mix(in srgb, var(--dt-primary) 10%, transparent);border:1px solid color-mix(in srgb, var(--dt-primary) 35%, var(--dt-border));border-radius:999px;color:var(--dt-foreground);cursor:pointer;font-size:12px;font-weight:500;padding:5px 13px;transition:background 120ms ease,border-color 120ms ease}',
   '.fsx-opt:hover{background:color-mix(in srgb, var(--dt-primary) 22%, transparent);border-color:var(--dt-primary)}',
   '.fsx-go[disabled]{cursor:default;opacity:.4;pointer-events:none}',
+  '@keyframes fsx-pop{0%{transform:scale(.5)}60%{transform:scale(1.22)}100%{transform:scale(1)}}',
+  '@keyframes fsx-cardin{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}',
+  '.fsx-sec{animation:fsx-cardin 380ms cubic-bezier(.22,1,.36,1) both}',
+  '@keyframes fsx-arrive{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}',
+  '@keyframes fsx-glowring{0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--dt-primary) 34%, transparent)}100%{box-shadow:0 0 0 14px transparent}}',
+  '.fsx-arrived{animation:fsx-glowring 750ms ease-out 1,fsx-cardin 380ms cubic-bezier(.22,1,.36,1) both}',
+  '.fsx-arrived .fsx-secbody{animation:fsx-arrive 420ms ease both}',
+  '.fsx-checkon{animation:fsx-pop 260ms cubic-bezier(.34,1.56,.64,1)}',
+  '.fsx-steptext{transition:color 200ms ease,opacity 200ms ease}',
+  '.fsx-progress-done{animation:fsx-pop 300ms cubic-bezier(.34,1.56,.64,1);background:color-mix(in srgb, var(--dt-primary) 16%, transparent);border-radius:5px;color:var(--dt-primary);font-weight:700;padding:1.5px 7px}',
+  '.fsx-secrun:active{box-shadow:none;transform:translateY(0) scale(.94)}',
+  '.fsx-go:active{box-shadow:none;transform:translateY(0) scale(.94)}',
+  '.fsx-opt:active{transform:scale(.94)}',
+  '.fsx-opt{transition:background 120ms ease,border-color 120ms ease,transform 90ms ease}',
+  '.fsx-item:active{transform:scale(.99)}',
+  '.fsx-regen:active{transform:scale(.94)}',
   '.fsx-foot{display:none}'
 ].join('')
 
@@ -249,15 +265,15 @@ function ToolPanel(props) {
 function Section(props) {
   return h(
     'div',
-    { className: 'fsx-sec' },
+    { className: 'fsx-sec' + (props.arrived ? ' fsx-arrived' : ''), style: props.style },
     h(
       'div',
       { className: 'fsx-sechead' },
       h('span', { className: 'fsx-dot' }),
       h('span', { className: 'fsx-seclabel' }, props.label),
-      props.progress ? h('span', { className: 'fsx-progress' }, props.progress) : null,
+      props.progress ? h('span', { className: props.progressDone ? 'fsx-progress fsx-progress-done' : 'fsx-progress' }, props.progressDone ? props.progress + ' \\u2713' : props.progress) : null,
       props.kind ? h('span', { className: 'fsx-kindtag' }, props.kind) : null,
-      props.noRun ? null : h('button', { className: 'fsx-secrun', disabled: props.busy || undefined, onClick: props.onRun, type: 'button' }, props.busy ? 'Writing\\u2026' : (props.runLabel || 'Run'), props.busy ? null : ' \\u25B8')
+      props.noRun ? null : h('button', { className: 'fsx-secrun', disabled: props.busy || undefined, onClick: props.onRun, type: 'button' }, props.busy ? (props.runLabel && props.runLabel.indexOf('\\u2026') >= 0 ? props.runLabel : 'Writing\\u2026') : (props.runLabel || 'Run'), props.busy ? null : ' \\u25B8')
     ),
     h('div', { className: 'fsx-secbody' }, props.children)
   )
@@ -344,6 +360,12 @@ export default {
       // Checked-off to-do steps, keyed blockId|stepText — survives restarts,
       // resets naturally when a step's text changes (new key).
       const [doneSteps, setDoneSteps] = useState(() => ctx.storage.get('doneSteps', {}))
+      // Which blocks JUST gained content this repaint — they enter with a
+      // glow ring so every fill lands as a visible little arrival. Primed on
+      // mount so reopening an already-full dashboard stays calm.
+      const filledRef = React.useRef(null)
+      // Feed refreshes in flight: press → working state → arrival glow.
+      const [refreshing, setRefreshing] = useState({})
       const todo = {
         done: doneSteps,
         toggle: key => {
@@ -361,7 +383,10 @@ export default {
           ctx.os
             .readPluginFileText('screen.json')
             .then(({ text }) => {
-              if (alive) setConfig(JSON.parse(text))
+              if (alive) {
+                setConfig(JSON.parse(text))
+                setRefreshing({})
+              }
             })
             .catch(() => {})
         void load()
@@ -410,7 +435,7 @@ export default {
             ? blocks.map((block, i) =>
                 h(
                   'div',
-                  { className: 'fsx-sketchrow', key: block.id || i },
+                  { className: 'fsx-sketchrow', key: block.id || i, style: { animationDelay: Math.min(i * 60, 300) + 'ms' } },
                   h('span', { className: 'fsx-sketchlabel' }, block.label || '\\u2026'),
                   h(
                     'div',
@@ -423,7 +448,7 @@ export default {
             : blocks.map((block, i) =>
                 h(
                   'div',
-                  { className: 'fsx-proprow' + (block.dropped ? ' fsx-dropped' : ''), key: block.id || i },
+                  { className: 'fsx-proprow' + (block.dropped ? ' fsx-dropped' : ''), key: block.id || i, style: { animationDelay: Math.min(i * 60, 300) + 'ms' } },
                   h('span', { className: 'fsx-propkind' }, block.dropped ? 'dropped' : block.kind || 'module'),
                   h('span', { className: 'fsx-proplabel' }, block.label),
                   block.dropped ? null : blockBody(block, true)
@@ -432,6 +457,14 @@ export default {
           null
         )
       }
+
+      // Arrival detection: a block whose content JUST appeared gets a one-shot
+      // glow. Primed on first render so an already-full dashboard opens calm.
+      const filledNow = {}
+      for (const b of blocks) filledNow[b.id] = Boolean(b.content)
+      const prevFilled = filledRef.current
+      filledRef.current = filledNow
+      const justArrived = id => prevFilled !== null && filledNow[id] && !prevFilled[id]
 
       return h(
         'div',
@@ -444,25 +477,35 @@ export default {
           h('button', { className: 'fsx-regen', onClick: regen, title: 'Ask Hermes to rewrite this screen\\u2019s content in place', type: 'button' }, 'regenerate \\u21bb')
         ),
         h('div', { className: 'fsx-subtitle' }, 'An example Hermes built during onboarding. Ask for another screen like it anytime.'),
-        blocks.map(block =>
-          h(
+        blocks.map((block, i) => {
+          const steps = block.kind === 'action' && block.content && Array.isArray(block.content.steps) ? block.content.steps : null
+          const doneCount = steps ? steps.filter(s => todo.done[block.id + '|' + s]).length : 0
+          return h(
             Section,
             {
-              busy: freshPending && !block.content,
+              arrived: justArrived(block.id) || undefined,
+              busy: (freshPending && !block.content) || refreshing[block.id],
               key: block.id,
               kind: block.kind,
               label: block.label,
               noRun: (block.kind === 'choice' || block.kind === 'input') && Boolean(block.content),
-              onRun: block.kind === 'feed' ? () => sendRefresh(block, filePath) : () => sendWork(block.prompt),
-              progress:
-                block.kind === 'action' && block.content && Array.isArray(block.content.steps)
-                  ? block.content.steps.filter(s => todo.done[block.id + '|' + s]).length + '/' + block.content.steps.length
-                  : null,
-              runLabel: block.kind === 'feed' ? 'Refresh' : 'Run'
+              onRun:
+                block.kind === 'feed'
+                  ? () => {
+                      setRefreshing(Object.assign({}, refreshing, (function () { const o = {}; o[block.id] = true; return o })()))
+                      sendRefresh(block, filePath)
+                    }
+                  : () => sendWork(block.prompt),
+              progress: steps ? doneCount + '/' + steps.length : null,
+              progressDone: Boolean(steps && steps.length > 0 && doneCount === steps.length),
+              runLabel: block.kind === 'feed' ? (refreshing[block.id] ? 'Refreshing\\u2026' : 'Refresh') : 'Run',
+              // Stagger the first paint so the dashboard assembles as a
+              // cascade instead of a slam.
+              style: prevFilled === null ? { animationDelay: Math.min(i * 70, 350) + 'ms' } : undefined
             },
             block.kind === 'tool' ? h(ToolPanel, { content: block.content, prompt: block.prompt }) : blockBody(block, freshPending, todo)
           )
-        ),
+        }),
         null
       )
     }
