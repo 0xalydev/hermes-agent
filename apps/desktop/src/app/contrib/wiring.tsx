@@ -655,6 +655,41 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           }
         }
 
+        if (asSetupBot) {
+          // Adopt-before-mint (the bots-contract registry rule): Setup's
+          // canonical Bot Chat may already exist — a relaunch mid-onboarding,
+          // a dev re-kick. Minting a second one can never win: UNIQUE(title)
+          // turns the new 'Bot Chat' stamp into a silent no-op and the
+          // auto-titler names the stray (a live tab read "BROOKLYN").
+          // Exact-title registry lookup; a hit IS the chat — resume it and
+          // pick up wherever the conversation left off.
+          const registryHit = await requestGateway<{ sessions?: { id: string; resolved_id?: string }[] }>(
+            'session.list',
+            { include_hidden: true, title: 'Bot Chat' }
+          ).catch(() => null)
+
+          const canonical = registryHit?.sessions?.[0]
+
+          if (canonical?.id) {
+            console.log('[setup-bot] adopted existing Bot Chat', canonical)
+            markGuideKickoffStarted()
+            await resumeSession(canonical.resolved_id ?? canonical.id, true)
+
+            const adoptedRuntimeId = $activeSessionId.get()
+
+            $chatOnboardingThreadIds.set(
+              adoptedRuntimeId ? [canonical.id, adoptedRuntimeId] : [canonical.id]
+            )
+            $setupBotSession.set({
+              profile: SETUP_BOT_PROFILE,
+              runtimeId: adoptedRuntimeId ?? canonical.id,
+              storedId: canonical.id
+            })
+
+            return
+          }
+        }
+
         const runtimeId = await createBackendSessionForSend(
           null,
           seedMessages,
@@ -769,7 +804,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         })
       })()
     },
-    [createBackendSessionForSend, requestGateway]
+    [createBackendSessionForSend, requestGateway, resumeSession]
   )
 
   // Bot-mode handoff: Setup decided the first task (the HandoffCard raised
