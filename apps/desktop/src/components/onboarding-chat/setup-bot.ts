@@ -232,6 +232,43 @@ export async function stampBotMeta(
   }).catch(() => undefined)
 }
 
+/** The guided chat's model. Every Setup turn is a short scripted beat, and the
+ *  cards LOCK (inert) until the turn settles — so model latency is dead UI in
+ *  the user's hands, not just a slow reply. A live run on a thinking default
+ *  left the colour card unclickable for five minutes.
+ *
+ *  MINIMAL reasoning, not 'none': with the channel fully closed the model
+ *  plans in VISIBLE prose instead (live runs: walls of "Let me re-read the
+ *  steps…"). Minimal gives that planning a hidden home while staying fast. */
+const FAST_LANE_MODEL = 'deepseek/deepseek-v4-flash-0731 --provider nous'
+
+/**
+ * Put a guided session on the fast lane — session scope first so it takes
+ * effect on this very turn, then global so Setup stays there.
+ *
+ * Scoped to the ACTIVE backend, which in bot mode is the hermes-setup
+ * profile, so the user's real default is never touched.
+ *
+ * `confirm_expensive_model` is required: with no agent built yet the switch
+ * otherwise answers `confirm_required` (a selection warning) instead of
+ * switching. Failures are survivable — the profile default still works — but
+ * they are NOT silent: a swallowed refusal here is indistinguishable from a
+ * slow model, which is the whole bug this exists to prevent.
+ */
+export async function pinFastLane(request: GatewayRequest, sessionId: string): Promise<void> {
+  // `model` carries its scope as a flag in the value; `reasoning` takes a
+  // `scope` param. Mirrored rather than unified — this is the gateway's shape.
+  const set = (label: string, params: Record<string, unknown>) =>
+    request('config.set', { session_id: sessionId, ...params }).catch(error => {
+      console.warn(`[setup-bot] fast lane ${label} refused — guided turns stay on the profile default`, error)
+    })
+
+  await set('model', { confirm_expensive_model: true, key: 'model', value: `${FAST_LANE_MODEL} --session` })
+  await set('reasoning', { key: 'reasoning', value: 'minimal' })
+  await set('model (global)', { confirm_expensive_model: true, key: 'model', value: `${FAST_LANE_MODEL} --global` })
+  await set('reasoning (global)', { key: 'reasoning', scope: 'global', value: 'minimal' })
+}
+
 /** Make sure the `hermes-setup` profile exists (idempotent — an existing one
  *  is adopted). Returns false when the backend can't create profiles at all;
  *  the kickoff then falls back to the profile-less guided chat. */

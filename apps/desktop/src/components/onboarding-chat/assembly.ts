@@ -18,13 +18,14 @@
 import { atom } from 'nanostores'
 import type { CSSProperties } from 'react'
 
-import { allPaneIds, group, type LayoutNode } from '@/components/pane-shell/tree/model'
+import { allPaneIds, findGroupOfPane, group, type LayoutNode } from '@/components/pane-shell/tree/model'
 import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import {
   $layoutTree,
   adoptContributedPanes,
   dismissTreePane,
   isCollapsePane,
+  resetEnforcedDocks,
   setActiveTreePane
 } from '@/components/pane-shell/tree/store'
 import { registry } from '@/contrib/registry'
@@ -84,6 +85,10 @@ export const $chatLayoutPicked = atom(false)
 
 // The statusbar footer is h-5 (see statusbar-controls.tsx).
 const STATUSBAR_PX = 20
+
+/** The Bots roster pane (hermes-bots plugin). Absent when the plugin isn't
+ *  loaded, which every use here tolerates. */
+const BOTS_PANE_ID = 'hermes-bots:pane'
 
 let statusbarWasVisible = true
 
@@ -158,11 +163,27 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
   // logs) keep their tab visible even while collapsed, so Basic would land
   // with a Terminal tab beside the chat. Dismiss the undeclared tool panes:
   // the tab goes, and the toggle (⌃`) can still bring the pane back.
+  //
+  // Undeclared `placement: 'main'` panes go too. They don't tab — they claim a
+  // COLUMN next to the conversation, which is how a first run that has never
+  // scheduled anything opened onto an empty Cronjobs panel. The preset decides
+  // what shares the main area during onboarding; nothing else gets to.
+  //
+  // Candidates come from the REGISTRY, not just the tree: a pane that isn't
+  // placed yet still gets its dismissal recorded, and adoption skips dismissed
+  // panes — so this holds whether the pane arrives before or after the sweep.
   const declared = new Set(allPaneIds(tree))
 
-  for (const paneId of allPaneIds($layoutTree.get() ?? tree)) {
-    if (!declared.has(paneId) && isCollapsePane(paneId)) {
-      dismissTreePane(paneId)
+  const dismissUndeclared = () => {
+    const registered = registry.getArea('panes')
+
+    const isMainPane = (paneId: string) =>
+      (registered.find(pane => pane.id === paneId)?.data as { placement?: string } | undefined)?.placement === 'main'
+
+    for (const paneId of new Set([...allPaneIds($layoutTree.get() ?? tree), ...registered.map(pane => pane.id)])) {
+      if (!declared.has(paneId) && (isCollapsePane(paneId) || isMainPane(paneId))) {
+        dismissTreePane(paneId)
+      }
     }
   }
 
@@ -173,10 +194,12 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
   // the same way resetLayoutTree reopens bound sides.
   setSidebarOpen(true)
 
-  // Dock invariants normally run at boot/registry time, so assembling out of
-  // the solo tree would leave adopted panes beside their solo-group sibling —
-  // the Bots pane landed as a tab in the CHAT zone. Re-run adoption now: the
-  // enforce-dock hints re-home it into the sessions strip immediately.
+  // Dock invariants normally run once at boot, against whatever tree existed
+  // then — the SOLO tree, which has no sessions column for the Bots pane to
+  // anchor to. That pass burns the ledger entry, so re-running adoption alone
+  // left Bots stranded as a tab in the chat zone. Reopen the window first, now
+  // that the layout it should dock into actually exists.
+  resetEnforcedDocks()
   adoptContributedPanes()
 
   // First-run sidebar payoff: the user's only conversations at this moment
@@ -184,7 +207,23 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
   // list hides — so its tab would front as an EMPTY pane. Front the roster
   // instead: the sidebar's first face is their agents. One-shot at assembly;
   // any later tab click or drag wins. No-op if the bots plugin is absent.
-  setActiveTreePane('hermes-bots:pane')
+  //
+  // Strictly a SIDEBAR payoff: if the dock above didn't take, Bots is still
+  // stacked with the chat, and fronting it there would bury the conversation
+  // the user is mid-sentence in. Never front a pane over the chat.
+  const assembled = $layoutTree.get()
+  const botsGroup = assembled ? findGroupOfPane(assembled, BOTS_PANE_ID) : null
+
+  if (botsGroup && !botsGroup.panes.includes('workspace')) {
+    setActiveTreePane(BOTS_PANE_ID)
+  }
+
+  // LAST, because panes can be a CONSEQUENCE of the assembly above: the bots
+  // plugin registers Cronjobs the moment its roster becomes visible, so
+  // fronting Bots conjures a pane the preset never asked for. Sweeping before
+  // that point swept a tree the fronting had not happened in yet, and Basic
+  // still landed with an empty Cronjobs column beside the chat.
+  dismissUndeclared()
 
   if (statusbarWasVisible) {
     $statusbarVisible.set(true)
