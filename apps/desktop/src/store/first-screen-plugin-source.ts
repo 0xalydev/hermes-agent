@@ -151,6 +151,21 @@ function send(prompt) {
   if (!ok) host.notify({ kind: 'info', message: 'Open a chat first. The buttons here send prompts into it.' })
 }
 
+/* Choice picks and typed inputs are DECISIONS about the user's project: do
+ * the work in chat AND ripple the decision through the other cards it
+ * affects (they pick Zigbee, so the shopping checklist gains the Zigbee
+ * parts; prompts that assumed another option get re-aimed). */
+function sendRipple(header, task) {
+  send(
+    header +
+      ' ' +
+      task +
+      '\\n\\nRules: plain declaratives, no em dashes, no praise. First give me the finished deliverable for this in chat. Then update my dashboard to match the decision: read ' +
+      (screenPath || 'screen.json in my first-screen plugin folder') +
+      ' and edit ONLY the blocks this decision genuinely affects, in the same turn: add decision-specific steps or items to checklists and shopping lists, re-aim prompts that assumed a different option, and record the decision on the card I answered (e.g. its question becomes the decision, or it gains the follow-up question). Card bodies stay nested under "content" with their own "kind"; untouched blocks stay byte-identical; never write a populating flag; keep populatedAt. Save so the pane repaints, then end with one line naming the cards you updated (or saying none were affected).'
+  )
+}
+
 /* A feed Refresh is the ONE dashboard button that edits the file: the card
  * itself must update. The agent searches, rewrites that block's content in
  * screen.json, and the pane repaints on save. */
@@ -336,12 +351,12 @@ function blockBody(block, freshPending, todo) {
         'div',
         { className: 'fsx-options' },
         c.options.map((opt, i) =>
-          h('button', { className: 'fsx-opt', key: i, onClick: () => sendWork(opt.prompt), type: 'button' }, opt.label)
+          h('button', { className: 'fsx-opt', key: i, onClick: () => sendRipple('[Onboarding Dashboard choice] On my "' + (block.label || 'choice') + '" card I picked: "' + opt.label + '".', opt.prompt), type: 'button' }, opt.label)
         )
       )
     )
   }
-  if (c.kind === 'input' && c.promptPrefix) return h(InputPanel, { content: c })
+  if (c.kind === 'input' && c.promptPrefix) return h(InputPanel, { content: c, label: block.label })
   return null
 }
 
@@ -362,7 +377,7 @@ function InputPanel(props) {
       {
         className: 'fsx-go',
         disabled: !value.trim() || undefined,
-        onClick: () => value.trim() && sendWork(props.content.promptPrefix + value.trim()),
+        onClick: () => value.trim() && sendRipple('[Onboarding Dashboard input] On my "' + (props.label || 'input') + '" card I entered: "' + value.trim() + '".', props.content.promptPrefix + value.trim()),
         type: 'button'
       },
       'Send \\u25B8'
