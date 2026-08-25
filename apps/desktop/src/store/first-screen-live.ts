@@ -30,7 +30,9 @@ import {
   type FirstScreenConfig,
   firstScreenFileContent,
   type FirstScreenKind,
-  materializeFirstScreen
+  inferScreenTier,
+  materializeFirstScreen,
+  VOICE_RULES
 } from '@/store/onboarding-first-screen'
 import { $wizardAnswers } from '@/store/onboarding-wizard'
 
@@ -293,16 +295,26 @@ const clamp = (value: string, max: number) => {
 /** One-turn generation brief: 5-6 module candidates from the user's answers.
  *  Exported for tests. */
 export function buildModulePrompt(profile: { context?: string; focus: string[]; name: string }): string {
+  const tier = inferScreenTier(profile)
+
+  const shape =
+    tier === 'simple'
+      ? 'Return EXACTLY 3 modules — this user is new to agentic tools, so keep it calm: everyday labels (no jargon), one obvious purpose per card, at most 2 kinds among them.'
+      : tier === 'power'
+        ? 'Return 5 or 6 modules, at least 3 kinds among them — this user works in technical tools; specific, dense modules are welcome.'
+        : 'Return 4 modules, at least 3 kinds among them.'
+
   return [
     `Design starter-screen modules for ${profile.name.trim() || 'a new user'} inside Hermes Desktop.`,
     `They said they want help with: ${profile.focus.filter(Boolean).join(', ') || 'their day'}.`,
     (profile.context ?? '').trim()
-      ? `They are working on RIGHT NOW: ${(profile.context ?? '').trim()}. At least three modules must be specifically about THIS — name it in the label.`
+      ? `They are working on RIGHT NOW: ${(profile.context ?? '').trim()}. At least ${tier === 'simple' ? 'two' : 'three'} modules must be specifically about THIS — name it in the label.`
       : 'They gave no current project — keep modules concrete to their focus areas.',
     'Each module is one card on their personal screen backed by one reusable agent prompt.',
     'Kinds: "feed" (fresh items with sources, e.g. news/updates watch), "action" (a checklist/next-steps generator), "draft" (writes something in their voice, fill-in-template), "tool" (paste input → one shaped output).',
-    'Return 5 or 6 modules, at least 3 kinds among them, each: {"id": short-slug, "kind": one of feed|action|draft|tool, "label": <=5 words, imperative or possessive, plain (no title case, no exclamation), "prompt": <=350 chars, first person AS THE USER ("my", "I"), self-contained, concrete}.',
+    `${shape} Each: {"id": short-slug, "kind": one of feed|action|draft|tool, "label": <=5 words, imperative or possessive, plain (no title case, no exclamation), "prompt": <=350 chars, first person AS THE USER ("my", "I"), self-contained, concrete}.`,
     'Labels must read like THEIR screen, not generic software ("PR review queue", not "Productivity assistant"). Never praise. No emoji.',
+    VOICE_RULES,
     'Reply with ONLY a JSON object, no prose, no fences: {"modules": [...]}.'
   ].join('\n')
 }

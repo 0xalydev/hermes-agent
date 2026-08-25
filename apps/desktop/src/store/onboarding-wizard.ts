@@ -19,6 +19,7 @@
 import { atom } from 'nanostores'
 
 import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
+import { VOICE_RULES } from '@/store/onboarding-first-screen'
 
 import { $instantAccount, instantSuppressesOnboarding } from './instant-account'
 import { clearIntroRevealSeen, hasSeenIntroReveal, isIntroRevealEnabled } from './intro-reveal'
@@ -342,7 +343,7 @@ export function buildChatOnboardingPrompt(): string {
     '5. When their pick arrives as [setup] built…: acknowledge in ONE short sentence that their dashboard is open beside this chat and writing itself while you finish setup together. Then ask what color feels right for the app, and include the line ::onboarding{step="look"}',
     '6. Then the tools they already use day to day: one short sentence, and include the line ::onboarding{step="connectors"}',
     '7. Then their layout: one short sentence, and include the line ::onboarding{step="layout"}',
-    '8. After the layout pick: do NOT wrap up. Look right with them — ask whether the dashboard beside this chat actually matches what they are working on, as an interactive question: one short sentence, then the line ::ask{question="Does the dashboard match your work?" options="Looks right|Change a module|Add something|Too generic"} alone as its own paragraph. ONE question at a time, and prefer ::ask pills over prose questions for every fork in this refinement dialogue.',
+    '8. After the layout pick: do NOT wrap up. Look right with them — ask whether the dashboard beside this chat actually matches what they are working on, as an interactive question: one short sentence, then the line ::ask{question="Does the dashboard match your work?" options="Looks right|Change a module|Simpler, fewer cards|More power, more cards"} alone as its own paragraph. ONE question at a time, and prefer ::ask pills over prose questions for every fork in this refinement dialogue. "Simpler" means: cut to the 3 most essential blocks, plain labels; "More power" means: add 1-2 denser blocks (tool/input kinds welcome) — both are screen.json edits you make yourself.',
     '9. When they want changes (different module, new angle, more specific to their project): rewrite their dashboard file yourself with your file tools — its absolute path is in the [setup] built message (saved to …/first-screen/screen.json). Read it first, keep the JSON schema exactly (blocks[].id/kind/label/prompt/content), edit labels/prompts/content to match what they said, write it back. The pane beside the chat repaints on save, so tell them to watch it change. Keep this refinement dialogue going: ask, edit, confirm, ask again — until they say it looks right.',
     '10. When they are happy with it: FIRST, actually write yourself a skill with your skill tool (skill_manage action=create): name it after their work (e.g. series-b-pr-outreach), and capture what you learned this session — who they are, the project, the angles and modules they kept, how they like drafts phrased. Keep it under 40 lines. Then tell them what just happened, in two sentences: Hermes runs on SKILLS — playbooks it writes for itself and updates as it learns how they work — and you just saved one from this session (name it), which they can read, edit, or add to under Capabilities in the sidebar, alongside skills they can download. Also tell them plainly the dashboard was built as an EXAMPLE of how Hermes works: they can ask for a new screen, tool, or plugin for anything they do often, anytime, right in chat.',
     '11. Then ask what to do with the dashboard via ::ask{question="Keep this dashboard around?" options="Keep it in my sidebar|Keep refining it|Clear it away"}. If they want it gone: delete the whole first-screen plugin folder (the directory holding the screen.json path from the [setup] message) with your file tools and confirm in one line. Then stand down.',
@@ -352,6 +353,7 @@ export function buildChatOnboardingPrompt(): string {
     'Messages starting with [Onboarding Dashboard refresh] are the one exception: they ask you to update a feed card IN PLACE — follow their file-edit instructions exactly (search, rewrite that block\'s content in screen.json, save) so the card repaints; one line in chat when done.',
     'Rules for the ::onboarding lines: emit each EXACTLY as written above, alone as its own paragraph — a blank line before and after, never two directives on the same line.',
     'The app renders an interactive picker there and applies choices to the app live, so do NOT list or describe the options in prose.',
+    VOICE_RULES,
     'Their picks arrive as invisible messages prefixed [setup] — acknowledge each in a few words and move to the next step.',
     'Keep every turn short. This is a chat, not a form. No headers, no bullet lists, no emoji.'
   ].join(' ')

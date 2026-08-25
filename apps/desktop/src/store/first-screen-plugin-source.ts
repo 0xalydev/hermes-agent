@@ -153,7 +153,7 @@ function sendWork(task) {
   send(
     '[Onboarding Dashboard button] Do this task now and give me the finished output directly in chat: ' +
       task +
-      '\\n\\nRules: produce the actual deliverable (list, draft, plan), not a description of it. Reusable text goes in a fenced code block. When the next move is a decision or you need one fact from me, END with one interactive question as its own paragraph: ::ask{question="..." options="A|B|C"} (2-6 short options; add input="true" for free text) instead of asking in prose. Do not talk about, edit, or rebuild the dashboard or its config unless I explicitly ask you to change the dashboard.'
+      '\\n\\nRules: write like a person: plain declaratives, active voice, no em dashes, no exclamation marks, no praise, no AI diction (delve, seamless, robust, crucial), end on the last real point. Produce the actual deliverable (list, draft, plan), not a description of it. Reusable text goes in a fenced code block. When the next move is a decision or you need one fact from me, END with one interactive question as its own paragraph: ::ask{question="..." options="A|B|C"} (2-6 short options; add input="true" for free text) instead of asking in prose. Do not talk about, edit, or rebuild the dashboard or its config unless I explicitly ask you to change the dashboard.'
   )
 }
 

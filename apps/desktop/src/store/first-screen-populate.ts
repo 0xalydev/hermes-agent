@@ -22,7 +22,7 @@
 
 import { activeGateway } from '@/store/gateway'
 
-import { FIRST_SCREEN_PLUGIN_DIR, type FirstScreenBlock, type FirstScreenConfig } from './onboarding-first-screen'
+import { FIRST_SCREEN_PLUGIN_DIR, type FirstScreenBlock, type FirstScreenConfig, VOICE_RULES } from './onboarding-first-screen'
 
 // ── Content shapes (mirrored by the plugin renderer in plugin.js) ───────────
 
@@ -79,6 +79,10 @@ const clamp = (value: string, max: number) => {
  *  The agent is told which blocks want live lookups (feed) and which are
  *  written from the profile alone, and must answer with ONLY a JSON object. */
 export function buildPopulatePrompt(config: FirstScreenConfig, phase: 'fast' | 'feed' = 'fast'): string {
+  // Tier from the same signals the module generator used (block count is the
+  // strongest proxy after materialization: simple screens have 3 blocks).
+  const tier: 'power' | 'simple' | 'standard' = config.blocks.length <= 3 ? 'simple' : config.blocks.length >= 5 ? 'power' : 'standard'
+
   const wanted = phase === 'feed' ? config.blocks.filter(b => b.kind === 'feed') : config.blocks.filter(b => b.kind !== 'feed')
   const blocks = wanted.map(({ id, kind, label, prompt }) => ({ id, kind, label, prompt }))
 
@@ -93,9 +97,9 @@ export function buildPopulatePrompt(config: FirstScreenConfig, phase: 'fast' | '
     'For "action" blocks: {"steps": [3 concrete steps, each <=80 chars]} the user could take right now, specific to the block\'s prompt.',
     'For "tool" blocks: {"example": {"input": <=150 chars, "output": <=150 chars}} showing one honest before→after for the tool the prompt describes.',
     'You may also RESHAPE the screen: any block\'s entry may include "label" (<=40 chars) and/or "prompt" (a first-person prompt the user would send) to re-aim it at their actual project.',
-    'And add an "extra" array (up to 2 new blocks) when their project calls for something the starter blocks miss: each is {"id": short-slug, "kind": "action"|"draft"|"feed"|"choice"|"input", "label", "prompt", "content": <per its kind>}.',
-    'Interactive kinds — USE AT LEAST ONE (as an extra or by re-kinding a weak starter block via extra): "choice" content is {"question": <=100 chars, "options": [2-4 of {"label": <=32 chars, "prompt": first-person prompt sent when clicked}]} asking a real fork about their project; "input" content is {"placeholder": <=60 chars, "promptPrefix": text the typed value is appended to} giving them a type-and-go box. Pick the kind by the work itself: a genuine decision → choice; needs material only the user has (a paste, a number, a name) → input; a sequence they will physically do → action (its steps render as a checkable to-do list); reference text → draft. Do not force interactivity onto blocks that are naturally reading material.',
-    'No exclamation marks. Never praise the user. Plain declaratives.',
+    `${tier === 'simple' ? 'Do NOT add extra blocks — three calm cards is the point for this user.' : 'And add an "extra" array (up to 2 new blocks) when their project calls for something the starter blocks miss: each is {"id": short-slug, "kind": "action"|"draft"|"feed"|"choice"|"input", "label", "prompt", "content": <per its kind>}.'}`,
+    tier === 'simple' ? 'Keep every block its own kind — no re-kinding, at most ONE interactive block total.' : 'Interactive kinds — USE AT LEAST ONE (as an extra or by re-kinding a weak starter block via extra): "choice" content is {"question": <=100 chars, "options": [2-4 of {"label": <=32 chars, "prompt": first-person prompt sent when clicked}]} asking a real fork about their project; "input" content is {"placeholder": <=60 chars, "promptPrefix": text the typed value is appended to} giving them a type-and-go box. Pick the kind by the work itself: a genuine decision → choice; needs material only the user has (a paste, a number, a name) → input; a sequence they will physically do → action (its steps render as a checkable to-do list); reference text → draft. Do not force interactivity onto blocks that are naturally reading material.',
+    VOICE_RULES,
     `Blocks: ${JSON.stringify(blocks)}`,
     'Reply with ONLY a JSON object, no prose, no code fences: {"blocks": {"<id>": <content, optionally + label/prompt>, ...}, "extra": [...]}.'
   ].join('\n')

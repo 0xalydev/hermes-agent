@@ -71,6 +71,42 @@ export interface FirstScreenProfile {
   name: string
 }
 
+/** How much dashboard this user should get. INFERRED, never asked — a 1-5
+ *  self-rating is a calibration question new users can't answer, and the
+ *  flow already carries the signal (focus picks + how they describe their
+ *  project). Conservative default: simple. The refinement dialogue offers a
+ *  one-click "simpler / more" correction afterwards. */
+export type ScreenTier = 'power' | 'simple' | 'standard'
+
+/** Compact humanizer ruleset appended to every model-facing prompt in the
+ *  onboarding flow (guide, module generation, fill, button work orders).
+ *  Distilled from the humanizer skill — the full skill can't be loaded here
+ *  because these sessions run on fresh profiles that don't ship it. */
+export const VOICE_RULES =
+  'Voice rules for EVERYTHING you write: plain declaratives in active voice. No em dashes (use commas or periods). No exclamation marks. Never praise the user. No AI diction (delve, seamless, robust, crucial, pivotal, landscape, testament, elevate, empower). No "not just X, it\'s Y" constructions. No forced lists of three. No generic closers ("you\'re all set", "happy to help", "the future looks bright") — end on the last real point. Contractions are fine. Specifics over adjectives.'
+
+const TECHNICAL_CONTEXT =
+  /\b(api|repo|deploy|cod(e|ing)|sdk|infra|pipeline|model|backend|frontend|server|k8s|kubernetes|database|sql|compiler|agent|llm|prompt|open.?source|github|ci|cli)\b/i
+
+export function inferScreenTier(profile: FirstScreenProfile): ScreenTier {
+  const focus = profile.focus.map(f => f.toLowerCase())
+  const context = (profile.context ?? '').trim()
+  const technical = focus.includes('coding') || focus.includes('automation') || TECHNICAL_CONTEXT.test(context)
+
+  if (technical) {
+    return 'power'
+  }
+
+  // Exploring with no concrete project (or a one-liner): keep it calm.
+  const exploring = focus.includes('just exploring') || focus.length === 0
+
+  if (exploring && context.length < 25) {
+    return 'simple'
+  }
+
+  return context.length < 25 && focus.length <= 1 ? 'simple' : 'standard'
+}
+
 // DEV iteration aid: initialAnswers() in onboarding-wizard.ts wipes stored
 // answers every boot, which would reset the pick to the default on every HMR.
 // The pick persists per-PROFILE here instead — same durability rule the rest
