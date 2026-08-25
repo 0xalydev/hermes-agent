@@ -74,13 +74,9 @@ const CSS = [
 
   /* ── Action steps: checklist rows ── */
   '.fsx-steps{display:flex;flex-direction:column;gap:2px;margin-top:2px}',
-  '.fsx-step{align-items:flex-start;border:1px solid transparent;border-radius:8px;cursor:pointer;display:flex;gap:9px;margin:0 -6px;padding:7px 6px;transition:background 120ms ease,border-color 120ms ease}',
-  '.fsx-step:hover{background:color-mix(in srgb, var(--dt-primary) 7%, transparent);border-color:color-mix(in srgb, var(--dt-primary) 22%, transparent)}',
-  '.fsx-mark{border:1.5px solid color-mix(in srgb, var(--dt-muted-foreground) 55%, transparent);border-radius:4px;flex:none;height:13px;margin-top:4px;width:13px;transition:border-color 120ms ease}',
-  '.fsx-step:hover .fsx-mark{border-color:var(--dt-primary)}',
+  '.fsx-step{align-items:flex-start;display:flex;gap:9px;padding:5px 0}',
+  '.fsx-stepnum{color:var(--dt-muted-foreground);flex:none;font-family:var(--mono);font-size:11px;padding-top:2px}',
   '.fsx-steptext{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;flex:1;font-size:13.5px;line-height:1.5;overflow:hidden}',
-  '.fsx-stepgo{color:var(--dt-primary);font-family:var(--mono);font-size:11px;margin-top:2px;opacity:0;transition:opacity 120ms ease;white-space:nowrap}',
-  '.fsx-step:hover .fsx-stepgo{opacity:1}',
 
   /* ── Draft skeleton page ── */
   '.fsx-page{background:color-mix(in srgb, var(--dt-background) 55%, var(--dt-card));border:1px solid var(--dt-border);border-radius:8px;font-family:var(--mono);font-size:12.5px;line-height:1.7;margin-top:4px;max-height:220px;overflow-y:auto;padding:11px 13px;white-space:pre-wrap}',
@@ -125,12 +121,24 @@ function send(prompt) {
   if (!ok) host.notify({ kind: 'info', message: 'Open a chat first. The buttons here send prompts into it.' })
 }
 
+/* Every dashboard button ships its work order inline: buttons mean DO THE
+ * WORK now, in chat — never describe the module, never edit the dashboard.
+ * The contract has to ride with the prompt because clicks can land in ANY
+ * session (the guided onboarding chat, a fresh chat weeks later). */
+function sendWork(task) {
+  send(
+    '[Onboarding Dashboard button] Do this task now and give me the finished output directly in chat: ' +
+      task +
+      '\\n\\nRules: produce the actual deliverable (list, draft, plan), not a description of it. Reusable text goes in a fenced code block. Do not talk about, edit, or rebuild the dashboard or its config unless I explicitly ask you to change the dashboard.'
+  )
+}
+
 /* One clickable content row: index, line, source/tag meta, hover affordance. */
 function FeedItem(props) {
   const it = props.item
   return h(
     'div',
-    { className: 'fsx-item', onClick: () => send('Tell me more about this, briefly: "' + it.line + '"' + (it.source ? ' (' + it.source + ')' : '')) },
+    { className: 'fsx-item', onClick: () => send('Tell me more about this, briefly (answer in chat; do not touch the dashboard): "' + it.line + '"' + (it.source ? ' (' + it.source + ')' : '')) },
     h('span', { className: 'fsx-idx' }, String(props.n).padStart(2, '0')),
     h(
       'div',
@@ -148,16 +156,18 @@ function FeedItem(props) {
 }
 
 function Steps(props) {
+  /* Plain reading material: the module's plan, numbered. ONE action per card
+   * (the Run pill runs the whole module); rows that looked like a to-do list
+   * but submitted prompts confused everyone who met them. */
   return h(
     'div',
     { className: 'fsx-steps' },
     (props.steps || []).map((s, i) =>
       h(
         'div',
-        { className: 'fsx-step', key: i, onClick: () => send('Walk me through this step now: ' + s) },
-        h('span', { className: 'fsx-mark' }),
-        h('span', { className: 'fsx-steptext' }, s),
-        h('span', { className: 'fsx-stepgo' }, 'start \\u2192')
+        { className: 'fsx-step', key: i },
+        h('span', { className: 'fsx-stepnum' }, String(i + 1) + '.'),
+        h('span', { className: 'fsx-steptext' }, s)
       )
     )
   )
@@ -186,7 +196,7 @@ function ToolPanel(props) {
       placeholder: ex && ex.input ? 'e.g. ' + ex.input : 'Paste raw material here…',
       value
     }),
-    h('button', { className: 'fsx-go', onClick: () => send(props.prompt + '\\n\\nInput:\\n' + (value || (ex && ex.input) || '')), type: 'button' }, 'Transform'),
+    h('button', { className: 'fsx-go', onClick: () => sendWork(props.prompt + '\\n\\nInput:\\n' + (value || (ex && ex.input) || '')), type: 'button' }, 'Transform'),
     ex
       ? h(
           'div',
@@ -348,7 +358,7 @@ export default {
               key: block.id,
               kind: block.kind,
               label: block.label,
-              onRun: () => send(block.prompt),
+              onRun: () => sendWork(block.prompt),
               runLabel: block.kind === 'feed' ? 'Refresh' : 'Run'
             },
             block.kind === 'tool' ? h(ToolPanel, { content: block.content, prompt: block.prompt }) : blockBody(block, freshPending)
