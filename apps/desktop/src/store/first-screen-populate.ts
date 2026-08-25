@@ -86,7 +86,7 @@ export function buildPopulatePrompt(config: FirstScreenConfig, phase: 'fast' | '
     `Fill in the starter screen you just built for ${config.userName === 'you' ? 'the user' : config.userName} (${config.rationale.toLowerCase()}).`,
     'Each block below carries the prompt it will run later; produce the content a user would expect to ALREADY see on a well-made screen before pressing anything. Everything must be specific to what the user is working on (named in the blocks and rationale). Generic filler defeats the screen.',
     phase === 'fast'
-      ? 'Answer IMMEDIATELY from what you know. Do NOT use any tools. No web search.'
+      ? 'Answer IMMEDIATELY from what you know. Do NOT use any tools. No web search. (Feed blocks are being filled separately — ignore any instruction below that mentions web search.)'
       : 'These are live-content blocks: use web search to find genuinely current items. One or two quick searches, then answer.',
     'For "feed" blocks: use web search to find 3 genuinely current items matching the block\'s prompt; each item is {"line": one plain sentence <=100 chars, "source": publication or site name only}. Real items only — if search fails, return fewer or none rather than inventing.',
     'For "draft" blocks: {"skeleton": a fill-in-the-blank template <=300 chars in a plain, direct voice with [bracketed] slots} matching the block\'s prompt.',
@@ -185,19 +185,38 @@ const EXTRA_KINDS = new Set(['action', 'choice', 'draft', 'feed', 'input', 'tool
  *  degrades independently — a bad extra never poisons good content. */
 export function parsePopulate(text: string, blocks: FirstScreenBlock[]): PopulateResult {
   const empty: PopulateResult = { content: {}, extra: [], overrides: {} }
+
+  // Candidate JSON segments, best first: every ```json fence (models put
+  // prose around the fence, and prose with a stray '{' breaks the naive
+  // first-brace slice — live failure), then the outermost brace span.
+  const candidates: string[] = []
+  const fences = text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)
+
+  for (const fence of fences) {
+    const body = (fence[1] ?? '').trim()
+
+    if (body.startsWith('{')) {
+      candidates.push(body)
+    }
+  }
+
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
 
-  if (start < 0 || end <= start) {
-    return empty
+  if (start >= 0 && end > start) {
+    candidates.push(text.slice(start, end + 1))
   }
 
-  let parsed: unknown
+  let parsed: unknown = null
 
-  try {
-    parsed = JSON.parse(text.slice(start, end + 1))
-  } catch {
-    return empty
+  for (const candidate of candidates) {
+    try {
+      parsed = JSON.parse(candidate)
+
+      break
+    } catch {
+      // Try the next candidate.
+    }
   }
 
   if (!parsed || typeof parsed !== 'object') {
@@ -205,7 +224,25 @@ export function parsePopulate(text: string, blocks: FirstScreenBlock[]): Populat
   }
 
   const root = parsed as Record<string, unknown>
-  const raw = root['blocks'] && typeof root['blocks'] === 'object' ? (root['blocks'] as Record<string, unknown>) : {}
+  // The contract asks for {"blocks": {"<id>": {...}}} but models regularly
+  // mirror screen.json's shape instead — {"blocks": [{"id", "kind",
+  // "content": {...}}]}. A live run produced a perfect 17KB fill in exactly
+  // that form and the strict reader dropped ALL of it. Accept both.
+  const rawBlocks = root['blocks']
+  const raw: Record<string, unknown> = {}
+
+  if (Array.isArray(rawBlocks)) {
+    for (const entry of rawBlocks) {
+      const e = entry as Record<string, unknown>
+
+      if (e && typeof e === 'object' && typeof e['id'] === 'string') {
+        raw[e['id']] = e
+      }
+    }
+  } else if (rawBlocks && typeof rawBlocks === 'object') {
+    Object.assign(raw, rawBlocks as Record<string, unknown>)
+  }
+
   const result: PopulateResult = { content: {}, extra: [], overrides: {} }
 
   for (const block of blocks) {
@@ -216,10 +253,18 @@ export function parsePopulate(text: string, blocks: FirstScreenBlock[]): Populat
     }
 
     const v = value as Record<string, unknown>
-    // A starter block may be re-KINDED by shipping content of another kind —
-    // try its own kind first, then whatever the content declares.
+    // Content may sit inline on the entry OR nested under "content" (the
+    // screen.json shape). A starter block may also be re-KINDED by shipping
+    // content of another kind — try its own kind first, then the declared.
+    const inner = v['content'] && typeof v['content'] === 'object' ? (v['content'] as Record<string, unknown>) : null
     const declared = typeof v['kind'] === 'string' ? v['kind'] : block.kind
-    const content = parseContent(block.kind, v) ?? (declared !== block.kind ? parseContent(declared, v) : null)
+    const innerDeclared = inner && typeof inner['kind'] === 'string' ? (inner['kind'] as string) : declared
+
+    const content =
+      parseContent(block.kind, v) ??
+      (inner ? parseContent(block.kind, inner) : null) ??
+      (declared !== block.kind ? parseContent(declared, v) : null) ??
+      (inner && innerDeclared !== block.kind ? parseContent(innerDeclared, inner) : null)
 
     if (content) {
       result.content[block.id] = content
@@ -251,7 +296,10 @@ export function parsePopulate(text: string, blocks: FirstScreenBlock[]): Populat
       continue
     }
 
-    const content = v['content'] && typeof v['content'] === 'object' ? parseContent(kind, v['content'] as Record<string, unknown>) : null
+    const content =
+      v['content'] && typeof v['content'] === 'object'
+        ? parseContent(kind, v['content'] as Record<string, unknown>)
+        : parseContent(kind, v)
 
     seen.add(id)
     result.extra.push({ id, kind, label, prompt, ...(content ? { content } : {}) })

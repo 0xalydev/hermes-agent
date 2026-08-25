@@ -1,11 +1,54 @@
 import { describe, expect, test } from 'vitest'
 
-import { buildPopulatePrompt, parsePopulateReply, populatedFileContent } from './first-screen-populate'
+import { buildPopulatePrompt, parsePopulate, parsePopulateReply, populatedFileContent } from './first-screen-populate'
 import { compileFirstScreen } from './onboarding-first-screen'
 
 const CONFIG = compileFirstScreen({ focus: ['Coding', 'Research'], name: 'Karan' }, 'dashboard')
 
 describe('first-screen population', () => {
+  test('accepts the screen.json-mirror shape a live run produced (array blocks, nested content)', () => {
+    // Live failure 2026-08-25: a perfect 17KB fill in exactly this form was
+    // dropped wholesale by the object-only reader — the dashboard never
+    // populated. Fences + array-of-blocks + content nested under "content".
+    const reply = [
+      'Here is the filled screen:',
+      '```json',
+      JSON.stringify({
+        blocks: [
+          {
+            id: 'start',
+            kind: 'action',
+            label: 'PR outreach next steps',
+            content: { kind: 'action', steps: ['List each investor', 'Draft the quote ask', 'Send by Friday'] }
+          },
+          {
+            id: 'draft',
+            kind: 'draft',
+            content: { skeleton: 'For [investor], opening line: [metric]. Then [ask].' }
+          }
+        ],
+        extra: [
+          {
+            id: 'round-facts',
+            kind: 'input',
+            label: 'Round facts',
+            prompt: 'Type the round facts.',
+            content: { placeholder: 'e.g. $120M Series B', promptPrefix: 'Fold these facts in: ' }
+          }
+        ]
+      }),
+      '```'
+    ].join('\n')
+
+    const result = parsePopulate(reply, CONFIG.blocks)
+
+    expect(result.content['start']).toMatchObject({ kind: 'action' })
+    expect(result.content['draft']).toMatchObject({ kind: 'draft' })
+    expect(result.overrides['start']).toMatchObject({ label: 'PR outreach next steps' })
+    expect(result.extra).toHaveLength(1)
+    expect(result.extra[0]).toMatchObject({ id: 'round-facts', kind: 'input' })
+  })
+
   test('the two passes split the blocks: fast without feed, feed alone', () => {
     const fast = buildPopulatePrompt(CONFIG, 'fast')
     const feed = buildPopulatePrompt(CONFIG, 'feed')
