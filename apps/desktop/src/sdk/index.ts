@@ -1206,6 +1206,15 @@ export {
  *  secondary controls, a solid circle for the one primary action. Wear these on
  *  any control that rides the composer so a plugin's row reads as the same row. */
 export { ACTIVE_ICON_BTN, GHOST_ICON_BTN, ICON_BTN, PRIMARY_ICON_BTN } from '@/app/chat/composer/control-classes'
+/** A REAL Hermes chat, for a session the plugin owns — the same thread, tool
+ *  cards, streaming indicators, attachments and composer the workspace pane
+ *  renders, not a lookalike. The plugin creates or resumes the session and
+ *  passes the ids; layout is the plugin's, styled from its own container the
+ *  way HUD mode restyles the same tree. */
+export {
+  DetachedSessionChat as SessionChat,
+  type DetachedSessionChatProps as SessionChatProps
+} from '@/app/chat/detached-chat'
 export { PALETTE_AREA, type PaletteContribution } from '@/app/command-palette/contrib'
 export { type RouteContribution, ROUTES_AREA, SIDEBAR_NAV_AREA, type SidebarNavContribution } from '@/app/routes'
 /** THE full per-toolset config panel core Settings renders — provider picker,
@@ -1225,8 +1234,8 @@ export {
   ModelMenuCloseContext,
   type ModelMenuController
 } from '@/app/shell/model-catalog-menu'
-export type { StatusbarItem } from '@/app/shell/statusbar-controls'
 
+export type { StatusbarItem } from '@/app/shell/statusbar-controls'
 export type { TitlebarTool } from '@/app/shell/titlebar-controls'
 /** THE whole Capabilities surface (Skills / Tools / MCP tabs, installed
  *  lists, full-skill detail pane, embedded hub picker with one-click
