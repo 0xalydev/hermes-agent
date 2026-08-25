@@ -441,8 +441,29 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // Row structure is memoized on the STRUCTURAL signature only, so streaming
   // part-appends can't churn group identity (that would defeat the rows memo
   // below on every tick). Weights are folded in separately for the budget.
-  const groups = useMemo(() => buildGroups(structuralSignature), [structuralSignature])
-  const renderEmpty = groups.length === 0 && Boolean(emptyPlaceholder) && !(sessionKey && $chatOnboardingThreadIds.get().includes(sessionKey) && $onboardingGreeting.get())
+  const onboardingThreadIds = useStore($chatOnboardingThreadIds)
+  const onboardingGreeting = useStore($onboardingGreeting)
+  const bankedGreeting = Boolean(sessionKey && onboardingThreadIds.includes(sessionKey) && onboardingGreeting)
+
+  const groups = useMemo(() => {
+    const built = buildGroups(structuralSignature)
+
+    if (!bankedGreeting) {
+      return built
+    }
+
+    // The banked greeting owns everything before the user's first visible
+    // message. The model's reply to the hidden kickoff is SUPPOSED to be an
+    // invisible ::onboarding{step="ready"} ack, but a small model narrates
+    // instead ("I'll start by understanding the current state of this
+    // task…" leaked in a live run) — so the guarantee is structural: leading
+    // assistant-only groups render as nothing, whatever they contain.
+    const firstTurn = built.findIndex(group => group.kind === 'turn')
+
+    return firstTurn === -1 ? [] : firstTurn === 0 ? built : built.slice(firstTurn)
+  }, [structuralSignature, bankedGreeting])
+
+  const renderEmpty = groups.length === 0 && Boolean(emptyPlaceholder) && !bankedGreeting
 
   // use-stick-to-bottom owns scrollTop (single writer): follow while locked,
   // escape on user scroll-up, re-lock at bottom. Snap instantly, not spring — a
@@ -623,7 +644,6 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // The guided-setup thread reads larger (~16px body vs the app's 14px) — a
   // conversation, not a work surface. Marked with data-thread-type so the
   // scaling itself lives in styles.css as a plain override.
-  const onboardingThreadIds = useStore($chatOnboardingThreadIds)
   const threadType = sessionKey && onboardingThreadIds.includes(sessionKey) ? 'onboarding' : undefined
 
   // The guided chat's opening line is PRE-BANKED and rendered here, client-
@@ -634,8 +654,6 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // It TYPES itself in (OnboardingGreetingRow) so it reads as the agent
   // speaking, not a static label — the banked line must be indistinguishable
   // from a streamed turn.
-  const onboardingGreeting = useStore($onboardingGreeting)
-
   const greetingRow =
     threadType === 'onboarding' && onboardingGreeting ? <OnboardingGreetingRow text={onboardingGreeting} /> : null
 
