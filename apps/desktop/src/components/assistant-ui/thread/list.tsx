@@ -125,6 +125,63 @@ export const resolveThreadScrollTarget: GetTargetScrollTop = (targetScrollTop, {
   return remaining >= 0 && remaining <= SCROLL_TARGET_EPSILON_PX ? currentScrollTop : targetScrollTop
 }
 
+
+/** The pre-banked onboarding greeting, revealed like a streamed turn: a short
+ *  beat (the agent "starting"), then word-cluster typing over ~1.4s with a
+ *  caret that blinks out when done. prefers-reduced-motion renders instantly.
+ *  Reveal length is state; the full text stays in the DOM for layout only via
+ *  the visible slice (height grows exactly like real streaming). */
+function OnboardingGreetingRow({ text }: { text: string }) {
+  const [shown, setShown] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? text.length : 0
+  )
+
+  const done = shown >= text.length
+
+  useEffect(() => {
+    if (shown >= text.length) {
+      return
+    }
+
+    // Word-cluster cadence: reveal 1-3 words per tick at 60-110ms — the
+    // shape of real model streaming, not a teletype.
+    const tick = () => {
+      setShown(current => {
+        if (current >= text.length) {
+          return current
+        }
+
+        let next = current
+        const words = 1 + Math.floor(Math.random() * 3)
+
+        for (let i = 0; i < words; i += 1) {
+          const space = text.indexOf(' ', next + 1)
+
+          next = space === -1 ? text.length : space
+        }
+
+        return Math.min(next, text.length)
+      })
+    }
+
+    const start = window.setTimeout(tick, shown === 0 ? 450 : 60 + Math.random() * 50)
+
+    return () => window.clearTimeout(start)
+  }, [shown, text])
+
+  return (
+    <div
+      className="mb-(--conversation-turn-gap) whitespace-pre-wrap leading-relaxed"
+      data-onboarding-greeting
+    >
+      {text.slice(0, shown)}
+      {!done && (
+        <span className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.18em] animate-pulse bg-foreground/70" />
+      )}
+    </div>
+  )
+}
+
 export function subscribeToThreadForeground(shouldReanchor: () => boolean, onReanchor: () => void): () => void {
   let frameId: number | null = null
   let framePending = false
@@ -574,17 +631,13 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // to 10s in live runs and the greeting must never wait on it. The kickoff
   // brief tells the model exactly what was said; its first reply is an
   // invisible ready-ack, and the conversation continues from the user's name.
+  // It TYPES itself in (OnboardingGreetingRow) so it reads as the agent
+  // speaking, not a static label — the banked line must be indistinguishable
+  // from a streamed turn.
   const onboardingGreeting = useStore($onboardingGreeting)
 
   const greetingRow =
-    threadType === 'onboarding' && onboardingGreeting ? (
-      <div
-        className="mb-(--conversation-turn-gap) whitespace-pre-wrap leading-relaxed duration-500 animate-in fade-in-0 slide-in-from-bottom-2"
-        data-onboarding-greeting
-      >
-        {onboardingGreeting}
-      </div>
-    ) : null
+    threadType === 'onboarding' && onboardingGreeting ? <OnboardingGreetingRow text={onboardingGreeting} /> : null
 
   const assistantOpensThread = (hiddenCount === 0 && groups[0]?.kind === 'standalone') || Boolean(greetingRow)
 
