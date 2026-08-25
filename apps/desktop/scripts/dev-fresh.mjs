@@ -27,7 +27,7 @@
  * tests nothing. Pass --keep to resume one (e.g. to inspect what it wrote).
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
@@ -43,18 +43,54 @@ const RENDERER_PORT = 5174
 // Enough of a real install to reach a model; everything else is born fresh.
 const SEED_FILES = ['.env', 'config.yaml', 'auth.json']
 
+/**
+ * The listener on `port`, as `{ pid, from }` — `from` being the checkout it was
+ * launched from, which is the part that actually resolves the confusion: with
+ * several worktrees open, the window on screen is often a DIFFERENT branch's
+ * dev server, and it looks exactly like this one failing. POSIX only; a null
+ * result just keeps the message generic.
+ */
+function listenerOn(port) {
+  const found = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpn'], { encoding: 'utf8' })
+  const pid = (found.stdout ?? '').match(/^p(\d+)$/m)?.[1]
+
+  if (pid == null) {
+    return null
+  }
+
+  const argv = spawnSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8' }).stdout ?? ''
+
+  return { from: argv.match(/(\/.*?)\/node_modules\//)?.[1] ?? '', pid }
+}
+
 function assertPortFree(port) {
   return new Promise((resolve, reject) => {
     const probe = net
       .createServer()
-      .once('error', () =>
+      .once('error', () => {
+        const holder = listenerOn(port)
+
+        // Loud on purpose. This refusal is the ONE way a fresh run fails, and
+        // a single line scrolls past in npm's output — someone reads it, keeps
+        // looking at the dev server they already had open, and reports the old
+        // app's behaviour as this branch's.
         reject(
           new Error(
-            `Port ${port} is busy — another dev renderer is running.\n` +
-              'Electron waits on that exact port, so this run would hang. Stop the other one first.'
+            [
+              '',
+              '  ┌─ NOT STARTED ─────────────────────────────────────────────',
+              `  │  Port ${port} is already taken, so nothing was launched.`,
+              '  │  Any Hermes window open right now is that other server,',
+              '  │  on your REAL ~/.hermes — not a fresh run of this branch.',
+              '  │',
+              holder?.from ? `  │  It belongs to:  ${holder.from}` : '  │  Another dev server has it.',
+              holder ? `  │  Stop it:        kill ${holder.pid}` : '  │  Stop it, then re-run.',
+              '  └───────────────────────────────────────────────────────────',
+              ''
+            ].join('\n')
           )
         )
-      )
+      })
       .once('listening', () => probe.close(() => resolve()))
       .listen(port, '127.0.0.1')
   })
