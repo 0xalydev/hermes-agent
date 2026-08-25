@@ -112,6 +112,11 @@ const CSS = [
   '.fsx-propkind{color:var(--dt-primary);font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase}',
   '.fsx-proplabel{font-size:14px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 
+  '.fsx-question{font-size:13.5px;font-weight:550;line-height:1.45;margin-bottom:8px}',
+  '.fsx-options{display:flex;flex-wrap:wrap;gap:7px}',
+  '.fsx-opt{background:color-mix(in srgb, var(--dt-primary) 10%, transparent);border:1px solid color-mix(in srgb, var(--dt-primary) 35%, var(--dt-border));border-radius:999px;color:var(--dt-foreground);cursor:pointer;font-size:12px;font-weight:500;padding:5px 13px;transition:background 120ms ease,border-color 120ms ease}',
+  '.fsx-opt:hover{background:color-mix(in srgb, var(--dt-primary) 22%, transparent);border-color:var(--dt-primary)}',
+  '.fsx-go[disabled]{cursor:default;opacity:.4;pointer-events:none}',
   '.fsx-foot{display:none}'
 ].join('')
 
@@ -119,6 +124,21 @@ const CSS = [
 function send(prompt) {
   const ok = typeof host.submitPrompt === 'function' && host.submitPrompt(prompt)
   if (!ok) host.notify({ kind: 'info', message: 'Open a chat first. The buttons here send prompts into it.' })
+}
+
+/* A feed Refresh is the ONE dashboard button that edits the file: the card
+ * itself must update. The agent searches, rewrites that block's content in
+ * screen.json, and the pane repaints on save. */
+function sendRefresh(block, filePath) {
+  send(
+    '[Onboarding Dashboard refresh] Refresh the "' +
+      block.label +
+      '" feed on my dashboard. Search the web for 3 genuinely current items matching: ' +
+      block.prompt +
+      '\\nThen read ' +
+      filePath +
+      ' and rewrite ONLY that block\\u2019s content field (items: [{"line": <=100 chars, "source": site name}], keep every other field and block exactly as they are), update populatedAt, and save. Reply in chat with one line when done — the card repaints from the file.'
+  )
 }
 
 /* Every dashboard button ships its work order inline: buttons mean DO THE
@@ -218,7 +238,7 @@ function Section(props) {
       h('span', { className: 'fsx-dot' }),
       h('span', { className: 'fsx-seclabel' }, props.label),
       props.kind ? h('span', { className: 'fsx-kindtag' }, props.kind) : null,
-      h('button', { className: 'fsx-secrun', disabled: props.busy || undefined, onClick: props.onRun, type: 'button' }, props.busy ? 'Writing\\u2026' : (props.runLabel || 'Run'), props.busy ? null : ' \\u25B8')
+      props.noRun ? null : h('button', { className: 'fsx-secrun', disabled: props.busy || undefined, onClick: props.onRun, type: 'button' }, props.busy ? 'Writing\\u2026' : (props.runLabel || 'Run'), props.busy ? null : ' \\u25B8')
     ),
     h('div', { className: 'fsx-secbody' }, props.children)
   )
@@ -238,7 +258,7 @@ function blockBody(block, freshPending) {
         h('div', { className: 'fsx-fillbar', style: { width: '73%' } })
       )
     }
-    return h('div', { className: 'fsx-pending' }, 'Press Run and Hermes fills this in.')
+    return h('div', { className: 'fsx-pending' }, block.kind === 'feed' ? 'Press Refresh and Hermes pulls in live items.' : 'Press Run and Hermes fills this in.')
   }
   if (c.kind === 'feed' && Array.isArray(c.items) && c.items.length) {
     const lede = c.lede
@@ -252,7 +272,47 @@ function blockBody(block, freshPending) {
   if (c.kind === 'action' && Array.isArray(c.steps) && c.steps.length) return h(Steps, { steps: c.steps })
   if (c.kind === 'draft' && c.skeleton) return h(Page, { text: c.skeleton })
   if (c.kind === 'tool' && c.example) return null // tool renders its own panel
+  if (c.kind === 'choice' && c.question && Array.isArray(c.options) && c.options.length) {
+    return h(
+      'div',
+      null,
+      h('div', { className: 'fsx-question' }, c.question),
+      h(
+        'div',
+        { className: 'fsx-options' },
+        c.options.map((opt, i) =>
+          h('button', { className: 'fsx-opt', key: i, onClick: () => sendWork(opt.prompt), type: 'button' }, opt.label)
+        )
+      )
+    )
+  }
+  if (c.kind === 'input' && c.promptPrefix) return h(InputPanel, { content: c })
   return null
+}
+
+/* Input block: type-and-go. The typed value rides the block's promptPrefix. */
+function InputPanel(props) {
+  const [value, setValue] = useState('')
+  return h(
+    'div',
+    { className: 'fsx-io' },
+    h('textarea', {
+      className: 'fsx-input',
+      onChange: e => setValue(e.target.value),
+      placeholder: props.content.placeholder || 'Type here\\u2026',
+      value
+    }),
+    h(
+      'button',
+      {
+        className: 'fsx-go',
+        disabled: !value.trim() || undefined,
+        onClick: () => value.trim() && sendWork(props.content.promptPrefix + value.trim()),
+        type: 'button'
+      },
+      'Send \\u25B8'
+    )
+  )
 }
 
 export default {
@@ -358,7 +418,8 @@ export default {
               key: block.id,
               kind: block.kind,
               label: block.label,
-              onRun: () => sendWork(block.prompt),
+              noRun: (block.kind === 'choice' || block.kind === 'input') && Boolean(block.content),
+              onRun: block.kind === 'feed' ? () => sendRefresh(block, filePath) : () => sendWork(block.prompt),
               runLabel: block.kind === 'feed' ? 'Refresh' : 'Run'
             },
             block.kind === 'tool' ? h(ToolPanel, { content: block.content, prompt: block.prompt }) : blockBody(block, freshPending)
