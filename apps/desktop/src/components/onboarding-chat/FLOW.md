@@ -171,6 +171,19 @@ Hidden `[setup]` reports are remembered (retry.ts): if a machine turn dies
 before delivering anything, the report replays once, quietly — no red HTTP
 row mid-setup. The skip affordance (skip.tsx) stays available throughout.
 
+Session identity follows the bots contract: the kickoff ADOPTS before it
+mints — an exact-title `session.list` lookup for the setup profile's
+`Bot Chat` resumes an existing canonical (relaunch mid-onboarding, dev
+re-kick) instead of forking a second one whose title stamp would silently
+lose to the UNIQUE index and fall to the auto-titler.
+
+The first-run frame: floating panes (user/plugin panels) stay hidden while
+solo AND while the active session is any onboarding thread (Setup's chat,
+then the first build); the composer's git strip is dropped on those threads
+too. At assembly the sidebar fronts the BOTS tab — the Sessions list is
+empty at that moment (both chats are hidden bot canonicals), so the roster
+is the first face of the nav.
+
 Also in the tree from the same lineage (dormant in bot mode, used by the
 login-mode dashboard flow): the generative first-screen system —
 `FirstScreenCard` keep/drop picker, the living sketch pane
