@@ -74,8 +74,12 @@ const CSS = [
 
   /* ── Action steps: checklist rows ── */
   '.fsx-steps{display:flex;flex-direction:column;gap:2px;margin-top:2px}',
-  '.fsx-step{align-items:flex-start;display:flex;gap:9px;padding:5px 0}',
-  '.fsx-stepnum{color:var(--dt-muted-foreground);flex:none;font-family:var(--mono);font-size:11px;padding-top:2px}',
+  '.fsx-step{align-items:flex-start;border-radius:6px;cursor:pointer;display:flex;gap:9px;margin:0 -6px;padding:5px 6px;transition:background 120ms ease;user-select:none}',
+  '.fsx-step:hover{background:color-mix(in srgb, var(--dt-muted-foreground) 7%, transparent)}',
+  '.fsx-check{align-items:center;border:1.5px solid color-mix(in srgb, var(--dt-muted-foreground) 55%, transparent);border-radius:5px;color:var(--dt-primary-foreground);display:inline-flex;flex:none;font-size:10px;font-weight:700;height:15px;justify-content:center;line-height:1;margin-top:2.5px;transition:background 120ms ease,border-color 120ms ease;width:15px}',
+  '.fsx-checkon{background:var(--dt-primary);border-color:var(--dt-primary)}',
+  '.fsx-stepdone .fsx-steptext{color:var(--dt-muted-foreground);text-decoration:line-through}',
+  '.fsx-progress{color:var(--dt-muted-foreground);flex:none;font-family:var(--mono);font-size:10.5px}',
   '.fsx-steptext{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;flex:1;font-size:13.5px;line-height:1.5;overflow:hidden}',
 
   /* ── Draft skeleton page ── */
@@ -176,20 +180,29 @@ function FeedItem(props) {
 }
 
 function Steps(props) {
-  /* Plain reading material: the module's plan, numbered. ONE action per card
-   * (the Run pill runs the whole module); rows that looked like a to-do list
-   * but submitted prompts confused everyone who met them. */
+  /* A real to-do list: checking a box TOGGLES local done-state (plugin
+   * storage — instant, persistent, never a chat submission). The Run pill
+   * stays the card's do-the-work action. */
+  const todo = props.todo
   return h(
     'div',
     { className: 'fsx-steps' },
-    (props.steps || []).map((s, i) =>
-      h(
+    (props.steps || []).map((s, i) => {
+      const key = props.blockId + '|' + s
+      const done = Boolean(todo.done[key])
+      return h(
         'div',
-        { className: 'fsx-step', key: i },
-        h('span', { className: 'fsx-stepnum' }, String(i + 1) + '.'),
+        {
+          className: 'fsx-step' + (done ? ' fsx-stepdone' : ''),
+          key: i,
+          onClick: () => todo.toggle(key),
+          role: 'checkbox',
+          'aria-checked': done
+        },
+        h('span', { className: 'fsx-check' + (done ? ' fsx-checkon' : '') }, done ? '\\u2713' : ''),
         h('span', { className: 'fsx-steptext' }, s)
       )
-    )
+    })
   )
 }
 
@@ -237,6 +250,7 @@ function Section(props) {
       { className: 'fsx-sechead' },
       h('span', { className: 'fsx-dot' }),
       h('span', { className: 'fsx-seclabel' }, props.label),
+      props.progress ? h('span', { className: 'fsx-progress' }, props.progress) : null,
       props.kind ? h('span', { className: 'fsx-kindtag' }, props.kind) : null,
       props.noRun ? null : h('button', { className: 'fsx-secrun', disabled: props.busy || undefined, onClick: props.onRun, type: 'button' }, props.busy ? 'Writing\\u2026' : (props.runLabel || 'Run'), props.busy ? null : ' \\u25B8')
     ),
@@ -244,7 +258,7 @@ function Section(props) {
   )
 }
 
-function blockBody(block, freshPending) {
+function blockBody(block, freshPending, todo) {
   const c = block.content
   if (!c) {
     if (freshPending) {
@@ -269,7 +283,7 @@ function blockBody(block, freshPending) {
       c.items.map((it, i) => h(FeedItem, { item: it, key: i, n: i + 1 }))
     )
   }
-  if (c.kind === 'action' && Array.isArray(c.steps) && c.steps.length) return h(Steps, { steps: c.steps })
+  if (c.kind === 'action' && Array.isArray(c.steps) && c.steps.length) return h(Steps, { blockId: block.id, steps: c.steps, todo })
   if (c.kind === 'draft' && c.skeleton) return h(Page, { text: c.skeleton })
   if (c.kind === 'tool' && c.example) return null // tool renders its own panel
   if (c.kind === 'choice' && c.question && Array.isArray(c.options) && c.options.length) {
@@ -322,6 +336,19 @@ export default {
   register(ctx) {
     function FirstScreenPane() {
       const [config, setConfig] = useState(() => ctx.storage.get('config', null))
+      // Checked-off to-do steps, keyed blockId|stepText — survives restarts,
+      // resets naturally when a step's text changes (new key).
+      const [doneSteps, setDoneSteps] = useState(() => ctx.storage.get('doneSteps', {}))
+      const todo = {
+        done: doneSteps,
+        toggle: key => {
+          const next = Object.assign({}, doneSteps)
+          if (next[key]) delete next[key]
+          else next[key] = true
+          setDoneSteps(next)
+          ctx.storage.set('doneSteps', next)
+        }
+      }
 
       useEffect(() => {
         let alive = true
@@ -420,9 +447,13 @@ export default {
               label: block.label,
               noRun: (block.kind === 'choice' || block.kind === 'input') && Boolean(block.content),
               onRun: block.kind === 'feed' ? () => sendRefresh(block, filePath) : () => sendWork(block.prompt),
+              progress:
+                block.kind === 'action' && block.content && Array.isArray(block.content.steps)
+                  ? block.content.steps.filter(s => todo.done[block.id + '|' + s]).length + '/' + block.content.steps.length
+                  : null,
               runLabel: block.kind === 'feed' ? 'Refresh' : 'Run'
             },
-            block.kind === 'tool' ? h(ToolPanel, { content: block.content, prompt: block.prompt }) : blockBody(block, freshPending)
+            block.kind === 'tool' ? h(ToolPanel, { content: block.content, prompt: block.prompt }) : blockBody(block, freshPending, todo)
           )
         ),
         null
