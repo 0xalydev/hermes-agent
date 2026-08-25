@@ -30,7 +30,7 @@ export const FIRST_SCREEN_KINDS: readonly FirstScreenKind[] = ['dashboard', 'doc
 export interface FirstScreenBlock {
   id: string
   /** Which template rendered this block (drives the preview mock's shape). */
-  kind: 'action' | 'draft' | 'feed' | 'tool'
+  kind: 'action' | 'draft' | 'feed' | 'skill' | 'tool'
   label: string
   /** Theater copy — the "doing" line shown while this block assembles. */
   stepLine: string
@@ -243,8 +243,19 @@ export function compileFirstScreen(
         ? primary.toLowerCase()
         : `${primary.toLowerCase()} and ${secondary.toLowerCase()}`
 
+  // Every dashboard carries the SKILL card: the playbook Hermes writes for
+  // itself about this user, visibly versioned, updated on every decision —
+  // self-improvement as a living artifact instead of a claim.
+  const skillCard: FirstScreenBlock = {
+    id: 'hermes-skill',
+    kind: 'skill',
+    label: 'What Hermes has learned',
+    prompt: `Read my dashboard's screen.json (the hermes-skill block) and tell me in plain words what you've learned about me and how you're using it. Then ask what to add or correct.`,
+    stepLine: 'Starting your skill'
+  }
+
   return {
-    blocks,
+    blocks: [...blocks, skillCard],
     kind,
     rationale: context ? `Built around what you're working on: ${context}` : `Built around ${focusSummary}`,
     title:

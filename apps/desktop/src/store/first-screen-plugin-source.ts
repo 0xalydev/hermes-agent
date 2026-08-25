@@ -138,6 +138,15 @@ const CSS = [
   '.fsx-opt{transition:background 120ms ease,border-color 120ms ease,transform 90ms ease}',
   '.fsx-item:active{transform:scale(.99)}',
   '.fsx-regen:active{transform:scale(.94)}',
+  '@keyframes fsx-levelup{0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--dt-primary) 45%, transparent);transform:scale(1)}30%{transform:scale(1.012)}100%{box-shadow:0 0 0 22px transparent;transform:scale(1)}}',
+  '.fsx-skillup{animation:fsx-levelup 900ms cubic-bezier(.22,1,.36,1)}',
+  '.fsx-skillbadge{align-items:center;background:color-mix(in srgb, var(--dt-primary) 14%, transparent);border-radius:999px;color:var(--dt-primary);display:inline-flex;flex:none;font-family:var(--mono);font-size:10.5px;font-weight:700;gap:4px;letter-spacing:.04em;padding:2.5px 9px}',
+  '@keyframes fsx-badgepop{0%{transform:scale(.6)}60%{transform:scale(1.25)}100%{transform:scale(1)}}',
+  '.fsx-skillbadge-pop{animation:fsx-badgepop 420ms cubic-bezier(.34,1.56,.64,1)}',
+  '.fsx-learned{border-left:2px solid color-mix(in srgb, var(--dt-primary) 45%, transparent);display:flex;flex-direction:column;gap:7px;margin-top:2px;padding-left:11px}',
+  '.fsx-learnedline{font-size:13px;line-height:1.5}',
+  '.fsx-learnedline-new{animation:fsx-arrive 500ms ease both;color:var(--dt-primary)}',
+  '.fsx-skillfoot{color:var(--dt-muted-foreground);font-size:11px;margin-top:9px;opacity:.85}',
   '.fsx-foot{display:none}'
 ].join('')
 
@@ -162,7 +171,7 @@ function sendRipple(header, task) {
       task +
       '\\n\\nRules: plain declaratives, no em dashes, no praise. First give me the finished deliverable for this in chat. Then update my dashboard to match the decision: read ' +
       (screenPath || 'screen.json in my first-screen plugin folder') +
-      ' and edit ONLY the blocks this decision genuinely affects, in the same turn: add decision-specific steps or items to checklists and shopping lists, re-aim prompts that assumed a different option, and record the decision on the card I answered (e.g. its question becomes the decision, or it gains the follow-up question). Card bodies stay nested under "content" with their own "kind"; untouched blocks stay byte-identical; never write a populating flag; keep populatedAt. Save so the pane repaints, then end with one line naming the cards you updated (or saying none were affected).'
+      ' and edit ONLY the blocks this decision genuinely affects, in the same turn: add decision-specific steps or items to checklists and shopping lists, re-aim prompts that assumed a different option, and record the decision on the card I answered (e.g. its question becomes the decision, or it gains the follow-up question). ALSO update the hermes-skill block: add one short second-person line capturing what this decision taught you about me and increment its content.version by 1 (the card plays its self-improvement animation on the bump). Card bodies stay nested under "content" with their own "kind"; untouched blocks stay byte-identical; never write a populating flag; keep populatedAt. Save so the pane repaints, then end with one line naming the cards you updated (or saying none were affected).'
   )
 }
 
@@ -277,6 +286,49 @@ function ToolPanel(props) {
   )
 }
 
+
+/* The skill card: the playbook Hermes keeps about this user, visibly
+ * versioned. A version bump plays the level-up sweep and pops the badge —
+ * self-improvement you can SEE. Previous version remembered per mount. */
+function SkillCard(props) {
+  const c = props.content
+  const version = c.version || 1
+  const prevRef = React.useRef(version)
+  const prevLinesRef = React.useRef(null)
+  const [leveled, setLeveled] = useState(false)
+  useEffect(() => {
+    if (version > prevRef.current) {
+      setLeveled(true)
+      const t = setTimeout(() => setLeveled(false), 1000)
+      prevRef.current = version
+      return () => clearTimeout(t)
+    }
+    prevRef.current = version
+  }, [version])
+  const prevLines = prevLinesRef.current
+  prevLinesRef.current = c.learned
+  return h(
+    'div',
+    { className: leveled ? 'fsx-skillup' : undefined },
+    h(
+      'div',
+      { className: 'fsx-learned' },
+      c.learned.map((line, i) =>
+        h(
+          'div',
+          {
+            className:
+              'fsx-learnedline' + (prevLines && prevLines.indexOf(line) < 0 ? ' fsx-learnedline-new' : ''),
+            key: i
+          },
+          line
+        )
+      )
+    ),
+    h('div', { className: 'fsx-skillfoot' }, 'Hermes updates this as you work together. Correct it anytime.')
+  )
+}
+
 function Section(props) {
   return h(
     'div',
@@ -286,8 +338,9 @@ function Section(props) {
       { className: 'fsx-sechead' },
       h('span', { className: 'fsx-dot' }),
       h('span', { className: 'fsx-seclabel' }, props.label),
+      props.skillVersion ? h('span', { className: 'fsx-skillbadge' + (props.arrived ? ' fsx-skillbadge-pop' : '') }, 'v' + props.skillVersion) : null,
       props.progress ? h('span', { className: props.progressDone ? 'fsx-progress fsx-progress-done' : 'fsx-progress' }, props.progressDone ? props.progress + ' \\u2713' : props.progress) : null,
-      props.kind ? h('span', { className: 'fsx-kindtag' }, props.kind) : null,
+      props.kind && !props.skillVersion ? h('span', { className: 'fsx-kindtag' }, props.kind) : null,
       props.noRun ? null : h('button', { className: 'fsx-secrun', disabled: props.busy || undefined, onClick: props.onRun, type: 'button' }, props.busy ? (props.runLabel && props.runLabel.indexOf('\\u2026') >= 0 ? props.runLabel : 'Writing\\u2026') : (props.runLabel || 'Run'), props.busy ? null : ' \\u25B8')
     ),
     h('div', { className: 'fsx-secbody' }, props.children)
@@ -308,6 +361,7 @@ function normalizeContent(block) {
     else if (block.example && typeof block.example === 'object') c = { kind: 'tool', example: block.example }
     else if (block.question && Array.isArray(block.options)) c = { kind: 'choice', question: block.question, options: block.options }
     else if (typeof block.promptPrefix === 'string' && block.promptPrefix) c = { kind: 'input', promptPrefix: block.promptPrefix, placeholder: block.placeholder }
+    else if (Array.isArray(block.learned) && block.learned.length) c = { kind: 'skill', learned: block.learned, version: block.version || 1 }
     else return null
   }
   if (!c.kind) c = Object.assign({ kind: block.kind }, c)
@@ -357,6 +411,7 @@ function blockBody(block, freshPending, todo) {
     )
   }
   if (c.kind === 'input' && c.promptPrefix) return h(InputPanel, { content: c, label: block.label })
+  if (c.kind === 'skill' && Array.isArray(c.learned) && c.learned.length) return h(SkillCard, { content: c })
   return null
 }
 
@@ -548,7 +603,8 @@ export default {
                   : () => sendWork(block.prompt),
               progress: steps ? doneCount + '/' + steps.length : null,
               progressDone: Boolean(steps && steps.length > 0 && doneCount === steps.length),
-              runLabel: block.kind === 'feed' ? (refreshing[block.id] ? 'Refreshing\\u2026' : 'Refresh') : 'Run',
+              runLabel: block.kind === 'feed' ? (refreshing[block.id] ? 'Refreshing\\u2026' : 'Refresh') : block.kind === 'skill' ? 'Review' : 'Run',
+              skillVersion: content && content.kind === 'skill' ? content.version || 1 : null,
               // Stagger the first paint so the dashboard assembles as a
               // cascade instead of a slam.
               style: prevFilled === null ? { animationDelay: Math.min(i * 70, 350) + 'ms' } : undefined

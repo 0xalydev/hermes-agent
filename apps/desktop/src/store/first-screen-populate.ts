@@ -42,6 +42,7 @@ export type FirstScreenBlockContent =
   | { kind: 'draft'; skeleton: string }
   | { kind: 'feed'; items: FeedContentItem[] }
   | { kind: 'input'; placeholder: string; promptPrefix: string }
+  | { kind: 'skill'; learned: string[]; version: number }
   | { kind: 'tool'; example: { input: string; output: string } }
 
 export type FirstScreenContentMap = Record<string, FirstScreenBlockContent>
@@ -95,6 +96,7 @@ export function buildPopulatePrompt(config: FirstScreenConfig, phase: 'fast' | '
     'For "feed" blocks: use web search to find 3 genuinely current items matching the block\'s prompt; each item is {"line": one plain sentence <=100 chars, "source": publication or site name only}. Real items only — if search fails, return fewer or none rather than inventing.',
     'For "draft" blocks: {"skeleton": a fill-in-the-blank template <=300 chars in a plain, direct voice with [bracketed] slots} matching the block\'s prompt.',
     'For "action" blocks: {"steps": [3 concrete steps, each <=80 chars]} the user could take right now, specific to the block\'s prompt.',
+    'For "skill" blocks: {"learned": [3-5 short plain sentences, each one concrete thing you know about this user from their answers: who they are, the project, preferences], "version": 1}. This is the playbook Hermes keeps about them; write it in second person ("You are…", "You prefer…").',
     'For "tool" blocks: {"example": {"input": <=150 chars, "output": <=150 chars}} showing one honest before→after for the tool the prompt describes.',
     'You may also RESHAPE the screen: any block\'s entry may include "label" (<=40 chars) and/or "prompt" (a first-person prompt the user would send) to re-aim it at their actual project.',
     `${tier === 'simple' ? 'Do NOT add extra blocks — three calm cards is the point for this user.' : 'And add an "extra" array (up to 2 new blocks) when their project calls for something the starter blocks miss: each is {"id": short-slug, "kind": "action"|"draft"|"feed"|"choice"|"input", "label", "prompt", "content": <per its kind>}.'}`,
