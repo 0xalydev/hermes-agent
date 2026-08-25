@@ -360,6 +360,78 @@ export function firstScreenFileContent(config: FirstScreenConfig): string {
   )}\n`
 }
 
+/** The dashboard's companion skill, materialized into
+ *  `<HERMES_HOME>/skills/onboarding-dashboard/SKILL.md` alongside the plugin.
+ *  This is the durable home of the schema + interaction contracts: any
+ *  session that touches the dashboard loads this from the skill index
+ *  instead of reading renderer source ("Let me find how the renderer reads
+ *  this file" happened in a live run — never again). */
+export function onboardingDashboardSkill(screenPath: string): string {
+  return `---
+name: onboarding-dashboard
+description: Use when a message mentions the Onboarding Dashboard or edits ${screenPath} — schema and contracts for the user's dashboard.
+---
+
+# Onboarding Dashboard
+
+The user's dashboard is a desktop plugin pane rendering ONE file:
+
+    ${screenPath}
+
+Edit that file to change the dashboard; the pane repaints on every save.
+It was built during onboarding as an EXAMPLE of Hermes building interfaces.
+The user can ask for another screen, tool, or plugin anytime, and may ask
+you to delete this one (trash its whole folder).
+
+## screen.json schema
+
+Top-level: { "title", "kind": "dashboard", "path", "populatedAt", "blocks": [] }.
+Optional flags you must NEVER write: "populating", "stage".
+
+Each block: { "id", "kind", "label", "prompt", "content" }.
+- id: stable slug, never change it on edit.
+- kind: action | draft | feed | tool | choice | input | skill.
+- label: short title-case card name.
+- prompt: the full instruction behind the card's Run button.
+- content: the card body, ALWAYS an object nested under "content" with its
+  own "kind" matching the block. NEVER put items/steps at the block level.
+
+Content shapes by kind (exact):
+- action: {"kind":"action","steps":["plain string", ...]} — steps are STRINGS,
+  never objects. 3-5 steps, each a concrete physical action.
+- draft: {"kind":"draft","skeleton":"multiline text"}
+- feed: {"kind":"feed","lede":"optional line","items":[{"line":"<=100 chars","source":"site name"}]}
+- tool: {"kind":"tool","example":{"input":"…","output":"…"}}
+- choice: {"kind":"choice","question":"…","options":[{"label":"<=32 chars","prompt":"full instruction"}]}
+- input: {"kind":"input","placeholder":"…","promptPrefix":"instruction the typed text is appended to"}
+- skill: {"kind":"skill","version":N,"learned":["second-person line", ...]}
+  — "What Hermes has learned" card. On EVERY decision the user makes, add
+  one short learned line and increment version by 1 (the card plays its
+  level-up animation on the bump).
+
+## Interaction contracts
+
+- [Onboarding Dashboard button] prefix: DO the card's task, hand over the
+  finished deliverable in chat. Never edit the file on a button press.
+- [Onboarding Dashboard refresh]: rewrite ONLY that feed block's content
+  (web search for current items), save, one line in chat.
+- [Onboarding Dashboard choice] / [input]: a DECISION about their project.
+  Deliverable first, then ripple the decision through every card it
+  genuinely affects (checklist gains decision-specific items, prompts
+  re-aim) and update the skill block (+1 version, one new learned line).
+  Untouched blocks stay byte-identical.
+- A checklist step click means "help me DO this step" — do the work, never
+  reshape the dashboard.
+- When changing what a card is about: rewrite label, prompt, AND content
+  together. A renamed card with stale content is a failure.
+- Never write "populating"; keep "populatedAt" fresh (ISO timestamp) on edits.
+- Reusable text (emails, posts, templates) goes in fenced code blocks.
+- Never think out loud; tool turns get one short sentence before and after.
+- Text deliverable first; at most one image per turn, only when a visual
+  genuinely helps, always introduced by a line naming what you made.
+`
+}
+
 export type MaterializeFirstScreenResult = { ok: true; path: string } | { ok: false; error: string }
 
 /** Persist the artifact into `<desktop-plugins>/first-screen/screen.json`.
@@ -397,6 +469,14 @@ export async function materializeFirstScreen(config: FirstScreenConfig): Promise
     // itself (the pane's regenerate control quotes it back to the agent).
     await desktop.writeTextFile(`${dir}/plugin.js`, FIRST_SCREEN_PLUGIN_JS)
     await desktop.writeTextFile(filePath, firstScreenFileContent({ ...config, path: filePath }))
+
+    // The companion SKILL rides along: schema + interaction contracts land in
+    // the agent's skill index, so any session that touches the dashboard
+    // already knows the file and its shapes. Best-effort — the dashboard
+    // works without it; the skill is what makes edits reliable.
+    if (desktop.materializeSkill) {
+      await desktop.materializeSkill('onboarding-dashboard', onboardingDashboardSkill(filePath)).catch(() => undefined)
+    }
 
     return { ok: true, path: filePath }
   } catch (error) {

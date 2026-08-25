@@ -205,7 +205,8 @@ function sendWork(task) {
 
 /* One clickable content row: index, line, source/tag meta, hover affordance. */
 function FeedItem(props) {
-  const it = props.item
+  const raw = props.item
+  const it = { line: asText(raw && raw.line !== undefined ? raw.line : raw), source: asText(raw && raw.source), tag: asText(raw && raw.tag) }
   return h(
     'div',
     { className: 'fsx-item', onClick: () => send('Tell me more about this, briefly (answer in chat; do not touch the dashboard): "' + it.line + '"' + (it.source ? ' (' + it.source + ')' : '')) },
@@ -265,7 +266,7 @@ function Page(props) {
 function ToolPanel(props) {
   const [value, setValue] = useState('')
   const c = props.content || {}
-  const ex = c.example
+  const ex = c.example ? { input: asText(c.example.input), output: asText(c.example.output) } : null
   return h(
     'div',
     null,
@@ -368,6 +369,29 @@ function Section(props) {
  * under "content", or content missing its own kind. Accept all of it — the
  * card must render whatever plausible shape was written (live failure: a
  * refresh added 16 lines of items and the card stayed on its empty state). */
+/* Coerce any plausible leaf to text. The editing model writes strings,
+ * {line, detail} objects, {text}, {label} — a live run crashed the WHOLE
+ * pane with 'Objects are not valid as a React child (found: {line,
+ * detail})'. The renderer never crashes on shape again: objects render
+ * their best text field, arrays join, everything else String()s. */
+function asText(value) {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return value.map(asText).filter(Boolean).join(' — ')
+  if (typeof value === 'object') {
+    const first = ['line', 'text', 'label', 'step', 'title', 'name', 'detail', 'description']
+      .map(k => value[k])
+      .find(v => typeof v === 'string' && v.trim())
+    if (first) {
+      const detail = typeof value.detail === 'string' && value.detail.trim() && value.detail !== first ? ': ' + value.detail : ''
+      return first + (first === value.detail ? '' : detail)
+    }
+    try { return JSON.stringify(value) } catch { return '' }
+  }
+  return String(value)
+}
+
 function normalizeContent(block) {
   let c = block.content && typeof block.content === 'object' ? block.content : null
   if (!c) {
@@ -421,7 +445,7 @@ function blockBody(block, freshPending, todo) {
         'div',
         { className: 'fsx-options' },
         c.options.map((opt, i) =>
-          h('button', { className: 'fsx-opt', key: i, onClick: () => sendRipple('[Onboarding Dashboard choice] On my "' + (block.label || 'choice') + '" card I picked: "' + opt.label + '".', opt.prompt), type: 'button' }, opt.label)
+          h('button', { className: 'fsx-opt', key: i, onClick: () => sendRipple('[Onboarding Dashboard choice] On my "' + (block.label || 'choice') + '" card I picked: "' + asText(opt.label) + '".', asText(opt.prompt || opt.label)), type: 'button' }, asText(opt.label))
         )
       )
     )
@@ -440,7 +464,7 @@ function InputPanel(props) {
     h('textarea', {
       className: 'fsx-input',
       onChange: e => setValue(e.target.value),
-      placeholder: props.content.placeholder || 'Type here\\u2026',
+      placeholder: asText(props.content.placeholder) || 'Type here\\u2026',
       value
     }),
     h(
@@ -448,7 +472,7 @@ function InputPanel(props) {
       {
         className: 'fsx-go',
         disabled: !value.trim() || undefined,
-        onClick: () => value.trim() && sendRipple('[Onboarding Dashboard input] On my "' + (props.label || 'input') + '" card I entered: "' + value.trim() + '".', props.content.promptPrefix + value.trim()),
+        onClick: () => value.trim() && sendRipple('[Onboarding Dashboard input] On my "' + (props.label || 'input') + '" card I entered: "' + value.trim() + '".', asText(props.content.promptPrefix) + value.trim()),
         type: 'button'
       },
       'Send \\u25B8'
@@ -599,7 +623,7 @@ export default {
         h('div', { className: 'fsx-subtitle' }, 'An example Hermes built during onboarding. Ask for another screen like it anytime.'),
         blocks.map((block, i) => {
           const content = normalizeContent(block)
-          const steps = content && content.kind === 'action' && Array.isArray(content.steps) ? content.steps : null
+          const steps = content && content.kind === 'action' && Array.isArray(content.steps) ? content.steps.map(asText).filter(Boolean) : null
           const doneCount = steps ? steps.filter(s => todo.done[block.id + '|' + s]).length : 0
           return h(
             Section,

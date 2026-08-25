@@ -112,6 +112,11 @@ describe('first-screen artifact', () => {
       value: {
         desktopPluginsRoot: async () => '/tmp/hermes/desktop-plugins',
         mkdirDesktopPlugin: async (name: string) => ({ ok: name === 'first-screen', path: '/tmp/hermes/desktop-plugins/first-screen' }),
+        materializeSkill: async (name: string, content: string) => {
+          calls.push({ content, path: `skills/${name}/SKILL.md` })
+
+          return { ok: true, path: `skills/${name}/SKILL.md` }
+        },
         writeTextFile: async (path: string, content: string) => {
           calls.push({ content, path })
 
@@ -125,12 +130,20 @@ describe('first-screen artifact', () => {
       const result = await materializeFirstScreen(config)
 
       expect(result).toEqual({ ok: true, path: '/tmp/hermes/desktop-plugins/first-screen/screen.json' })
-      expect(calls).toHaveLength(2)
+      expect(calls).toHaveLength(3)
 
       const byPath = Object.fromEntries(calls.map(c => [c.path, c.content]))
 
       expect(byPath['/tmp/hermes/desktop-plugins/first-screen/plugin.js']).toContain("id: 'first-screen'")
       expect(JSON.parse(byPath['/tmp/hermes/desktop-plugins/first-screen/screen.json']).title).toContain('Sam')
+
+      // The companion skill rides along: schema + contracts, path baked in.
+      const skill = byPath['skills/onboarding-dashboard/SKILL.md']
+
+      expect(skill).toContain('name: onboarding-dashboard')
+      expect(skill).toContain('/tmp/hermes/desktop-plugins/first-screen/screen.json')
+      expect(skill).toContain('steps are STRINGS')
+      expect(skill).toContain('[Onboarding Dashboard button]')
     } finally {
       Object.defineProperty(window, 'hermesDesktop', { configurable: true, value: original })
     }
