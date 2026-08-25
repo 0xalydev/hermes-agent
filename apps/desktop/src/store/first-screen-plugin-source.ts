@@ -116,6 +116,7 @@ const CSS = [
   '.fsx-propkind{color:var(--dt-primary);font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase}',
   '.fsx-proplabel{font-size:14px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 
+  '.fsx-subtitle{color:var(--dt-muted-foreground);font-size:11.5px;line-height:1.4;margin-top:-2px;opacity:.8}',
   '.fsx-question{font-size:13.5px;font-weight:550;line-height:1.45;margin-bottom:8px}',
   '.fsx-options{display:flex;flex-wrap:wrap;gap:7px}',
   '.fsx-opt{background:color-mix(in srgb, var(--dt-primary) 10%, transparent);border:1px solid color-mix(in srgb, var(--dt-primary) 35%, var(--dt-border));border-radius:999px;color:var(--dt-foreground);cursor:pointer;font-size:12px;font-weight:500;padding:5px 13px;transition:background 120ms ease,border-color 120ms ease}',
@@ -123,6 +124,10 @@ const CSS = [
   '.fsx-go[disabled]{cursor:default;opacity:.4;pointer-events:none}',
   '.fsx-foot{display:none}'
 ].join('')
+
+/* The live screen.json path, set by the pane on every config load — work
+ * orders carry it so ANY session can edit the dashboard when asked. */
+let screenPath = ''
 
 /* Send a prompt through the active chat; toast when no surface owns it. */
 function send(prompt) {
@@ -153,7 +158,7 @@ function sendWork(task) {
   send(
     '[Onboarding Dashboard button] Do this task now and give me the finished output directly in chat: ' +
       task +
-      '\\n\\nRules: write like a person: plain declaratives, active voice, no em dashes, no exclamation marks, no praise, no AI diction (delve, seamless, robust, crucial), end on the last real point. Produce the actual deliverable (list, draft, plan), not a description of it. Reusable text goes in a fenced code block. When the next move is a decision or you need one fact from me, END with one interactive question as its own paragraph: ::ask{question="..." options="A|B|C"} (2-6 short options; add input="true" for free text) instead of asking in prose. Do not talk about, edit, or rebuild the dashboard or its config unless I explicitly ask you to change the dashboard.'
+      '\\n\\nRules: write like a person: plain declaratives, active voice, no em dashes, no exclamation marks, no praise, no AI diction (delve, seamless, robust, crucial), end on the last real point. Produce the actual deliverable (list, draft, plan), not a description of it. Reusable text goes in a fenced code block. When the next move is a decision or you need one fact from me, END with one interactive question as its own paragraph: ::ask{question="..." options="A|B|C"} (2-6 short options; add input="true" for free text) instead of asking in prose. Do not talk about, edit, or rebuild the dashboard or its config unless I explicitly ask you to change the dashboard. If I DO ask for a dashboard change (save a result as a module, rename, rewire a card), make the edit yourself in that same turn: read ' + (screenPath || 'screen.json in my first-screen plugin folder') + ' , keep the JSON schema (blocks[].id/kind/label/prompt/content), write it back, confirm in one line. Never end a turn with a promise to wire something in later.'
   )
 }
 
@@ -379,6 +384,7 @@ export default {
           (!populated && config && config.generatedAt && Date.now() - Date.parse(config.generatedAt) < 180000)
       )
       const filePath = (config && config.path) || '~/.hermes/desktop-plugins/first-screen/screen.json'
+      screenPath = filePath
 
       const regen = () =>
         send(
@@ -437,6 +443,7 @@ export default {
           h('div', { className: 'fsx-title' }, (config && config.title) || 'Your Dashboard'),
           h('button', { className: 'fsx-regen', onClick: regen, title: 'Ask Hermes to rewrite this screen\\u2019s content in place', type: 'button' }, 'regenerate \\u21bb')
         ),
+        h('div', { className: 'fsx-subtitle' }, 'An example Hermes built during onboarding. Ask for another screen like it anytime.'),
         blocks.map(block =>
           h(
             Section,

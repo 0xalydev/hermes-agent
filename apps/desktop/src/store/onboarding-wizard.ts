@@ -353,6 +353,7 @@ export function buildChatOnboardingPrompt(): string {
     'Messages starting with [Onboarding Dashboard refresh] are the one exception: they ask you to update a feed card IN PLACE — follow their file-edit instructions exactly (search, rewrite that block\'s content in screen.json, save) so the card repaints; one line in chat when done.',
     'Rules for the ::onboarding lines: emit each EXACTLY as written above, alone as its own paragraph — a blank line before and after, never two directives on the same line.',
     'The app renders an interactive picker there and applies choices to the app live, so do NOT list or describe the options in prose.',
+    'Never end a turn having only PROMISED an action. If you say you will edit the dashboard, save something, or set something up, the SAME turn must contain the actual tool calls that do it, then a one-line confirmation. Saying "I\'ll wire it in now" and stopping is a failure.',
     VOICE_RULES,
     'Their picks arrive as invisible messages prefixed [setup] — acknowledge each in a few words and move to the next step.',
     'Keep every turn short. This is a chat, not a form. No headers, no bullet lists, no emoji.'
