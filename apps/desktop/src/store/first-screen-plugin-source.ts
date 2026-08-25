@@ -162,7 +162,7 @@ function sendRefresh(block, filePath) {
       block.prompt +
       '\\nThen read ' +
       filePath +
-      ' and rewrite ONLY that block\\u2019s content field (items: [{"line": <=100 chars, "source": site name}], keep every other field and block exactly as they are), update populatedAt, and save. Reply in chat with one line when done — the card repaints from the file.'
+      ' and rewrite ONLY that block so it reads {"id": same, "kind": "feed", "label": same, "prompt": same, "content": {"kind": "feed", "items": [{"line": "one sentence under 100 chars", "source": "site name"}]}}. The items MUST be nested under "content" exactly like that or the card cannot render them. Keep every other block untouched, update the top-level populatedAt, save. Reply in chat with one line when done — the card repaints from the file.'
   )
 }
 
@@ -174,7 +174,7 @@ function sendWork(task) {
   send(
     '[Onboarding Dashboard button] Do this task now and give me the finished output directly in chat: ' +
       task +
-      '\\n\\nRules: write like a person: plain declaratives, active voice, no em dashes, no exclamation marks, no praise, no AI diction (delve, seamless, robust, crucial), end on the last real point. Produce the actual deliverable (list, draft, plan), not a description of it. Reusable text goes in a fenced code block. When the next move is a decision or you need one fact from me, END with one interactive question as its own paragraph: ::ask{question="..." options="A|B|C"} (2-6 short options; add input="true" for free text) instead of asking in prose. Do not talk about, edit, or rebuild the dashboard or its config unless I explicitly ask you to change the dashboard. If I DO ask for a dashboard change (save a result as a module, rename, rewire a card), make the edit yourself in that same turn: read ' + (screenPath || 'screen.json in my first-screen plugin folder') + ' , keep the JSON schema (blocks[].id/kind/label/prompt/content), write it back, confirm in one line. Never end a turn with a promise to wire something in later.'
+      '\\n\\nRules: write like a person: plain declaratives, active voice, no em dashes, no exclamation marks, no praise, no AI diction (delve, seamless, robust, crucial), end on the last real point. Produce the actual deliverable (list, draft, plan), not a description of it. Reusable text goes in a fenced code block. When the next move is a decision or you need one fact from me, END with one interactive question as its own paragraph: ::ask{question="..." options="A|B|C"} (2-6 short options; add input="true" for free text) instead of asking in prose. Do not talk about, edit, or rebuild the dashboard or its config unless I explicitly ask you to change the dashboard. If I DO ask for a dashboard change (save a result as a module, rename, rewire a card), make the edit yourself in that same turn: read ' + (screenPath || 'screen.json in my first-screen plugin folder') + ' , keep the JSON schema: each block is {id, kind, label, prompt, content} and the card body ALWAYS lives nested under content with its own kind, e.g. {"kind": "action", "steps": []} or {"kind": "feed", "items": [{"line", "source"}]}. When you change what a card is about, rewrite its label, prompt, AND content together (a renamed card with stale content is a failure). Write it back, confirm in one line. Never end a turn with a promise to wire something in later.'
   )
 }
 
@@ -204,7 +204,7 @@ function Steps(props) {
   /* A real to-do list: checking a box TOGGLES local done-state (plugin
    * storage — instant, persistent, never a chat submission). The Run pill
    * stays the card's do-the-work action. */
-  const todo = props.todo
+  const todo = props.todo || { done: {}, toggle: function () {} }
   return h(
     'div',
     { className: 'fsx-steps' },
@@ -279,8 +279,28 @@ function Section(props) {
   )
 }
 
+/* The agent edits screen.json by hand mid-conversation, and small models put
+ * content in almost-right places: block-level items/steps instead of nested
+ * under "content", or content missing its own kind. Accept all of it — the
+ * card must render whatever plausible shape was written (live failure: a
+ * refresh added 16 lines of items and the card stayed on its empty state). */
+function normalizeContent(block) {
+  let c = block.content && typeof block.content === 'object' ? block.content : null
+  if (!c) {
+    if (Array.isArray(block.items) && block.items.length) c = { kind: 'feed', items: block.items, lede: block.lede }
+    else if (Array.isArray(block.steps) && block.steps.length) c = { kind: 'action', steps: block.steps }
+    else if (typeof block.skeleton === 'string' && block.skeleton) c = { kind: 'draft', skeleton: block.skeleton }
+    else if (block.example && typeof block.example === 'object') c = { kind: 'tool', example: block.example }
+    else if (block.question && Array.isArray(block.options)) c = { kind: 'choice', question: block.question, options: block.options }
+    else if (typeof block.promptPrefix === 'string' && block.promptPrefix) c = { kind: 'input', promptPrefix: block.promptPrefix, placeholder: block.placeholder }
+    else return null
+  }
+  if (!c.kind) c = Object.assign({ kind: block.kind }, c)
+  return c
+}
+
 function blockBody(block, freshPending, todo) {
-  const c = block.content
+  const c = normalizeContent(block)
   if (!c) {
     if (freshPending) {
       // Live shimmer: unmistakably in progress, never a static sentence.
@@ -415,7 +435,7 @@ export default {
         send(
           'Rebuild my first screen\\u2019s content in place: read ' +
             filePath +
-            ' , re-run each block\\u2019s prompt fresh (search the web for feed blocks), and rewrite ONLY the content fields in that file \\u2014 keep the schema and prompts exactly as they are, update populatedAt. Reply in chat with one line when done.'
+            ' , re-run each block\\u2019s prompt fresh (search the web for feed blocks), and rewrite ONLY each block\\u2019s nested content object (its own kind plus its fields: feed → items[{line, source}], action → steps[], draft → skeleton, tool → example{input, output}) — keep ids, labels, and prompts exactly as they are, update populatedAt. Reply in chat with one line when done.'
         )
 
 
@@ -461,7 +481,7 @@ export default {
       // Arrival detection: a block whose content JUST appeared gets a one-shot
       // glow. Primed on first render so an already-full dashboard opens calm.
       const filledNow = {}
-      for (const b of blocks) filledNow[b.id] = Boolean(b.content)
+      for (const b of blocks) filledNow[b.id] = Boolean(normalizeContent(b))
       const prevFilled = filledRef.current
       filledRef.current = filledNow
       const justArrived = id => prevFilled !== null && filledNow[id] && !prevFilled[id]
@@ -478,17 +498,18 @@ export default {
         ),
         h('div', { className: 'fsx-subtitle' }, 'An example Hermes built during onboarding. Ask for another screen like it anytime.'),
         blocks.map((block, i) => {
-          const steps = block.kind === 'action' && block.content && Array.isArray(block.content.steps) ? block.content.steps : null
+          const content = normalizeContent(block)
+          const steps = content && content.kind === 'action' && Array.isArray(content.steps) ? content.steps : null
           const doneCount = steps ? steps.filter(s => todo.done[block.id + '|' + s]).length : 0
           return h(
             Section,
             {
               arrived: justArrived(block.id) || undefined,
-              busy: (freshPending && !block.content) || refreshing[block.id],
+              busy: (freshPending && !content) || refreshing[block.id],
               key: block.id,
               kind: block.kind,
               label: block.label,
-              noRun: (block.kind === 'choice' || block.kind === 'input') && Boolean(block.content),
+              noRun: (block.kind === 'choice' || block.kind === 'input') && Boolean(content),
               onRun:
                 block.kind === 'feed'
                   ? () => {
@@ -503,7 +524,7 @@ export default {
               // cascade instead of a slam.
               style: prevFilled === null ? { animationDelay: Math.min(i * 70, 350) + 'ms' } : undefined
             },
-            block.kind === 'tool' ? h(ToolPanel, { content: block.content, prompt: block.prompt }) : blockBody(block, freshPending, todo)
+            block.kind === 'tool' ? h(ToolPanel, { content: normalizeContent(block), prompt: block.prompt }) : blockBody(block, freshPending, todo)
           )
         }),
         null
