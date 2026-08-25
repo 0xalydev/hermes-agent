@@ -18,6 +18,7 @@
 import { atom } from 'nanostores'
 import type { CSSProperties } from 'react'
 
+import { defaultHandoffSurface } from '@/components/onboarding-chat/setup-bot'
 import { allPaneIds, findGroupOfPane, group, type LayoutNode } from '@/components/pane-shell/tree/model'
 import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import {
@@ -90,6 +91,9 @@ const STATUSBAR_PX = 20
 /** The Bots roster pane (hermes-bots plugin). Absent when the plugin isn't
  *  loaded, which every use here tolerates. */
 const BOTS_PANE_ID = 'hermes-bots:pane'
+
+/** The Sessions list pane (app/contrib/controller). */
+const SESSIONS_PANE_ID = 'sessions'
 
 let statusbarWasVisible = true
 
@@ -209,23 +213,26 @@ function reconcileLayout(id: string, tree: LayoutNode): void {
   resetEnforcedDocks()
   adoptContributedPanes()
 
-  // Sidebar payoff: the user's only conversations at this moment are bot
-  // canonicals (Setup + soon their task bot), which the Sessions list hides —
-  // so its tab would front as an EMPTY pane. Front the roster instead: the
-  // sidebar's face is their agents. No-op if the bots plugin is absent.
+  // The sidebar's opening face follows the layout, by the SAME rule that
+  // decides where the first build lands (defaultHandoffSurface): Elite is
+  // heading for a session, so it opens on Sessions; Basic is heading for a
+  // bot, so it opens on the roster. Basic can't open on Sessions anyway — at
+  // this point the user's only conversations are bot canonicals, which that
+  // list hides, so the tab would front as an empty pane.
   //
   // On EVERY pick, not just the first. A pick is a request for that layout as
   // a whole, tab included; fronting only once meant re-picking Basic rebuilt
   // its panes but left the sidebar showing whatever the layout before it had.
   //
-  // Strictly a SIDEBAR payoff: if the dock above didn't take, Bots is still
-  // stacked with the chat, and fronting it there would bury the conversation
-  // the user is mid-sentence in. Never front a pane over the chat.
+  // Strictly a SIDEBAR payoff: if the docking above didn't take, the pane is
+  // still stacked with the chat, and fronting it there would bury the
+  // conversation the user is mid-sentence in. Never front a pane over the chat.
+  const facePaneId = defaultHandoffSurface(id) === 'session' ? SESSIONS_PANE_ID : BOTS_PANE_ID
   const assembled = $layoutTree.get()
-  const botsGroup = assembled ? findGroupOfPane(assembled, BOTS_PANE_ID) : null
+  const faceGroup = assembled ? findGroupOfPane(assembled, facePaneId) : null
 
-  if (botsGroup && !botsGroup.panes.includes('workspace')) {
-    setActiveTreePane(BOTS_PANE_ID)
+  if (faceGroup && !faceGroup.panes.includes('workspace')) {
+    setActiveTreePane(facePaneId)
   }
 
   // LAST, because panes can be a CONSEQUENCE of the assembly above: the bots

@@ -134,14 +134,24 @@ describe('picking a different layout replaces the previous one', () => {
     expect(allPaneIds($layoutTree.get()!)).not.toContain('terminal')
   })
 
-  // A pick is a request for the layout as a whole, tab included. Fronting the
-  // roster only on the first pick rebuilt Basic's panes on the way back but
-  // left the sidebar showing whatever Elite had.
+  // A pick is a request for the layout as a whole, tab included. Fronting
+  // only on the first pick rebuilt Basic's panes on the way back but left the
+  // sidebar showing whatever Elite had.
   it('fronts the roster again on the way back', () => {
     assembleChatOnboarding('basic', basic())
     assembleChatOnboarding('terminal-deck', elite())
     assembleChatOnboarding('basic', basic())
 
+    expect(findGroupOfPane($layoutTree.get()!, BOTS_PANE)?.active).toBe(BOTS_PANE)
+  })
+
+  // The sidebar's face follows the same rule that decides where the first
+  // build lands: Elite is heading for a session, Basic for a bot.
+  it('opens Elite on Sessions and Basic on the roster', () => {
+    assembleChatOnboarding('terminal-deck', elite())
+    expect(findGroupOfPane($layoutTree.get()!, 'sessions')?.active).toBe('sessions')
+
+    assembleChatOnboarding('basic', basic())
     expect(findGroupOfPane($layoutTree.get()!, BOTS_PANE)?.active).toBe(BOTS_PANE)
   })
 })
