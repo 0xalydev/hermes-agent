@@ -178,6 +178,7 @@ function eventText(event: KanbanEvent, k: KanbanText): { detail?: string; label:
   }
 }
 
+
 /** The dashboard's diagnostics panel: severity-toned, plain-English, with the
  *  backend's structured recovery actions as buttons. `reassign` is skipped —
  *  the Assignee control in the meta table IS that action, inline. */
@@ -736,9 +737,7 @@ export function TaskDrawer({
                   onReassign={profile => void mutate(() => reassignTask(task.id, profile))()}
                 />
               </SidePanelMetaRow>
-              {typeof task.priority === 'number' && (
-                <SidePanelMetaRow label={k.metaPriority}>{task.priority}</SidePanelMetaRow>
-              )}
+              {typeof task.priority === 'number' && <SidePanelMetaRow label={k.metaPriority}>{task.priority}</SidePanelMetaRow>}
               {task.tenant && <SidePanelMetaRow label={k.metaTenant}>{task.tenant}</SidePanelMetaRow>}
               {task.workspace_path && (
                 <SidePanelMetaRow label={k.workspace}>
@@ -757,12 +756,8 @@ export function TaskDrawer({
                 />
               </SidePanelMetaRow>
               {task.created_by && <SidePanelMetaRow label={k.metaCreatedBy}>{task.created_by}</SidePanelMetaRow>}
-              {ago(task.created_at) && (
-                <SidePanelMetaRow label={k.metaCreated}>{ago(task.created_at)}</SidePanelMetaRow>
-              )}
-              {running && task.worker_pid ? (
-                <SidePanelMetaRow label={k.metaWorkerPid}>{task.worker_pid}</SidePanelMetaRow>
-              ) : null}
+              {ago(task.created_at) && <SidePanelMetaRow label={k.metaCreated}>{ago(task.created_at)}</SidePanelMetaRow>}
+              {running && task.worker_pid ? <SidePanelMetaRow label={k.metaWorkerPid}>{task.worker_pid}</SidePanelMetaRow> : null}
             </SidePanelMeta>
 
             {task.status === 'ready' && !task.assignee && !defaultAssignee && (
