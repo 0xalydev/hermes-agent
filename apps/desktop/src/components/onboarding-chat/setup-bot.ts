@@ -240,11 +240,25 @@ export async function stampBotMeta(
  *  MINIMAL reasoning, not 'none': with the channel fully closed the model
  *  plans in VISIBLE prose instead (live runs: walls of "Let me re-read the
  *  steps…"). Minimal gives that planning a hidden home while staying fast. */
-const FAST_LANE_MODEL = 'deepseek/deepseek-v4-flash-0731 --provider nous'
+export const FAST_LANE = {
+  model: 'deepseek/deepseek-v4-flash-0731',
+  provider: 'nous',
+  reasoningEffort: 'minimal'
+} as const
+
+const FAST_LANE_MODEL = `${FAST_LANE.model} --provider ${FAST_LANE.provider}`
 
 /**
  * Put a guided session on the fast lane — session scope first so it takes
- * effect on this very turn, then global so Setup stays there.
+ * effect on this very turn, then global so Setup's later turns stay there.
+ *
+ * This is the ONLY route for an ADOPTED chat, which already exists and cannot
+ * be re-born. A chat being created must not rely on it: the desktop stamps the
+ * composer's current model onto every `session.create`, so a new guided chat
+ * starts on the user's default and this switch is a race against its own first
+ * turn — which is what left a fresh run reading "opus 5" in the picker. Creates
+ * pass `FAST_LANE` through `session.create` and are born correct; this then
+ * only moves the profile default.
  *
  * Scoped to the ACTIVE backend, which in bot mode is the hermes-setup
  * profile, so the user's real default is never touched.

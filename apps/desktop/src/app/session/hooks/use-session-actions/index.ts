@@ -91,6 +91,7 @@ import { navigateToWorkspacePage, NEW_CHAT_ROUTE, sessionRoute, SETTINGS_ROUTE }
 import type { ClientSessionState, SidebarNavItem } from '../../../types'
 import { sessionContextDrift } from '../session-context-drift'
 
+import { applySessionCreateOverrides, type SessionCreateOverrides } from './create-overrides'
 import {
   appendLiveSessionProjection,
   applyRuntimeInfo,
@@ -449,7 +450,7 @@ export function useSessionActions({
       // chat (e.g. "Bot Chat"). The owning profile is NOT an override — point
       // $newChatProfile at it first (selectProfile-style) so the create lands
       // on that profile's own backend and every later ambient RPC follows.
-      createOverrides?: { hidden?: boolean; title?: string }
+      createOverrides?: SessionCreateOverrides
     ): Promise<string | null> => {
       const startingStoredSessionId = selectedStoredSessionIdRef.current
       const startingRouteToken = getRouteToken()
@@ -478,15 +479,10 @@ export function useSessionActions({
           params.messages = seedMessages
         }
 
-        if (createOverrides?.title) {
-          params.title = createOverrides.title
-        }
-
-        if (createOverrides?.hidden) {
-          params.hidden = true
-        }
-
-        const created = await requestGateway<SessionCreateResponse>('session.create', params)
+        const created = await requestGateway<SessionCreateResponse>(
+          'session.create',
+          applySessionCreateOverrides(params, createOverrides)
+        )
         const stored = created.stored_session_id ?? null
 
         // Only a genuine move to a DIFFERENT chat mid-create should orphan the

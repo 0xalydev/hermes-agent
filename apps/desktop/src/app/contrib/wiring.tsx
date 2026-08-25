@@ -32,8 +32,10 @@ import {
   buildHandoffFailedNote,
   buildTaskBotSeedMessages,
   ensureSetupBotProfile,
+  FAST_LANE,
   markSetupHandoffDone,
   mintTaskBotProfile,
+  pinFastLane,
   SETUP_BOT_LOOK,
   SETUP_BOT_PROFILE,
   SETUP_BOT_TITLE,
@@ -41,7 +43,6 @@ import {
   TASK_BOT_LOOK,
   taskBotTitle
 } from '@/components/onboarding-chat/setup-bot'
-import { OnboardingSkip } from '@/components/onboarding-chat/skip'
 import { OnboardingWizardGate } from '@/components/onboarding-wizard'
 import { $newSessionTabAction, registerPaneCloser, setActiveTreePane } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
@@ -686,6 +687,12 @@ export function ContribWiring({ children }: { children: ReactNode }) {
               storedId: canonical.id
             })
 
+            // An adopted chat needs the fast lane just as much as a minted one
+            // — it IS the guided chat. Resuming without this put Setup back on
+            // the user's thinking default, where a locked card reads as a
+            // frozen app.
+            await pinFastLane(requestGateway, adoptedRuntimeId ?? canonical.id)
+
             return
           }
         }
@@ -693,7 +700,9 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         const runtimeId = await createBackendSessionForSend(
           null,
           seedMessages,
-          asSetupBot ? { hidden: true, title: 'Bot Chat' } : undefined
+          kind === 'guide'
+            ? { ...(asSetupBot ? { hidden: true, title: 'Bot Chat' } : {}), model: FAST_LANE }
+            : undefined
         )
 
         console.log('[setup-bot] created', { runtimeId, stored: $selectedStoredSessionId.get() })
@@ -740,43 +749,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
             title: asSetupBot ? 'Bot Chat' : 'Welcome to Hermes'
           }).catch(() => undefined)
 
-          // Pin the guided turns to the fast lane: DeepSeek v4 flash at
-          // MINIMAL reasoning. Not 'none': with the reasoning channel fully
-          // closed the model plans in VISIBLE prose instead (live runs: walls
-          // of "Let me re-read the steps…" narration). Minimal gives that
-          // planning a hidden home while staying near-instant. Session pin
-          // first (takes effect this turn), then the persist — scoped to the
-          // ACTIVE backend, which in bot mode is the hermes-setup profile, so
-          // Setup stays on the cheap lane forever without touching the user's
-          // real default.
-          // confirm_expensive_model=true: with no agent built yet the switch
-          // otherwise returns confirm_required (selection warning) instead of
-          // switching — the exact silent-miss that left a live run on the
-          // slow default. Best-effort: a real refusal leaves the profile
-          // default, which still works.
-          await requestGateway('config.set', {
-            confirm_expensive_model: true,
-            key: 'model',
-            session_id: runtimeId,
-            value: 'deepseek/deepseek-v4-flash-0731 --provider nous --session'
-          }).catch(() => undefined)
-          await requestGateway('config.set', {
-            key: 'reasoning',
-            session_id: runtimeId,
-            value: 'minimal'
-          }).catch(() => undefined)
-          await requestGateway('config.set', {
-            confirm_expensive_model: true,
-            key: 'model',
-            session_id: runtimeId,
-            value: 'deepseek/deepseek-v4-flash-0731 --provider nous --global'
-          }).catch(() => undefined)
-          await requestGateway('config.set', {
-            key: 'reasoning',
-            scope: 'global',
-            session_id: runtimeId,
-            value: 'minimal'
-          }).catch(() => undefined)
+          await pinFastLane(requestGateway, runtimeId)
 
           // No kickoff prompt.submit: the runbook and the greeting are seeded
           // rows, and the greeting the user watches type itself in is the
@@ -1438,7 +1411,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
       {!isAuxiliaryWindow() && <DesktopInstallOverlay />}
       {!isAuxiliaryWindow() && <IntroRevealGate enabled={gatewayState === 'open'} />}
       {!isAuxiliaryWindow() && <OnboardingWizardGate enabled={gatewayState === 'open'} onKickoff={kickoffFirstChat} />}
-      {!isAuxiliaryWindow() && <OnboardingSkip />}
       {!isAuxiliaryWindow() && (
         <DesktopOnboardingOverlay
           enabled={gatewayState === 'open'}
