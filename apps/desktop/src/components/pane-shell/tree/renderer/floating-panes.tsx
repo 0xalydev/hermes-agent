@@ -13,14 +13,13 @@ import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef,
 
 import { HUD_SURFACE } from '@/app/floating-hud'
 import { TITLEBAR_HEIGHT } from '@/app/shell/titlebar'
-import { $chatOnboardingSolo, $chatOnboardingThreadIds } from '@/components/onboarding-chat/assembly'
+import { useOnboardingChatActive } from '@/components/onboarding-chat/active'
 import { Codicon } from '@/components/ui/codicon'
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
 import type { Contribution } from '@/contrib/types'
 import { readJson, writeJson } from '@/lib/storage'
 import { cn } from '@/lib/utils'
-import { $activeSessionId, $selectedStoredSessionId } from '@/store/session'
 
 import { $hiddenTreePanes } from '../store'
 
@@ -195,15 +194,7 @@ export function FloatingPanes() {
   // float over it — not during the solo phase, and not over the guided or
   // first-build threads after the app assembles. They're back the moment the
   // user is in any other session.
-  const solo = useStore($chatOnboardingSolo)
-  const onboardingThreadIds = useStore($chatOnboardingThreadIds)
-  const activeRuntimeId = useStore($activeSessionId)
-  const selectedStoredId = useStore($selectedStoredSessionId)
-
-  const onboardingActive =
-    solo ||
-    (activeRuntimeId != null && onboardingThreadIds.includes(activeRuntimeId)) ||
-    (selectedStoredId != null && onboardingThreadIds.includes(selectedStoredId))
+  const onboardingActive = useOnboardingChatActive()
 
   const floating = onboardingActive
     ? []
