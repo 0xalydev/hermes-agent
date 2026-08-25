@@ -23,7 +23,7 @@ model:
   provider: nous
   default: deepseek/deepseek-v4-flash-0731
 agent:
-  reasoning_effort: false
+  reasoning_effort: minimal
 web:
   backend: nous
 tts:

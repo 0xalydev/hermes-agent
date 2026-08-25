@@ -631,11 +631,13 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           }).catch(() => undefined)
 
           // Pin the guided turns to the fast lane AND make it the profile
-          // default: DeepSeek v4 flash with thinking off is the app's
-          // out-of-box model until the user changes it (Settings → Model or
-          // the composer pill) — post-onboarding sessions stay fast instead
-          // of falling back to a slow flagship default. Session pin first
-          // (takes effect this turn), then the global persist.
+          // default: DeepSeek v4 flash at MINIMAL reasoning. Not 'none': with
+          // the reasoning channel fully closed the model plans in VISIBLE
+          // prose instead (live runs: walls of "Let me re-read the steps…"
+          // narration). Minimal gives that planning a hidden home — the
+          // transcript renders it as the collapsed Thinking disclosure —
+          // while staying near-instant. Session pin first (takes effect this
+          // turn), then the global persist.
           // confirm_expensive_model=true: with no agent built yet the switch
           // otherwise returns confirm_required (selection warning) instead of
           // switching — the exact silent-miss that left a live run on the
@@ -650,7 +652,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           await requestGateway('config.set', {
             key: 'reasoning',
             session_id: runtimeId,
-            value: 'none'
+            value: 'minimal'
           }).catch(() => undefined)
           await requestGateway('config.set', {
             confirm_expensive_model: true,
@@ -662,7 +664,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
             key: 'reasoning',
             scope: 'global',
             session_id: runtimeId,
-            value: 'none'
+            value: 'minimal'
           }).catch(() => undefined)
         }
 
