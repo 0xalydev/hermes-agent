@@ -6,6 +6,7 @@ import { SessionDraftTitle } from '@/app/chat/session-draft-title'
 import { SessionStatusDot } from '@/app/chat/session-status-dot'
 import { PALETTE_AREA, type PaletteContribution, paletteToggle } from '@/app/command-palette/contrib'
 import { type StatusbarItem } from '@/app/shell/statusbar-controls'
+import { AskDirective } from '@/components/assistant-ui/ask-directive'
 import { InlinePreviewDirective } from '@/components/assistant-ui/inline-preview-directive'
 import { IdleMount } from '@/components/idle-mount'
 import { OnboardingChatDirective } from '@/components/onboarding-chat/directive'
@@ -313,6 +314,17 @@ registry.registerMany([
     data: {
       name: 'onboarding',
       render: ({ attrs, streaming }) => <OnboardingChatDirective attrs={attrs} streaming={streaming} />
+    } satisfies TranscriptDirectiveContribution
+  },
+  // `::ask{question="…" options="A|B|C" input="true"}` — the model's generic
+  // interactive question: option pills + optional type-and-go, in ANY session.
+  // The antidote to wall-of-text answers; dashboard flows lean on it hard.
+  {
+    id: 'transcript.ask',
+    area: TRANSCRIPT_DIRECTIVE_AREA,
+    data: {
+      name: 'ask',
+      render: ({ attrs, streaming }) => <AskDirective attrs={attrs} streaming={streaming} />
     } satisfies TranscriptDirectiveContribution
   },
   {
