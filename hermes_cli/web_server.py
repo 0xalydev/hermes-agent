@@ -262,6 +262,32 @@ def _parent_start_markers_match(actual: str, expected: str) -> bool:
 # when the same module is used across TestClient instances or uvicorn reloads.
 # ---------------------------------------------------------------------------
 
+class _LiveProfileHomes:
+    """A ``profile_homes`` iterable that re-enumerates on every iteration.
+
+    The multiplex scheduler walks ``profile_homes`` afresh each tick cycle, so
+    handing it a live view (instead of a snapshot taken at backend start)
+    means profiles created while the app runs — bot-mode agents, the
+    onboarding's setup bot — get their cron stores ticked without a restart.
+    """
+
+    def _snapshot(self):
+        from hermes_cli import profiles as profiles_mod
+
+        try:
+            return list(profiles_mod.profiles_to_serve(multiplex=True))
+        except Exception:
+            from hermes_constants import get_hermes_home
+
+            return [("default", get_hermes_home())]
+
+    def __iter__(self):
+        return iter(self._snapshot())
+
+    def __len__(self):
+        return len(self._snapshot())
+
+
 def _start_desktop_cron_ticker(stop_event: "threading.Event", interval: int = 60) -> None:
     """Tick the cron scheduler from inside the desktop dashboard backend.
 
@@ -271,16 +297,26 @@ def _start_desktop_cron_ticker(stop_event: "threading.Event", interval: int = 60
     scheduler provider here (no live adapters; delivery falls back to the
     per-platform send path).
 
+    The built-in provider ticks EVERY profile's cron store (live-enumerated —
+    see _LiveProfileHomes), not just the launch profile's: desktop bots are
+    profiles, and jobs they schedule for themselves (e.g. the setup bot's
+    onboarding check-ins) live in their own HERMES_HOME, which no other
+    process owns a ticker for. External providers keep the single-home path —
+    their reconcile step is not profile-scoped.
+
     Cross-process safe: the built-in provider's ``cron.scheduler.tick`` takes
-    the ``cron/.tick.lock`` file lock, so this never double-fires alongside a
-    real gateway on the same HERMES_HOME — whichever process grabs the lock
-    first wins the tick.
+    each home's ``cron/.tick.lock`` file lock, so this never double-fires
+    alongside a real gateway (or a pooled per-profile backend) on the same
+    HERMES_HOME — whichever process grabs the lock first wins the tick.
     """
-    from cron.scheduler_provider import resolve_cron_scheduler
+    from cron.scheduler_provider import InProcessCronScheduler, resolve_cron_scheduler
 
     provider = resolve_cron_scheduler()
     _log.info("Desktop cron scheduler started (provider=%s, interval=%ds)", provider.name, interval)
-    provider.start(stop_event, interval=interval)
+    if isinstance(provider, InProcessCronScheduler):
+        provider.start(stop_event, interval=interval, profile_homes=_LiveProfileHomes())
+    else:
+        provider.start(stop_event, interval=interval)
 
 
 def _warm_gateway_module() -> None:

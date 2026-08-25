@@ -14,10 +14,16 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '@/components/onboarding-chat/assembly'
+import {
+  $setupHandoff,
+  hasCompletedSetupHandoff,
+  requestSetupHandoff,
+  taskBotTitle
+} from '@/components/onboarding-chat/setup-bot'
 import {
   accentsFor,
   AccentSwatch,
@@ -38,7 +44,7 @@ import { $wizardAnswers, setWizardAnswers } from '@/store/onboarding-wizard'
 import { useTheme } from '@/themes'
 import { setAccentOverride } from '@/themes/accent-override'
 
-type ChatStep = 'connectors' | 'first' | 'focus' | 'layout' | 'look' | 'progress'
+type ChatStep = 'connectors' | 'first' | 'focus' | 'handoff' | 'layout' | 'look' | 'progress'
 
 function isChatStep(value: string | undefined): value is ChatStep {
   return (
@@ -47,6 +53,7 @@ function isChatStep(value: string | undefined): value is ChatStep {
     value === 'look' ||
     value === 'layout' ||
     value === 'first' ||
+    value === 'handoff' ||
     value === 'progress'
   )
 }
@@ -321,6 +328,54 @@ function FirstBuildCard({ attrs, locked = false }: CardProps & { attrs: Record<s
 }
 
 /**
+ * The handoff card — bot mode's replacement for "the task starts in this
+ * chat". Setup emits `::onboarding{step="handoff" task="…" brief="…"}` once
+ * the task is decided; when the turn settles this card raises the handoff
+ * beacon and the wiring effect does the real work (mint the task bot, seed
+ * its chat, move the user there). The card itself just narrates: spinning
+ * up → built. Both latches (atom + storage) make re-parses, re-mounts, and
+ * relaunches into old transcripts inert.
+ */
+function HandoffCard({ attrs, locked = false }: CardProps & { attrs: Record<string, string> }) {
+  const task = (attrs.task ?? '').trim().slice(0, 60)
+  const brief = (attrs.brief ?? '').trim().slice(0, 240)
+  const state = useStore($setupHandoff)
+
+  useEffect(() => {
+    if (!locked && task && brief) {
+      requestSetupHandoff(task, brief)
+    }
+  }, [brief, locked, task])
+
+  if (!task || !brief) {
+    return null
+  }
+
+  const settled = state?.phase === 'done' || (state === null && hasCompletedSetupHandoff())
+  const failed = state?.phase === 'error'
+  const title = state?.botTitle ?? taskBotTitle(task)
+
+  return (
+    <div className="my-3 flex max-w-md items-center gap-2 text-sm" data-onboarding-card>
+      <span
+        aria-hidden
+        className={cn(
+          'inline-block size-1.5 shrink-0 rounded-full',
+          settled || failed ? 'bg-(--ui-text-quaternary)' : 'animate-pulse bg-(--ui-accent)'
+        )}
+      />
+      <span className="text-(--ui-text-secondary)">
+        {failed
+          ? 'Couldn\u2019t spin up a separate agent — building here instead'
+          : settled
+            ? `${title} is on it — find it in your agents`
+            : `Spinning up ${title}\u2026`}
+      </span>
+    </div>
+  )
+}
+
+/**
  * The progress card — the build's live status, inline in the transcript. The
  * model re-emits `::onboarding{step="progress" title="…"}` as it works; each
  * emission appends a step row to a session-wide list (module-scope, keyed by
@@ -371,7 +426,7 @@ function ProgressCard({ attrs, locked = false }: CardProps & { attrs: Record<str
   )
 }
 
-const CARDS: Record<Exclude<ChatStep, 'first' | 'progress'>, (props: CardProps) => React.JSX.Element> = {
+const CARDS: Record<Exclude<ChatStep, 'first' | 'handoff' | 'progress'>, (props: CardProps) => React.JSX.Element> = {
   connectors: ConnectorsCard,
   focus: FocusCard,
   layout: LayoutCard,
@@ -382,6 +437,10 @@ const CARDS: Record<Exclude<ChatStep, 'first' | 'progress'>, (props: CardProps) 
 function CardForStep({ attrs, locked, step }: CardProps & { attrs: Record<string, string>; step: ChatStep }) {
   if (step === 'first') {
     return <FirstBuildCard attrs={attrs} locked={locked} />
+  }
+
+  if (step === 'handoff') {
+    return <HandoffCard attrs={attrs} locked={locked} />
   }
 
   if (step === 'progress') {

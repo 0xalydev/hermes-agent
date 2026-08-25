@@ -444,7 +444,12 @@ export function useSessionActions({
   const createBackendSessionForSend = useCallback(
     async (
       preview: string | null = null,
-      seedMessages?: { content: string; display_kind?: 'hidden'; role: 'assistant' | 'user' }[]
+      seedMessages?: { content: string; display_kind?: 'hidden'; role: 'assistant' | 'user' }[],
+      // Bot-mode onboarding: mint the session as a titled/hidden canonical
+      // chat (e.g. "Bot Chat"). The owning profile is NOT an override — point
+      // $newChatProfile at it first (selectProfile-style) so the create lands
+      // on that profile's own backend and every later ambient RPC follows.
+      createOverrides?: { hidden?: boolean; title?: string }
     ): Promise<string | null> => {
       const startingStoredSessionId = selectedStoredSessionIdRef.current
       const startingRouteToken = getRouteToken()
@@ -471,6 +476,14 @@ export function useSessionActions({
         // the session's first instant — no generation, no prompt round-trip.
         if (seedMessages?.length) {
           params.messages = seedMessages
+        }
+
+        if (createOverrides?.title) {
+          params.title = createOverrides.title
+        }
+
+        if (createOverrides?.hidden) {
+          params.hidden = true
         }
 
         const created = await requestGateway<SessionCreateResponse>('session.create', params)

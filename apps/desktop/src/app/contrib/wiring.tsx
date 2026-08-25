@@ -25,6 +25,22 @@ import { IntroRevealGate } from '@/components/intro-reveal'
 import { NotificationStack } from '@/components/notifications'
 import { DesktopOnboardingOverlay } from '@/components/onboarding'
 import { $chatOnboardingThreadIds, startChatOnboardingSolo } from '@/components/onboarding-chat/assembly'
+import {
+  $setupBotSession,
+  $setupHandoff,
+  buildHandoffCompleteNote,
+  buildHandoffFailedNote,
+  buildTaskBotSeedMessages,
+  ensureSetupBotProfile,
+  markSetupHandoffDone,
+  mintTaskBotProfile,
+  SETUP_BOT_LOOK,
+  SETUP_BOT_PROFILE,
+  SETUP_BOT_TITLE,
+  stampBotMeta,
+  TASK_BOT_LOOK,
+  taskBotTitle
+} from '@/components/onboarding-chat/setup-bot'
 import { OnboardingWizardGate } from '@/components/onboarding-wizard'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
@@ -50,9 +66,11 @@ import {
   markGuideKickoffStarted
 } from '@/store/onboarding-wizard'
 import { $previewTarget } from '@/store/preview'
+import { requestGatewayForProfile } from '@/store/gateway'
 import {
   $activeGatewayProfile,
   $freshSessionRequest,
+  $newChatProfile,
   $profileScope,
   ALL_PROFILES,
   ensureGatewayProfile,
@@ -599,6 +617,12 @@ export function ContribWiring({ children }: { children: ReactNode }) {
   // prompt.submit: the model's first real turn is its reply to the user's
   // name. 'greet' keeps the classic hidden-kickoff shape (Hermes generates
   // the opener from the wizard's answers).
+  //
+  // Bot mode: the guided chat belongs to a persistent `hermes-setup` profile
+  // ("Setup" in the bot roster) and is minted as its hidden canonical "Bot
+  // Chat" — so the guide outlives onboarding as a bot the user can always
+  // come back to. If the profile can't be created (older backend), the chat
+  // falls back to the profile-less shape and everything still works.
   const kickoffFirstChat = useCallback(
     (kind: 'greet' | 'guide' = 'greet') => {
       if (kind === 'guide') {
@@ -608,7 +632,33 @@ export function ContribWiring({ children }: { children: ReactNode }) {
       }
       void (async () => {
         const seedMessages = kind === 'guide' ? buildChatOnboardingSeedMessages() : undefined
-        const runtimeId = await createBackendSessionForSend(null, seedMessages)
+        let asSetupBot = kind === 'guide' ? await ensureSetupBotProfile(requestGateway) : false
+
+        console.log('[setup-bot] kickoff', { asSetupBot, kind })
+
+        if (asSetupBot) {
+          // selectProfile-style: point new chats at the setup profile and make
+          // its backend the active gateway BEFORE creating — the guided chat
+          // then lives where every later ambient RPC (submit, hydration,
+          // streaming) will look for it, exactly like any bot chat.
+          try {
+            $newChatProfile.set(SETUP_BOT_PROFILE)
+            await ensureGatewayProfile(SETUP_BOT_PROFILE)
+            console.log('[setup-bot] gateway swapped to setup profile')
+          } catch (error) {
+            console.warn('[setup-bot] setup profile swap failed', error)
+            $newChatProfile.set(null)
+            asSetupBot = false
+          }
+        }
+
+        const runtimeId = await createBackendSessionForSend(
+          null,
+          seedMessages,
+          asSetupBot ? { hidden: true, title: 'Bot Chat' } : undefined
+        )
+
+        console.log('[setup-bot] created', { runtimeId, stored: $selectedStoredSessionId.get() })
 
         if (!runtimeId) {
           return
@@ -627,6 +677,18 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           const storedId = $selectedStoredSessionId.get()
 
           $chatOnboardingThreadIds.set(storedId ? [storedId, runtimeId] : [runtimeId])
+
+          // Remembered for the handoff's whisper back, and pinned as Setup's
+          // canonical chat so the roster row previews/opens this very thread.
+          $setupBotSession.set({ profile: asSetupBot ? SETUP_BOT_PROFILE : null, runtimeId, storedId })
+
+          if (asSetupBot && storedId) {
+            void stampBotMeta(requestGateway, SETUP_BOT_PROFILE, {
+              ...SETUP_BOT_LOOK,
+              chat: storedId,
+              title: SETUP_BOT_TITLE
+            })
+          }
 
           // Paint the pre-written greeting into the local view NOW — the
           // seed rows live server-side; the optimistic row makes the first
@@ -663,6 +725,108 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     },
     [createBackendSessionForSend, requestGateway]
   )
+
+  // Bot-mode handoff: Setup decided the first task (the HandoffCard raised
+  // $setupHandoff) — mint a bot around it, seed its hidden Bot Chat with the
+  // work-side runbook, move the user there, and start the build from Setup's
+  // brief as a real visible turn. Setup's chat stays alive: it gets a hidden
+  // [setup] note so it can close the loop and schedule its check-ins. On any
+  // failure Setup is told to build in its own chat instead (PR-12 shape), so
+  // the flow never dead-ends.
+  const setupHandoff = useStore($setupHandoff)
+
+  useEffect(() => {
+    if (setupHandoff?.phase !== 'pending') {
+      return
+    }
+
+    const { brief, task } = setupHandoff
+
+    $setupHandoff.set({ ...setupHandoff, phase: 'minting' })
+
+    void (async () => {
+      const setupSession = $setupBotSession.get()
+
+      // The guide chat lives on the setup profile's own backend; by whisper
+      // time the ACTIVE gateway is the task bot's, so route explicitly.
+      const whisperToSetup = (text: string) => {
+        if (!setupSession) {
+          return
+        }
+
+        const params = { display_kind: 'hidden', session_id: setupSession.runtimeId, text }
+
+        void (
+          setupSession.profile
+            ? requestGatewayForProfile(setupSession.profile, 'prompt.submit', params, PROMPT_SUBMIT_REQUEST_TIMEOUT_MS)
+            : requestGateway('prompt.submit', params, PROMPT_SUBMIT_REQUEST_TIMEOUT_MS)
+        ).catch(() => undefined)
+      }
+
+      const previousNewChatProfile = $newChatProfile.get()
+
+      try {
+        const answers = $wizardAnswers.get()
+        const botName = await mintTaskBotProfile(requestGateway, task, answers)
+        const botTitle = taskBotTitle(task)
+
+        // Same selectProfile-style swap as the kickoff: the task bot's chat
+        // is created on (and every later ambient RPC lands on) its backend.
+        $newChatProfile.set(botName)
+        await ensureGatewayProfile(botName)
+
+        const runtimeId = await createBackendSessionForSend(brief, buildTaskBotSeedMessages(task, answers), {
+          hidden: true,
+          title: 'Bot Chat'
+        })
+
+        if (!runtimeId) {
+          throw new Error('task session create failed')
+        }
+
+        const storedId = $selectedStoredSessionId.get()
+
+        void stampBotMeta(requestGateway, botName, {
+          ...TASK_BOT_LOOK,
+          ...(storedId ? { chat: storedId } : {}),
+          title: botTitle
+        })
+
+        // The go signal — Setup's brief lands as the user's first visible
+        // turn in the new bot's chat, and the build starts from it. Painted
+        // optimistically (same trick as the guide greeting) so the new chat
+        // never opens empty while the submit round-trips.
+        setMessages(current => [
+          ...current,
+          {
+            id: `handoff-brief-${runtimeId}`,
+            parts: [{ text: brief, type: 'text' }],
+            role: 'user',
+            timestamp: Date.now() / 1000
+          }
+        ])
+        setAwaitingResponse(true)
+        setBusy(true)
+        await requestGateway(
+          'prompt.submit',
+          { session_id: runtimeId, text: brief },
+          PROMPT_SUBMIT_REQUEST_TIMEOUT_MS
+        ).catch(() => {
+          setAwaitingResponse(false)
+          setBusy(false)
+        })
+
+        markSetupHandoffDone()
+        $setupHandoff.set({ botName, botTitle, brief, phase: 'done', task })
+        whisperToSetup(buildHandoffCompleteNote(task, botTitle))
+      } catch {
+        // Undo the half-swap so the user's chat context stays with the guide.
+        $newChatProfile.set(previousNewChatProfile)
+        $setupHandoff.set({ brief, phase: 'error', task })
+        whisperToSetup(buildHandoffFailedNote(task))
+      }
+    })()
+  }, [createBackendSessionForSend, requestGateway, setupHandoff])
 
   const composer = useComposerActions({ activeSessionId, currentCwd, requestGateway })
 

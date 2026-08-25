@@ -1,0 +1,255 @@
+/**
+ * Setup bot — the bot-mode variant of the guided onboarding.
+ *
+ * The guided chat is no longer an anonymous session: it is the canonical
+ * "Bot Chat" of a persistent `hermes-setup` profile ("Setup" in the Bots
+ * roster). Setup walks the user through the same beats as before, but when
+ * the first task is decided it does NOT build it here — it emits
+ * `::onboarding{step="handoff" task="…" brief="…"}` and the renderer mints a
+ * NEW bot around that task, opens the new bot's chat, and starts the build
+ * there. Setup stays alive: it gets a hidden [setup] note about the handoff,
+ * schedules its own check-ins (cronjob tool), and remains one roster click
+ * away — training wheels the user can ignore or retire whenever.
+ *
+ * This module owns the pure pieces (names, souls, seed prompts, the handoff
+ * request atom). The side effects — profiles.create, session.create, the
+ * chat switch — live in the wiring's handoff effect so they run with real
+ * gateway/session hooks.
+ */
+
+import { atom } from 'nanostores'
+
+import type { GatewayRequest } from '@/app/session/hooks/use-prompt-actions/utils'
+import { readKey, writeKey } from '@/lib/storage'
+import type { WizardAnswers } from '@/store/onboarding-wizard'
+
+/** Profile name of the onboarding guide. Prefixed so it can't collide with a
+ *  profile a user actually named "setup". */
+export const SETUP_BOT_PROFILE = 'hermes-setup'
+export const SETUP_BOT_TITLE = 'Setup'
+
+/** Roster looks (ui_meta['hermes-bots'] shape/color). */
+export const SETUP_BOT_LOOK = { color: '#f2b04c', shape: 'blobatar' }
+export const TASK_BOT_LOOK = { color: '#7aa2f7', shape: 'blobatar' }
+
+const HANDOFF_DONE_KEY = 'hermes-setup-handoff-done-v1'
+
+export type SetupHandoffPhase = 'done' | 'error' | 'minting' | 'pending'
+
+export interface SetupHandoffState {
+  task: string
+  brief: string
+  phase: SetupHandoffPhase
+  /** Set once the task bot exists. */
+  botName?: string
+  botTitle?: string
+}
+
+/** The handoff beacon: HandoffCard raises it, the wiring effect performs it.
+ *  Null until the model emits the handoff directive. */
+export const $setupHandoff = atom<null | SetupHandoffState>(null)
+
+/** The setup bot's own session ids (+ owning profile, null in the profile-less
+ *  fallback), kept so the handoff can whisper a hidden [setup] note back into
+ *  the guide chat — on the guide's own backend — after the task bot takes
+ *  over. */
+export const $setupBotSession = atom<null | {
+  profile: null | string
+  runtimeId: string
+  storedId: null | string
+}>(null)
+
+/** Raise the handoff request (once per task — re-parses and re-mounts of the
+ *  directive are no-ops, and a relaunch after a completed handoff stays
+ *  quiet thanks to the storage latch). */
+export function requestSetupHandoff(task: string, brief: string): boolean {
+  if ($setupHandoff.get() !== null || readKey(HANDOFF_DONE_KEY) === '1') {
+    return false
+  }
+
+  $setupHandoff.set({ brief, phase: 'pending', task })
+
+  return true
+}
+
+/** Burn the relaunch latch — the task bot exists and its chat is open. */
+export function markSetupHandoffDone(): void {
+  writeKey(HANDOFF_DONE_KEY, '1')
+}
+
+/** True once a handoff completed on this install (survives relaunch) — used
+ *  by the card to render its settled state when the atom is long gone. */
+export function hasCompletedSetupHandoff(): boolean {
+  return readKey(HANDOFF_DONE_KEY) === '1'
+}
+
+export function resetSetupHandoffForTests(): void {
+  writeKey(HANDOFF_DONE_KEY, null)
+  $setupHandoff.set(null)
+  $setupBotSession.set(null)
+}
+
+/** Slug a task title into a valid profile name (^[a-z0-9][a-z0-9_-]{0,63}$). */
+export function taskBotSlug(task: string): string {
+  const slug = task
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^[-_]+|[-_]+$/g, '')
+    .slice(0, 48)
+    .replace(/^[-_]+|[-_]+$/g, '')
+
+  return slug && /^[a-z0-9]/.test(slug) ? slug : 'first-build'
+}
+
+/** Short display title for the task bot's roster row. */
+export function taskBotTitle(task: string): string {
+  const trimmed = task.trim()
+
+  return trimmed.length > 28 ? `${trimmed.slice(0, 27).trimEnd()}…` : trimmed || 'First build'
+}
+
+/** SOUL.md for the Setup profile — its standing identity across the guide
+ *  chat, later check-ins, and every cron run. */
+export function composeSetupBotSoul(): string {
+  return [
+    '# Setup',
+    '',
+    "You are Setup, this user's Hermes onboarding guide. You walked them through their first-run setup, and you stay with them after it: a calm, brief companion who tracks how their setup is going and offers the next helpful step at the right moment.",
+    '',
+    '- You are training wheels: useful early, ignorable later. Never guilt-trip, never nag. If the user asks you to stop checking in, stop.',
+    '- When you check in, look at what has actually changed (their bots, sessions, connectors, scheduled jobs) before offering anything. One concrete suggestion beats a menu.',
+    '- Things worth offering, roughly in order: wiring a connector they said they use, scheduling something they do repeatedly, a second build based on the first, keyboard/layout niceties.',
+    '- Keep every message short. No headers, no bullet walls, no emoji.'
+  ].join('\n')
+}
+
+/** SOUL.md for a freshly minted task bot. */
+export function composeTaskBotSoul(task: string, answers: WizardAnswers): string {
+  const name = answers.name.trim()
+
+  return [
+    `# ${taskBotTitle(task)}`,
+    '',
+    `You are a Hermes agent minted for one job: ${task.trim()}.${name ? ` You work for ${name}.` : ''}`,
+    '',
+    '- Own this task end to end: build it, improve it, keep it running.',
+    '- Be direct and brief; show your work as you go.',
+    '- Ask before touching anything outside your task.'
+  ].join('\n')
+}
+
+/** The hidden runbook seeded into the task bot's chat — the work-side half of
+ *  the old single-chat script: no-auth first build, the permissions note, and
+ *  the live progress cards. */
+export function buildTaskBotRunbook(task: string, answers: WizardAnswers): string {
+  const name = answers.name.trim()
+
+  return [
+    `You are a brand-new agent that Setup (the onboarding guide) just created around one task: ${task.trim()}.`,
+    'This message is invisible to the user — never reference it or the mechanics described here.',
+    name ? `The user is called ${name}.` : '',
+    'Their next message is the go signal: really begin the work — plan briefly, then build (scaffold, research, first artifact).',
+    'As you start, tell them in one short sentence: you\'ll ask for permissions as you go, and they can say no to anything or redirect you.',
+    'CRITICAL: this first build must need NO external account or OAuth (no Gmail, no Slack, no Google sign-in) — connectors get wired later, on their request. Everything else is fair game and the more visible the better: web research with the browser shown to the user as you work, scripts, computer use, a small app, a file-based tracker, a scheduled reminder, a generated page. If the idea needs an account, build the no-auth core first and say the connection is a later step.',
+    'While the work runs, place ::onboarding{step="progress" title="what you\'re doing"} as its own paragraph at the start of each status turn — the card shows the build breathing live. Keep the titles short and present-tense ("Scaffolding the project", "Wiring the reminder"). Emit each exactly like that, alone on its own line.',
+    'Keep every turn short. No headers, no bullet lists, no emoji.'
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+/** Seed rows for the task bot's session.create — just the hidden runbook; the
+ *  visible go-signal (the task brief) is submitted as a real turn right after,
+ *  which is what starts the build. */
+export function buildTaskBotSeedMessages(
+  task: string,
+  answers: WizardAnswers
+): { content: string; display_kind?: 'hidden'; role: 'assistant' | 'user' }[] {
+  return [{ content: buildTaskBotRunbook(task, answers), display_kind: 'hidden', role: 'user' }]
+}
+
+/** The hidden note whispered into the Setup chat once the task bot is live —
+ *  Setup's cue to close the loop and schedule its check-ins. */
+export function buildHandoffCompleteNote(task: string, botTitle: string): string {
+  return `[setup] handoff complete — "${task.trim()}" is now building in the ${botTitle} bot's chat, and the user is watching it there. Say one short line: you'll check in as they get going, and this chat is always here. Then schedule yourself a check-in cron job (cronjob tool, e.g. daily) that reviews what the user has set up so far and offers ONE next step if a genuinely useful one exists.`
+}
+
+/** The hidden note when minting the task bot failed — Setup falls back to
+ *  building in its own chat, PR-12 style, so the flow never dead-ends. */
+export function buildHandoffFailedNote(task: string): string {
+  return `[setup] handoff failed — the separate task bot could not be created. Start the task ("${task.trim()}") right here in this conversation instead: begin the work now, mention the permissions note, and place ::onboarding{step="progress" title="…"} cards as you go.`
+}
+
+// ── gateway helpers (called from the wiring's kickoff + handoff effects) ─────
+
+function isAlreadyExists(error: unknown): boolean {
+  return error instanceof Error && /exist/i.test(error.message)
+}
+
+/** Stamp a bot's roster look + canonical-chat pin (ui_meta['hermes-bots'] —
+ *  the gateway merges per key). Best-effort: a miss only costs roster polish,
+ *  never the flow. */
+export async function stampBotMeta(
+  request: GatewayRequest,
+  name: string,
+  meta: { chat?: string; color: string; shape: string; title: string }
+): Promise<void> {
+  await request('profiles.configure', {
+    name,
+    ui_meta: { 'hermes-bots': { created: Date.now(), ...meta } }
+  }).catch(() => undefined)
+}
+
+/** Make sure the `hermes-setup` profile exists (idempotent — an existing one
+ *  is adopted). Returns false when the backend can't create profiles at all;
+ *  the kickoff then falls back to the profile-less guided chat. */
+export async function ensureSetupBotProfile(request: GatewayRequest): Promise<boolean> {
+  try {
+    await request('profiles.create', {
+      description: 'Onboarding guide — walks first-run setup, then checks in as you find your feet.',
+      name: SETUP_BOT_PROFILE,
+      share_auth: true,
+      soul: composeSetupBotSoul()
+    })
+  } catch (error) {
+    if (!isAlreadyExists(error)) {
+      return false
+    }
+  }
+
+  await stampBotMeta(request, SETUP_BOT_PROFILE, { ...SETUP_BOT_LOOK, title: SETUP_BOT_TITLE })
+
+  return true
+}
+
+/** Mint the task bot's profile, suffixing past name collisions (dev reruns,
+ *  a second onboarding on the same machine). Returns the final name. */
+export async function mintTaskBotProfile(
+  request: GatewayRequest,
+  task: string,
+  answers: WizardAnswers
+): Promise<string> {
+  const base = taskBotSlug(task)
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const name = attempt === 0 ? base : `${base}-${attempt + 1}`
+
+    try {
+      await request('profiles.create', {
+        description: task.trim(),
+        name,
+        share_auth: true,
+        soul: composeTaskBotSoul(task, answers)
+      })
+
+      return name
+    } catch (error) {
+      if (!isAlreadyExists(error)) {
+        throw error
+      }
+    }
+  }
+
+  throw new Error(`no free profile name for ${base}`)
+}

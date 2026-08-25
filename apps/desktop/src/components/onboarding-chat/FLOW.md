@@ -1,8 +1,18 @@
-# Guided Onboarding — "First Build" Flow
+# Guided Onboarding — "Setup Bot" Flow
 
-The first-run chain: **cinematic → solo guided chat → the user's first task, built live.**
-No wizard window, no sign-in card, no survey-for-its-own-sake. The user walks out
-having *done something* — that's the only real onboarding.
+The first-run chain: **cinematic → solo guided chat with the Setup bot → the
+user's first task, built live by a bot minted for it.** No wizard window, no
+sign-in card, no survey-for-its-own-sake. The user walks out having *done
+something* — and with two agents in their roster: the one that built it, and
+the guide that stays.
+
+Bot mode's twist on the first-build flow: the guided chat is not an anonymous
+session. It is the canonical **Bot Chat of a persistent `hermes-setup`
+profile** ("Setup" in the agents roster). Setup runs the same beats as before,
+but it does not build the task itself — once the task is decided it hands off
+to a **new bot minted around that task**, and stays alive as training wheels:
+it hears how the handoff went, schedules its own check-in crons, and offers
+the next step when there is a genuinely useful one.
 
 ## Script (the model's runbook)
 
@@ -10,8 +20,9 @@ having *done something* — that's the only real onboarding.
 2. **Theme** — `::onboarding{step="look"}` (accent pick, live retint)
 3. **Connectors** — `::onboarding{step="connectors"}` (tools they use; stored, not wired)
 4. **Layout** — `::onboarding{step="layout"}` (the app assembles around the chat)
-5. **The fork** — "Do you know what you'd like to build with me? We can automate
-   something you already do on the computer, or we can figure it out together."
+5. **The fork** — "Do you know what you'd like to build? I'll spin up an agent
+   dedicated to it. We can automate something you already do on the computer,
+   or figure it out together."
 
 ### Branch A — they have something in mind (general or specific)
 
@@ -25,17 +36,19 @@ having *done something* — that's the only real onboarding.
     computer use are all fair game, and the more VISIBLE the better (research
     with the browser shown to the user as it works is the strongest demo).
     Never Gmail/Slack/Google sign-in: connectors get wired later, on the
-    user's request. If their idea needs one, build the no-auth core first and
-    name the connection as a later step.
-7a. **Start the task.** The chip tap (or their message) IS the go signal — a real
-    visible turn, and the model begins the work in the same conversation.
-8a. **Permissions note** (one short turn, woven in as the work starts):
-    "I'll ask for permissions as we go, and surface any connectors this needs.
-    Say no to anything you don't want me to touch — or tell me if you have
-    something specific in mind."
-9a. **Progress artifact** — `::onboarding{step="progress"}` renders a live-updating
-    card in the transcript (steps done / in-flight / next) while the build runs.
-    Permissions prompts ride the session concurrently in the background.
+    user's request. If their idea needs one, shape the task around its
+    no-auth core and name the connection as a later step.
+7a. **The handoff.** The chip tap (or their message) decides the task. Setup
+    replies with ONE short framing sentence and emits
+    `::onboarding{step="handoff" task="…" brief="…"}` — it does NOT start the
+    work. The renderer mints a profile around the task (soul from the
+    conversation, name from the task), seeds its hidden Bot Chat with the
+    work-side runbook, moves the user into it, and submits Setup's brief as
+    the user's first visible turn. The build starts from that turn.
+8a. **Permissions note** (task bot, one short sentence as work begins):
+    "I'll ask for permissions as we go — say no to anything."
+9a. **Progress artifact** — `::onboarding{step="progress"}` renders a
+    live-updating card in the TASK bot's transcript while the build runs.
 
 ### Branch B — not sure
 
@@ -44,22 +57,39 @@ having *done something* — that's the only real onboarding.
     - "idk" → 7d: "What do you use your computer for?" → follow up generatively
       → Branch A (6a).
 
+### After the handoff — Setup stays alive
+
+- The renderer whispers a hidden `[setup] handoff complete` note into Setup's
+  chat. Setup says one goodbye-for-now line and **schedules itself a check-in
+  cron** (cronjob tool) that reviews what the user has actually set up so far
+  and offers ONE next step when a useful one exists — wiring a connector they
+  named, scheduling something they repeat, a second build.
+- The desktop backend ticks every profile's cron store (live-enumerated), so
+  those check-ins fire without the app babysitting a per-profile backend.
+- If minting the task bot fails, the whisper says so instead and Setup builds
+  the task in its own chat — the PR-12 single-chat shape as the fallback, so
+  the flow never dead-ends.
+
 ## What the user walks away with
 
-- A configured app (theme, layout, connectors noted) — the old wizard's job, done
-  conversationally.
+- A configured app (theme, layout, connectors noted) — the old wizard's job,
+  done conversationally.
 - A first task *started or built* — the competence moment.
-- A mental model of how Hermes works: it asks, it surfaces options, it builds,
-  it asks permission, it shows progress.
+- **A roster**: the task bot that owns their first build, and Setup — a guide
+  they can always come back to, ignore, or retire. Training wheels.
+- A mental model of how Hermes works: agents are minted around jobs, they ask,
+  they build, they show progress, they check in.
 
 ## What deliberately does NOT happen
 
-- **No bot is minted** unless the user asks for one (directly or indirectly).
-  Bots are a power feature; onboarding's job is the first task, not the roster.
 - **No login wall.** Inference is already configured (or the classic runtime
   check catches the first send). The chain never stops to authenticate.
+  (When the sign-in / cloud-vs-local moment lands, it belongs AFTER the task
+  has been decided and begun — likely anchored at the handoff — not here.)
 - **No survey fatigue.** Every question either configures the app or feeds the
   first build. Nothing is collected "for later."
+- **No nagging.** Setup's check-ins are one concrete suggestion or silence;
+  "stop checking in" stops them.
 
 ## Flow graph
 
@@ -68,22 +98,15 @@ having *done something* — that's the only real onboarding.
                 │  cinematic  │  (intro reveal — welcome splash)
                 └──────┬──────┘
                        ▼
-                ┌─────────────┐
-                │  solo chat  │  small window, no sidebar/statusbar
-                │  1. name    │
-                └──────┬──────┘
+                ┌──────────────────┐
+                │  solo chat        │  small window, no sidebar/statusbar —
+                │  = Setup's        │  the hidden canonical Bot Chat of the
+                │  Bot Chat         │  hermes-setup profile
+                │  1. name          │
+                └──────┬───────────┘
                        ▼
-                ┌─────────────┐
-                │ 2. theme    │  ::onboarding{step="look"}
-                └──────┬──────┘
-                       ▼
-                ┌─────────────┐
-                │ 3. connectors│ ::onboarding{step="connectors"}
-                └──────┬──────┘
-                       ▼
-                ┌─────────────┐
-                │ 4. layout   │  ::onboarding{step="layout"} → app assembles
-                └──────┬──────┘
+                (2. theme → 3. connectors → 4. layout — cards as before,
+                 app assembles at the layout pick)
                        ▼
                 ┌─────────────┐
                 │ 5. the fork │  "Do you know what you'd like to build?"
@@ -93,36 +116,27 @@ having *done something* — that's the only real onboarding.
         ▼              ▼              ▼
   ┌──────────┐  ┌──────────┐  ┌──────────────┐
   │ specific │  │ general  │  │  not sure    │
-  │ in mind  │  │  idea    │  │              │
+  │ in mind  │  │  idea    │  │ (6c/7d probe)│
   └────┬─────┘  └────┬─────┘  └──────┬───────┘
-       │             │               ▼
-       │             │        ┌──────────────┐
-       │             │        │ 6c. "what do │  ──idk──▶ 7d. "what do you
-       │             │        │ you wish you │         use your computer
-       │             │        │ spent less   │         for?"
-       │             │        │ time doing?" │◀────────┘
-       │             │        └──────┬───────┘
-       │             │               │ (follow up, get specific)
        │             ▼               │
        │      ┌──────────────┐       │
        │      │ 6a. generated │◀──────┘
        │      │ options card  │  ::onboarding{step="first" options="…"}
        │      └──────┬───────┘
-       │             │ tap = the go signal
+       │             │ tap = the task is decided
        ▼             ▼
-       ┌────────────────────┐
-       │ 7a/6b. START TASK  │  real turn, work begins in this chat
-       └─────────┬──────────┘
-                 ▼
-       ┌────────────────────┐
-       │ 8a/7b. permissions │  "I'll ask as we go; say no to anything"
-       │ note (one turn)    │
-       └─────────┬──────────┘
-                 ▼
-       ┌────────────────────┐
-       │ 9a/8b. progress    │  ::onboarding{step="progress"} — live card,
-       │ artifact in convo  │  permissions ride concurrently in background
-       └────────────────────┘
+       ┌─────────────────────────┐
+       │ 7a. HANDOFF              │  ::onboarding{step="handoff" task brief}
+       │ mint task bot + its      │  renderer: profiles.create → seeded
+       │ hidden Bot Chat          │  session.create → switch → visible brief
+       └───────┬─────────────┬───┘
+               ▼             ▼
+   ┌───────────────────┐   ┌────────────────────────┐
+   │ TASK BOT's chat   │   │ SETUP's chat (alive)   │
+   │ 8a. permissions   │   │ hidden [setup] note →  │
+   │ 9a. progress cards│   │ goodbye-for-now line + │
+   │ the build runs    │   │ check-in cron schedule │
+   └───────────────────┘   └────────────────────────┘
 ```
 
 ## The cards (transcript directives)
@@ -132,5 +146,6 @@ having *done something* — that's the only real onboarding.
 | `look` | — | accent swatches | retints live, hidden `[setup]` report |
 | `connectors` | — | connector chips | stored, hidden `[setup]` report |
 | `layout` | — | layout previews | assembles the app live, hidden `[setup]` report |
-| `first` | `options="A\|B\|C"` | generated chips | **visible user turn** — the task starts |
-| `progress` | `title="…"` | live build card | read-only; updates as the work streams |
+| `first` | `options="A\|B\|C"` | generated chips | **visible user turn** — decides the task |
+| `handoff` | `task="…" brief="…"` | one-line status (spinning up → built) | none — raises the handoff beacon on settle; the wiring mints + switches |
+| `progress` | `title="…"` | live build card (task bot's chat) | read-only; updates as the work streams |
