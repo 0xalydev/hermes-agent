@@ -5,11 +5,15 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { ELITE_LAYOUT_ID, LAYOUTS } from '@/components/onboarding-wizard/options'
+import { $wizardAnswers, setWizardAnswers } from '@/store/onboarding-wizard'
+
 import { OnboardingChatDirective } from './directive'
 import {
   $setupHandoff,
   buildHandoffCompleteNote,
   buildTaskBotRunbook,
+  defaultHandoffSurface,
   parseHandoffSurface,
   resetSetupHandoffForTests
 } from './setup-bot'
@@ -24,9 +28,33 @@ const handoffAttrs = (surface?: string) => ({
 })
 
 describe('handoff surface', () => {
+  const layoutDefault = $wizardAnswers.get().layout
+
   afterEach(() => {
     cleanup()
     resetSetupHandoffForTests()
+    setWizardAnswers({ layout: layoutDefault })
+  })
+
+  it('lets the layout pick decide, Elite meaning sessions', () => {
+    // Pinned against the picker itself so renaming the preset can't quietly
+    // sever the rule from the thing the user actually tapped.
+    expect(LAYOUTS.find(layout => layout.id === ELITE_LAYOUT_ID)?.name).toBe('Elite')
+    expect(defaultHandoffSurface(ELITE_LAYOUT_ID)).toBe('session')
+
+    for (const layout of LAYOUTS.filter(entry => entry.id !== ELITE_LAYOUT_ID)) {
+      expect(defaultHandoffSurface(layout.id)).toBe('bot')
+    }
+  })
+
+  it('falls back to the layout rule when the model omits the attribute', () => {
+    setWizardAnswers({ layout: ELITE_LAYOUT_ID })
+    render(<OnboardingChatDirective attrs={handoffAttrs()} streaming={false} />)
+
+    expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual([
+      'Open it as a session',
+      'Give it its own agent'
+    ])
   })
 
   it('takes only the two known surfaces, ignoring anything else the model writes', () => {
@@ -52,8 +80,9 @@ describe('handoff surface', () => {
     ])
   })
 
-  it('still asks — leading with a bot — when the model omits the attribute', () => {
-    render(<OnboardingChatDirective attrs={handoffAttrs()} streaming={false} />)
+  it('lets the model override the layout rule when the task points the other way', () => {
+    setWizardAnswers({ layout: ELITE_LAYOUT_ID })
+    render(<OnboardingChatDirective attrs={handoffAttrs('bot')} streaming={false} />)
 
     expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual([
       'Give it its own agent',

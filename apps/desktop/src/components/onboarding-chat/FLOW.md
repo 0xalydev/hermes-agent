@@ -193,11 +193,22 @@ its own profile, its own canonical chat, able to check in later; a session is
 the second, and landing them in a roster with no sessions and no project
 machinery reads as a downgrade.
 
-So the handoff asks. Setup proposes via `surface="…"` on the directive (bot for
-ongoing responsibilities, session for work they'll finish or when they've
-talked like a developer), the card leads with that proposal and shows the other
-option beside it, and the user's tap decides. One value then drives everything
-downstream:
+So the handoff asks — and it asks from a position, because the user already
+told us. **The layout pick decides it: Elite → session, Basic → bot.** Choosing
+the terminal deck is the most explicit thing anyone does in the whole first run
+to say how they work, and it's a far harder signal than reading developer-ness
+out of a sentence. The task only overrides when it plainly points the other way
+(a Basic user wanting a one-off document; an Elite user wanting something
+watched daily).
+
+Setup is given that rule and proposes via `surface="…"` on the directive; the
+card leads with the proposal, shows the other option beside it, and the user's
+tap decides. When Setup omits the attribute the card applies the same layout
+rule itself (`defaultHandoffSurface`), so the floor holds either way. Every
+earlier card already reports its pick back as a hidden `[setup] …` turn, so
+the layout and connector choices are in Setup's context well before the fork.
+
+One value then drives everything downstream:
 
 | | `bot` | `session` |
 |---|---|---|

@@ -81,10 +81,15 @@ export function AccentSwatch({
 // the layout editor's thumbnail language, upscaled.
 export type MiniNode = number | { dir: 'column' | 'row'; children: MiniNode[]; weights: number[] }
 
+/** The power-user layout. Picking it is the most explicit thing a user does
+ *  in the whole first run to say how they work, so it also decides where
+ *  their first build lands (see `defaultHandoffSurface`). */
+export const ELITE_LAYOUT_ID = 'terminal-deck'
+
 export const LAYOUTS: Array<{ id: string; name: string; tree: MiniNode }> = [
   { id: 'basic', name: 'Basic', tree: { children: [1, 1], dir: 'row', weights: [1, 4.6] } },
   {
-    id: 'terminal-deck',
+    id: ELITE_LAYOUT_ID,
     name: 'Elite',
     tree: {
       children: [{ children: [1, 1, 1], dir: 'row', weights: [1, 3.2, 1.2] }, 1],

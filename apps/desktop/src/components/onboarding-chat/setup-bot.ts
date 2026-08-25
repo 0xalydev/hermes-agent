@@ -20,6 +20,7 @@
 import { atom } from 'nanostores'
 
 import type { GatewayRequest } from '@/app/session/hooks/use-prompt-actions/utils'
+import { ELITE_LAYOUT_ID } from '@/components/onboarding-wizard/options'
 import { readKey, writeKey } from '@/lib/storage'
 import type { WizardAnswers } from '@/store/onboarding-wizard'
 
@@ -59,6 +60,15 @@ export function parseHandoffSurface(raw: string | undefined): HandoffSurface | n
   const value = (raw ?? '').trim().toLowerCase()
 
   return value === 'bot' || value === 'session' ? value : null
+}
+
+/** The layout pick decides the surface: Elite is a deliberate tap on a
+ *  terminal deck — the clearest "I work in sessions" a user gives us, and a
+ *  harder signal than reading developer-ness out of how they phrase things.
+ *  Setup is told the same rule, so this is both the fallback when it omits
+ *  the attr and the floor its proposal is measured against. */
+export function defaultHandoffSurface(layout: string): HandoffSurface {
+  return layout === ELITE_LAYOUT_ID ? 'session' : 'bot'
 }
 
 /** The handoff beacon: HandoffCard raises it, the wiring effect performs it.

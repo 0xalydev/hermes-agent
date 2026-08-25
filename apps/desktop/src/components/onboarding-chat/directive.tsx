@@ -22,6 +22,7 @@ import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '
 import { rememberOnboardingSubmit } from '@/components/onboarding-chat/retry'
 import {
   $setupHandoff,
+  defaultHandoffSurface,
   type HandoffSurface,
   hasCompletedSetupHandoff,
   parseHandoffSurface,
@@ -415,6 +416,7 @@ const HANDOFF_SURFACE_LABELS: Record<HandoffSurface, string> = {
 function HandoffCard({ attrs, locked = false }: CardProps & { attrs: Record<string, string> }) {
   const task = (attrs.task ?? '').trim().slice(0, 60)
   const brief = (attrs.brief ?? '').trim().slice(0, 240)
+  const answers = useStore($wizardAnswers)
   const state = useStore($setupHandoff)
 
   if (!task || !brief) {
@@ -428,8 +430,9 @@ function HandoffCard({ attrs, locked = false }: CardProps & { attrs: Record<stri
   // Unanswered: the user hasn't chosen yet and nothing has run. A locked
   // (replayed) transcript never re-asks — it falls through to the narration.
   if (!state && !settled && !locked) {
-    // Setup's read of the conversation leads; 'bot' when it didn't say.
-    const suggested = parseHandoffSurface(attrs.surface) ?? 'bot'
+    // Setup's proposal leads; when it omits the attr the layout pick — the
+    // same rule Setup was given — answers instead.
+    const suggested = parseHandoffSurface(attrs.surface) ?? defaultHandoffSurface(answers.layout)
     const order: HandoffSurface[] = suggested === 'session' ? ['session', 'bot'] : ['bot', 'session']
 
     return (
