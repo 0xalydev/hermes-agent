@@ -10,7 +10,8 @@ Bot mode's twist on the first-build flow: the guided chat is not an anonymous
 session. It is the canonical **Bot Chat of a persistent `hermes-setup`
 profile** ("Setup" in the agents roster). Setup runs the same beats as before,
 but it does not build the task itself — once the task is decided it hands off
-to a **new bot minted around that task**, and stays alive as training wheels:
+to a **new bot minted around that task, or to a plain session** (the user's
+call — see "The surface fork"), and stays alive as training wheels:
 it hears how the handoff went, schedules its own check-in crons, and offers
 the next step when there is a genuinely useful one.
 
@@ -160,7 +161,7 @@ the next step when there is a genuinely useful one.
 | `connectors` | — | connector chips | stored, hidden `[setup]` report |
 | `layout` | — | layout previews | assembles the app live, hidden `[setup]` report |
 | `first` | `options="A\|B\|C"` | generated chips | **visible user turn** — decides the task |
-| `handoff` | `task="…" brief="…"` | one-line status (spinning up → built) | none — raises the handoff beacon on settle; the wiring mints + switches |
+| `handoff` | `task="…" brief="…" surface="bot\|session"` | the surface choice, then a one-line status (spinning up → built) | the pick raises the handoff beacon; the wiring mints (or doesn't) + switches |
 | `progress` | `title="…"` | live build card (task bot's chat) | read-only; updates as the work streams |
 
 Plus the general-purpose `::ask{question="…" options="A|B|C" input="true"}`
@@ -179,10 +180,37 @@ lose to the UNIQUE index and fall to the auto-titler.
 
 The first-run frame: floating panes (user/plugin panels) stay hidden while
 solo AND while the active session is any onboarding thread (Setup's chat,
-then the first build); the composer's git strip is dropped on those threads
-too. At assembly the sidebar fronts the BOTS tab — the Sessions list is
-empty at that moment (both chats are hidden bot canonicals), so the roster
-is the first face of the nav.
+then a bot-surface first build); the composer's git strip is dropped on those
+threads too. At assembly the sidebar fronts the BOTS tab — the Sessions list
+is empty at that moment (Setup's chat is a hidden bot canonical), so the
+roster is the first face of the nav.
+
+## The surface fork
+
+Not every first task wants to be a bot. A bot is a **standing relationship** —
+its own profile, its own canonical chat, able to check in later; a session is
+**a discrete piece of work** in the normal app. Developers overwhelmingly want
+the second, and landing them in a roster with no sessions and no project
+machinery reads as a downgrade.
+
+So the handoff asks. Setup proposes via `surface="…"` on the directive (bot for
+ongoing responsibilities, session for work they'll finish or when they've
+talked like a developer), the card leads with that proposal and shows the other
+option beside it, and the user's tap decides. One value then drives everything
+downstream:
+
+| | `bot` | `session` |
+|---|---|---|
+| profile | minted per task | none — the user's `default` |
+| chat row | hidden, titled `Bot Chat` | visible, titled after the task |
+| roster meta | stamped (look + canonical pin) | none |
+| first-run frame | keeps it (no git strip, no panels) | normal app, everything back |
+| sidebar | stays on BOTS | fronts SESSIONS |
+
+The task side is told which it is (its runbook opens as "a brand-new agent" or
+"this session"), and Setup's check-in note points at wherever the build landed.
+Everything else — the no-auth rule, the permissions note, the progress cards,
+Setup's cron — is identical across both.
 
 Also in the tree from the same lineage (dormant in bot mode, used by the
 login-mode dashboard flow): the generative first-screen system —
