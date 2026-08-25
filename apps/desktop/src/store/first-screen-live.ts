@@ -180,10 +180,15 @@ export function openSketchPane(): void {
       return
     }
 
-    const [{ registry }, { dockPaneBeside, revealTreePane }] = await Promise.all([
+    const [{ registry }, { dockPaneBeside, revealTreePane }, loader] = await Promise.all([
       import('@/contrib/registry'),
-      import('@/components/pane-shell/tree/store')
+      import('@/components/pane-shell/tree/store'),
+      import('@/contrib/runtime-loader')
     ])
+
+    // Don't wait for the disk watcher's scan tick (up to ~5s): rescan NOW so
+    // the sketch pane appears the moment the guide mentions it.
+    await loader.discoverRuntimePlugins().catch(() => undefined)
 
     const deadline = Date.now() + 15_000
 

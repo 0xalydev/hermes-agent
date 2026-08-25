@@ -407,10 +407,15 @@ function FirstScreenCard({ locked = false }: CardProps) {
       // a run where the sketch never opened needs the grow+dock; otherwise a
       // reveal is enough — growing again would widen the window twice.
       void (async () => {
-        const [{ registry }, { dockPaneBeside, revealTreePane }] = await Promise.all([
+        const [{ registry }, { dockPaneBeside, revealTreePane }, loader] = await Promise.all([
           import('@/contrib/registry'),
-          import('@/components/pane-shell/tree/store')
+          import('@/components/pane-shell/tree/store'),
+          import('@/contrib/runtime-loader')
         ])
+
+        // Skip the disk watcher's tick — rescan now so the pane docks the
+        // moment the build lands.
+        await loader.discoverRuntimePlugins().catch(() => undefined)
 
         const deadline = Date.now() + 15_000
 
