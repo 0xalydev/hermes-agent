@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { atom } from 'nanostores'
+
 import { allPaneIds, group, split } from '@/components/pane-shell/tree/model'
 import {
   $dismissedPanes,
   $layoutTree,
   $paneVisible,
-  adoptContributedPanes
+  adoptContributedPanes,
+  bindToolPaneCollapse
 } from '@/components/pane-shell/tree/store'
 import { registry } from '@/contrib/registry'
 
-import { assembleChatOnboarding } from './assembly'
+import { $chatOnboardingSolo, assembleChatOnboarding } from './assembly'
 
 vi.mock('@/store/first-screen-live', () => ({ redockLivePane: vi.fn() }))
 vi.mock('@/store/zoom', () => ({ setZoomPercent: vi.fn() }))
@@ -29,6 +32,8 @@ function registerPane(id: string, data: Record<string, unknown>) {
 beforeEach(() => {
   window.localStorage.clear()
   $dismissedPanes.set(new Set())
+  // The state a layout card is clicked in: the guided chat, still solo.
+  $chatOnboardingSolo.set(true)
 
   for (const dispose of disposers.splice(0)) {
     dispose()
@@ -88,5 +93,45 @@ describe('onboarding assembly dismisses panes it never asked for', () => {
 
     expect(placed).toContain('workspace')
     expect(placed).toContain('sessions')
+  })
+})
+
+// Layouts are re-pickable from the card, and everything assembly writes
+// persists — dismissals most of all. A re-pick that only swapped the preset
+// tree inherited the previous layout's records, so the two came up mixed:
+// Elite's terminal was placed and invisible because Basic had dismissed it.
+describe('picking a different layout replaces the previous one', () => {
+  const elite = () => split('row', [group(['sessions']), split('column', [group(['workspace']), group(['terminal'])])])
+
+  beforeEach(() => {
+    registerPane('terminal', { collapsible: true, placement: 'bottom' })
+
+    // Through the real binding, or the pane isn't a collapse pane and the
+    // sweep has no reason to touch it — the test would prove nothing.
+    const $open = atom(true)
+
+    bindToolPaneCollapse(
+      'terminal',
+      $open,
+      () => $open.set(false),
+      () => $open.set(true)
+    )
+  })
+
+  it('brings back a pane the previous layout dismissed', () => {
+    assembleChatOnboarding('basic', basic())
+    expect($dismissedPanes.get().has('terminal'), 'Basic should have dismissed it').toBe(true)
+
+    assembleChatOnboarding('terminal-deck', elite())
+
+    expect($dismissedPanes.get().has('terminal')).toBe(false)
+    expect(allPaneIds($layoutTree.get()!)).toContain('terminal')
+  })
+
+  it('drops it again on the way back', () => {
+    assembleChatOnboarding('terminal-deck', elite())
+    assembleChatOnboarding('basic', basic())
+
+    expect(allPaneIds($layoutTree.get()!)).not.toContain('terminal')
   })
 })

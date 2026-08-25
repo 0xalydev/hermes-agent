@@ -18,7 +18,7 @@ import { atom } from 'nanostores'
 import { useEffect, useState } from 'react'
 
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
-import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '@/components/onboarding-chat/assembly'
+import { $chatLayoutPicked, assembleChatOnboarding } from '@/components/onboarding-chat/assembly'
 import { rememberOnboardingSubmit } from '@/components/onboarding-chat/retry'
 import {
   $setupHandoff,
@@ -39,7 +39,6 @@ import {
   NOUS_ACCENT
 } from '@/components/onboarding-wizard/options'
 import type { LayoutNode } from '@/components/pane-shell/tree/model'
-import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import { Button } from '@/components/ui/button'
 import { ConnectorLogo } from '@/components/ui/connector-logo'
 import { Chip } from '@/components/wizard-shell'
@@ -301,13 +300,12 @@ function LayoutCard({ locked = false }: CardProps) {
       return
     }
 
-    if ($chatOnboardingSolo.get()) {
-      // First pick from solo: grow the window outward and lego the panes in,
-      // keeping the chat (and the cursor over this card) pixel-fixed.
-      assembleChatOnboarding(preset.id, preset.data as LayoutNode)
-    } else {
-      applyLayoutPreset(preset.id, preset.data as LayoutNode)
-    }
+    // Every pick goes through assembly, including re-picks. The first grows
+    // the window and legos the panes in, keeping the chat (and the cursor over
+    // this card) pixel-fixed; later ones re-arrange in place. Swapping just the
+    // preset tree on a re-pick left the previous layout's dismissals and dock
+    // records in force, and the two layouts came up mixed together.
+    assembleChatOnboarding(preset.id, preset.data as LayoutNode)
 
     // Assembly dismisses panes the preset doesn't declare — the living
     // screen must survive the rearrangement and stay beside the chat.

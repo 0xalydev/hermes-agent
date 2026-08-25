@@ -26,7 +26,8 @@ import {
   dismissTreePane,
   isCollapsePane,
   resetEnforcedDocks,
-  setActiveTreePane
+  setActiveTreePane,
+  undismissTreePanes
 } from '@/components/pane-shell/tree/store'
 import { registry } from '@/contrib/registry'
 import { redockLivePane } from '@/store/first-screen-live'
@@ -143,17 +144,17 @@ const LAYOUT_GROWTH: Record<string, { bottom?: number; left?: number; right?: nu
   'terminal-deck': { bottom: 200, left: 220, right: 240 }
 }
 
-/** Assemble the picked layout around the conversation (see module header). */
-export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
-  const growth = LAYOUT_GROWTH[id] ?? { left: 220 }
-
-  window.hermesDesktop?.chatOnboarding?.grow({
-    bottom: (growth.bottom ?? 0) + (statusbarWasVisible ? STATUSBAR_PX : 0),
-    left: growth.left ?? 0,
-    right: growth.right ?? 0,
-    top: growth.top ?? 0
-  })
-
+/**
+ * Put the tree in the state this layout describes — on the first pick AND on
+ * every re-pick.
+ *
+ * All of it has to re-run, because all of it persists: dismissals, dock
+ * enforcement, the sidebar's open state. A re-pick that only swapped the
+ * preset tree inherited the previous layout's records and came up as a mix of
+ * the two (Elite after Basic kept Basic's terminal dismissal, so Elite's
+ * terminal was placed and invisible).
+ */
+function reconcileLayout(id: string, tree: LayoutNode, frontRoster: boolean): void {
   assembleStamp = Date.now()
   assembleOrder = 0
   applyLayoutPreset(id, tree)
@@ -173,6 +174,12 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
   // placed yet still gets its dismissal recorded, and adoption skips dismissed
   // panes — so this holds whether the pane arrives before or after the sweep.
   const declared = new Set(allPaneIds(tree))
+
+  // Layouts are re-pickable, and a dismissal outlives the pick that caused it.
+  // Basic dismisses the terminal; choosing Elite afterwards put the terminal
+  // back in the tree still dismissed, so Elite came up as a half-applied mix of
+  // both. Whatever THIS layout declares is wanted, so clear its records first.
+  undismissTreePanes(declared)
 
   const dismissUndeclared = () => {
     const registered = registry.getArea('panes')
@@ -205,14 +212,15 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
   // First-run sidebar payoff: the user's only conversations at this moment
   // are bot canonicals (Setup + soon their task bot), which the Sessions
   // list hides — so its tab would front as an EMPTY pane. Front the roster
-  // instead: the sidebar's first face is their agents. One-shot at assembly;
-  // any later tab click or drag wins. No-op if the bots plugin is absent.
+  // instead: the sidebar's first face is their agents. FIRST pick only; a
+  // re-pick must not yank the sidebar back off a tab the user chose since.
+  // No-op if the bots plugin is absent.
   //
   // Strictly a SIDEBAR payoff: if the dock above didn't take, Bots is still
   // stacked with the chat, and fronting it there would bury the conversation
   // the user is mid-sentence in. Never front a pane over the chat.
   const assembled = $layoutTree.get()
-  const botsGroup = assembled ? findGroupOfPane(assembled, BOTS_PANE_ID) : null
+  const botsGroup = frontRoster && assembled ? findGroupOfPane(assembled, BOTS_PANE_ID) : null
 
   if (botsGroup && !botsGroup.panes.includes('workspace')) {
     setActiveTreePane(BOTS_PANE_ID)
@@ -224,6 +232,32 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
   // that point swept a tree the fronting had not happened in yet, and Basic
   // still landed with an empty Cronjobs column beside the chat.
   dismissUndeclared()
+}
+
+/**
+ * A layout pick, from the chat card. The FIRST one also performs the solo→app
+ * transition (see module header); later picks re-arrange the app that is
+ * already there.
+ *
+ * The window is grown once, on that first pick. `grow` moves the edges OUTWARD
+ * by a delta, so re-growing per pick would ratchet the window bigger every
+ * time the user toggled between two layouts.
+ */
+export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
+  const firstPick = $chatOnboardingSolo.get()
+
+  if (firstPick) {
+    const growth = LAYOUT_GROWTH[id] ?? { left: 220 }
+
+    window.hermesDesktop?.chatOnboarding?.grow({
+      bottom: (growth.bottom ?? 0) + (statusbarWasVisible ? STATUSBAR_PX : 0),
+      left: growth.left ?? 0,
+      right: growth.right ?? 0,
+      top: growth.top ?? 0
+    })
+  }
+
+  reconcileLayout(id, tree, firstPick)
 
   if (statusbarWasVisible) {
     $statusbarVisible.set(true)
