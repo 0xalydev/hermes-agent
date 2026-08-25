@@ -4101,6 +4101,7 @@ def _block(
         "window.read.request",
         "mcp.setup.request",
         "tour.request",
+        "workflow.request",
     }:
         _emit(
             f"{event.removesuffix('.request')}.expire",
@@ -7008,6 +7009,18 @@ def _agent_cbs(sid: str) -> dict:
         # preview pane's webview — and answers tour.respond with the outcome
         # (did the selector match, which step is active).
         "tour_callback": lambda payload: _tour_request(sid, payload),
+        # workflow tool (desktop GUI): the Workflows plugin owns the node graph
+        # the user is editing, so a read or an edit is a round-trip to the
+        # renderer, which applies the ops through the same dispatcher the
+        # canvas and inspector use and answers workflow.respond. Graph ops are
+        # in-memory and immediate; the budget covers a busy renderer and a
+        # batch big enough to author a whole scenario, not any real work.
+        "workflow_callback": lambda payload: _block(
+            "workflow.request",
+            sid,
+            dict(payload),
+            timeout=30,
+        ),
     }
 
     # Interim assistant commentary (text alongside tool calls, or the attempted
