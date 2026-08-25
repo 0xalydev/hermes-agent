@@ -334,6 +334,10 @@ declare global {
       // resolved by Electron independently of the connected backend (#66899).
       // Created on demand; returns the normalized absolute path.
       desktopPluginsRoot?: () => Promise<string>
+      // Create one DIRECT child dir under the desktop-plugins root (onboarding's
+      // first-screen config folder). Scoped by name, never a full path.
+      mkdirDesktopPlugin?: (name: string) => Promise<{ ok: boolean; error?: string; path: string }>
+      materializeSkill?: (name: string, content: string) => Promise<{ ok: boolean; error?: string; path: string }>
       // Local AGENT-plugin root (<HERMES_HOME>/plugins), same Electron-local
       // resolution. The disk door also scans it for `<name>/desktop/plugin.js`
       // so one agent-plugin package can ship a desktop UI half. Optional:

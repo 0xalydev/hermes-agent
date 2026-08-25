@@ -11672,6 +11672,7 @@ function showMainAfterOnboarding() {
   const timer = setInterval(() => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       clearInterval(timer)
+
       return
     }
 
@@ -11812,17 +11813,21 @@ ipcMain.on('hermes:onboarding-wizard:done', (_event, payload) => {
 
 
 // In-chat onboarding assembly: grow the main window OUTWARD by per-edge pixel
-// deltas — the minimum the picked layout needs — so the chat stays roughly
-// put while the app assembles around it. Animated on macOS (setBounds's
-// native glide); the arriving panes run their own entrance animation on top.
-// Clamped into the display's work area; the clamp shifts position only when
-// the grown frame would leave the screen.
+// deltas — the minimum the picked layout needs. The grown frame then GENTLY
+// RE-CENTERS in the display's work area (one animated setBounds: macOS's
+// native glide), so repeated growth (panes right, sidebar left) never leaves
+// the app pinned off-center or kissing a screen edge. Growth is clamped to
+// 92% of the work area so the window always keeps breathing room.
 ipcMain.on('hermes:chat-onboarding:grow', (event, deltas) => {
   if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
     return
   }
 
-  const clampDelta = value => Math.max(0, Math.min(4000, Math.round(Number(value) || 0)))
+  // Renderers ask in CSS pixels; the window lives in physical (DIP) pixels.
+  // At first-run zoom (118%) an unscaled 380px pane request would arrive
+  // ~15% short and squeeze the chat. Convert here, at the single funnel.
+  const zoom = event.sender.getZoomFactor() || 1
+  const clampDelta = value => Math.max(0, Math.min(4000, Math.round((Number(value) || 0) * zoom)))
   const left = clampDelta(deltas?.left)
   const top = clampDelta(deltas?.top)
   const right = clampDelta(deltas?.right)
@@ -11830,10 +11835,12 @@ ipcMain.on('hermes:chat-onboarding:grow', (event, deltas) => {
   const b = mainWindow.getBounds()
   const area = screen.getDisplayMatching(b).workArea
 
-  const width = Math.min(b.width + left + right, area.width)
-  const height = Math.min(b.height + top + bottom, area.height)
-  const x = Math.max(area.x, Math.min(b.x - left, area.x + area.width - width))
-  const y = Math.max(area.y, Math.min(b.y - top, area.y + area.height - height))
+  const maxWidth = Math.round(area.width * 0.92)
+  const maxHeight = Math.round(area.height * 0.92)
+  const width = Math.min(b.width + left + right, maxWidth)
+  const height = Math.min(b.height + top + bottom, maxHeight)
+  const x = Math.round(area.x + (area.width - width) / 2)
+  const y = Math.round(area.y + (area.height - height) / 2)
 
   mainWindow.setBounds({ height, width, x, y }, true)
 })

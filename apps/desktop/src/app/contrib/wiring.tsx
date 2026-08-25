@@ -24,7 +24,7 @@ import { GatewayConnectingOverlay } from '@/components/gateway-connecting-overla
 import { IntroRevealGate } from '@/components/intro-reveal'
 import { NotificationStack } from '@/components/notifications'
 import { DesktopOnboardingOverlay } from '@/components/onboarding'
-import { $chatOnboardingThreadIds, startChatOnboardingSolo } from '@/components/onboarding-chat/assembly'
+import { $chatOnboardingThreadIds, pickOnboardingGreeting, startChatOnboardingSolo } from '@/components/onboarding-chat/assembly'
 import {
   $setupBotSession,
   $setupHandoff,
@@ -41,6 +41,7 @@ import {
   TASK_BOT_LOOK,
   taskBotTitle
 } from '@/components/onboarding-chat/setup-bot'
+import { OnboardingSkip } from '@/components/onboarding-chat/skip'
 import { OnboardingWizardGate } from '@/components/onboarding-wizard'
 import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
@@ -57,16 +58,15 @@ import { $desktopBoot } from '@/store/boot'
 import { requestVoiceConversationStart } from '@/store/composer'
 import { $activeConnectionId } from '@/store/connections'
 import { $cronReviewRequest, setCronFocusJobId } from '@/store/cron'
+import { requestGatewayForProfile } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, restoreWorktree, unpinSession } from '@/store/layout'
 import {
   $wizardAnswers,
   buildChatOnboardingSeedMessages,
   buildKickoffPrompt,
-  CHAT_ONBOARDING_GREETING,
   markGuideKickoffStarted
 } from '@/store/onboarding-wizard'
 import { $previewTarget } from '@/store/preview'
-import { requestGatewayForProfile } from '@/store/gateway'
 import {
   $activeGatewayProfile,
   $freshSessionRequest,
@@ -626,12 +626,15 @@ export function ContribWiring({ children }: { children: ReactNode }) {
   const kickoffFirstChat = useCallback(
     (kind: 'greet' | 'guide' = 'greet') => {
       if (kind === 'guide') {
+        // The opening line is PRE-BANKED and on screen before anything else
+        // happens — picked synchronously so the thread's first paint has it.
+        pickOnboardingGreeting()
         // Solo mode: chat-only layout, no statusbar — the app assembles
         // around the conversation when the layout card is answered.
         startChatOnboardingSolo()
       }
       void (async () => {
-        const seedMessages = kind === 'guide' ? buildChatOnboardingSeedMessages() : undefined
+        const seedMessages = kind === 'guide' ? buildChatOnboardingSeedMessages(pickOnboardingGreeting()) : undefined
         let asSetupBot = kind === 'guide' ? await ensureSetupBotProfile(requestGateway) : false
 
         console.log('[setup-bot] kickoff', { asSetupBot, kind })
@@ -690,22 +693,65 @@ export function ContribWiring({ children }: { children: ReactNode }) {
             })
           }
 
-          // Paint the pre-written greeting into the local view NOW — the
-          // seed rows live server-side; the optimistic row makes the first
-          // frame instant. Hydration on any later resume yields the same row.
-          setMessages(current => [
-            ...current,
-            {
-              id: `onboarding-greeting-${runtimeId}`,
-              parts: [{ text: CHAT_ONBOARDING_GREETING, type: 'text' }],
-              role: 'assistant',
-              timestamp: Date.now() / 1000
-            }
-          ])
+          // Name the thread NOW, explicitly: the runbook is persisted as a
+          // (hidden) user message, and the backend's auto-titler happily
+          // derives a title from it (or from the user's first words — a live
+          // run's tab read "call me BK"). A manual title holds highest
+          // authority (set_session_title), so the titler never reconsiders —
+          // and 'Bot Chat' IS the canonical-registry name the bot roster
+          // resolves the forever-chat by.
+          await requestGateway('session.title', {
+            session_id: runtimeId,
+            title: asSetupBot ? 'Bot Chat' : 'Welcome to Hermes'
+          }).catch(() => undefined)
 
+          // Pin the guided turns to the fast lane: DeepSeek v4 flash at
+          // MINIMAL reasoning. Not 'none': with the reasoning channel fully
+          // closed the model plans in VISIBLE prose instead (live runs: walls
+          // of "Let me re-read the steps…" narration). Minimal gives that
+          // planning a hidden home while staying near-instant. Session pin
+          // first (takes effect this turn), then the persist — scoped to the
+          // ACTIVE backend, which in bot mode is the hermes-setup profile, so
+          // Setup stays on the cheap lane forever without touching the user's
+          // real default.
+          // confirm_expensive_model=true: with no agent built yet the switch
+          // otherwise returns confirm_required (selection warning) instead of
+          // switching — the exact silent-miss that left a live run on the
+          // slow default. Best-effort: a real refusal leaves the profile
+          // default, which still works.
+          await requestGateway('config.set', {
+            confirm_expensive_model: true,
+            key: 'model',
+            session_id: runtimeId,
+            value: 'deepseek/deepseek-v4-flash-0731 --provider nous --session'
+          }).catch(() => undefined)
+          await requestGateway('config.set', {
+            key: 'reasoning',
+            session_id: runtimeId,
+            value: 'minimal'
+          }).catch(() => undefined)
+          await requestGateway('config.set', {
+            confirm_expensive_model: true,
+            key: 'model',
+            session_id: runtimeId,
+            value: 'deepseek/deepseek-v4-flash-0731 --provider nous --global'
+          }).catch(() => undefined)
+          await requestGateway('config.set', {
+            key: 'reasoning',
+            scope: 'global',
+            session_id: runtimeId,
+            value: 'minimal'
+          }).catch(() => undefined)
+
+          // No kickoff prompt.submit: the runbook and the greeting are seeded
+          // rows, and the greeting the user watches type itself in is the
+          // banked line (thread list) — the model's first real turn is its
+          // reply to the user's name.
           return
         }
 
+        // 'greet' only from here: guide returned above (its opening is
+        // seeded, not prompted).
         setAwaitingResponse(true)
         setBusy(true)
 
@@ -1329,6 +1375,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
       {!isAuxiliaryWindow() && <DesktopInstallOverlay />}
       {!isAuxiliaryWindow() && <IntroRevealGate enabled={gatewayState === 'open'} />}
       {!isAuxiliaryWindow() && <OnboardingWizardGate enabled={gatewayState === 'open'} onKickoff={kickoffFirstChat} />}
+      {!isAuxiliaryWindow() && <OnboardingSkip />}
       {!isAuxiliaryWindow() && (
         <DesktopOnboardingOverlay
           enabled={gatewayState === 'open'}

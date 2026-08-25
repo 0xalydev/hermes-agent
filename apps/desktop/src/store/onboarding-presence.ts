@@ -12,7 +12,7 @@
 
 import { atom } from 'nanostores'
 
-export type OnboardingSurface = 'intro' | 'solo-chat' | 'wizard'
+export type OnboardingSurface = 'first-screen' | 'intro' | 'solo-chat' | 'wizard'
 
 const EMPTY: ReadonlySet<OnboardingSurface> = new Set()
 

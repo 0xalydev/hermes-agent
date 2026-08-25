@@ -14,10 +14,12 @@
  */
 
 import { useStore } from '@nanostores/react'
+import { atom } from 'nanostores'
 import { useEffect, useState } from 'react'
 
 import { requestComposerSubmit } from '@/app/chat/composer/focus'
 import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '@/components/onboarding-chat/assembly'
+import { rememberOnboardingSubmit } from '@/components/onboarding-chat/retry'
 import {
   $setupHandoff,
   hasCompletedSetupHandoff,
@@ -40,27 +42,68 @@ import { ConnectorLogo } from '@/components/ui/connector-logo'
 import { Chip } from '@/components/wizard-shell'
 import { registry } from '@/contrib/registry'
 import { cn } from '@/lib/utils'
+import {
+  $droppedModuleIds,
+  $livePaneOpen,
+  $moduleCandidates,
+  $speculativeFill,
+  advanceSketch,
+  compileLiveScreen,
+  generateModuleCandidates,
+  openSketchPane,
+  redockLivePane,
+  stopSpeculativeWrites
+} from '@/store/first-screen-live'
+import {
+  compileFirstScreen,
+  materializeFirstScreen
+} from '@/store/onboarding-first-screen'
 import { $wizardAnswers, setWizardAnswers } from '@/store/onboarding-wizard'
 import { useTheme } from '@/themes'
 import { setAccentOverride } from '@/themes/accent-override'
 
-type ChatStep = 'connectors' | 'first' | 'focus' | 'handoff' | 'layout' | 'look' | 'progress'
+type ChatStep =
+  | 'connectors'
+  | 'context'
+  | 'first'
+  | 'first-screen'
+  | 'focus'
+  | 'handoff'
+  | 'layout'
+  | 'look'
+  | 'name'
+  | 'progress'
+  | 'ready'
 
 function isChatStep(value: string | undefined): value is ChatStep {
   return (
     value === 'focus' ||
     value === 'connectors' ||
+    value === 'context' ||
     value === 'look' ||
     value === 'layout' ||
     value === 'first' ||
+    value === 'first-screen' ||
     value === 'handoff' ||
-    value === 'progress'
+    value === 'name' ||
+    value === 'progress' ||
+    value === 'ready'
   )
 }
 
-/** Report a pick and let the model move on — hidden, so no user bubble. */
+/** Report a pick and let the model move on — hidden, so no user bubble.
+ *  Remembered for the quiet single retry (see retry.ts): if the turn dies
+ *  before delivering anything, the report replays once instead of a red
+ *  HTTP row interrupting the setup. */
 function report(summary: string): boolean {
-  return requestComposerSubmit(`[setup] ${summary}`, { displayKind: 'hidden' })
+  const text = `[setup] ${summary}`
+  const sent = requestComposerSubmit(text, { displayKind: 'hidden' })
+
+  if (sent) {
+    rememberOnboardingSubmit(text)
+  }
+
+  return sent
 }
 
 type CardProps = {
@@ -85,11 +128,23 @@ function CardFrame({
   onContinue: () => void
 }) {
   return (
-    <div className="my-3 grid max-w-md gap-4" data-onboarding-card inert={locked || undefined}>
+    <div
+      className={cn(
+        'my-3 grid w-full min-w-0 max-w-md gap-4 duration-300 animate-in fade-in-0 slide-in-from-bottom-2',
+        done && 'opacity-75 transition-opacity duration-500'
+      )}
+      data-onboarding-card
+      inert={locked || undefined}
+    >
       {children}
       <div className="flex justify-start">
-        <Button disabled={done || disabled || locked} onClick={onContinue} size="sm">
-          {done ? 'Done' : 'Continue'}
+        <Button
+          className={cn(done && 'scale-95 transition-transform duration-200')}
+          disabled={done || disabled || locked}
+          onClick={onContinue}
+          size="sm"
+        >
+          {done ? '✓ Done' : 'Continue'}
         </Button>
       </div>
     </div>
@@ -105,8 +160,16 @@ function FocusCard({ locked = false }: CardProps) {
       done={done}
       locked={locked}
       onContinue={() => {
-        if (report(`they want help with: ${answers.focus.length > 0 ? answers.focus.join(', ') : 'no picks — keep it open'}`)) {
+        if (
+          report(
+            `they want help with: ${answers.focus.length > 0 ? answers.focus.join(', ') : 'no picks — keep it open'}`
+          )
+        ) {
           setDone(true)
+          // The living screen opens HERE — the earliest personal moment.
+          // A wireframe sketch docks beside the chat and every answer from
+          // now on repaints it (see first-screen-live.ts).
+          openSketchPane()
         }
       }}
     >
@@ -242,6 +305,10 @@ function LayoutCard({ locked = false }: CardProps) {
     } else {
       applyLayoutPreset(preset.id, preset.data as LayoutNode)
     }
+
+    // Assembly dismisses panes the preset doesn't declare — the living
+    // screen must survive the rearrangement and stay beside the chat.
+    redockLivePane()
   }
 
   return (
@@ -426,11 +493,239 @@ function ProgressCard({ attrs, locked = false }: CardProps & { attrs: Record<str
   )
 }
 
+/** Built receipt, shared across every mount of the card: transcript
+ *  virtualization remounts directives with fresh local state, which would
+ *  resurrect the keep/drop picker after the build. An atom survives that. */
+const $firstScreenBuiltConfig = atom<null | ReturnType<typeof compileFirstScreen>>(null)
+
+/** The invisible data steps (name/context) mutate stores — that is an
+ *  EFFECT, not a render fact. Doing it inline in the directive's render
+ *  triggered React's cross-component setState warning and re-entrant
+ *  renders (live desktop.log). */
+function DataDirective({ step, value }: { step: 'context' | 'name'; value: string }) {
+  useEffect(() => {
+    if (!value || $wizardAnswers.get()[step] === value) {
+      return
+    }
+
+    setWizardAnswers({ [step]: value })
+
+    // The screen evolves with the conversation: a fresh name retitles the
+    // sketch; the context answer is the big one — it fires the module
+    // generation (their screen, from their words) and the pane advances to
+    // proposals the moment candidates land.
+    advanceSketch()
+
+    if (step === 'context') {
+      generateModuleCandidates()
+    }
+  }, [step, value])
+
+  return null
+}
+
+function FirstScreenCard({ locked = false }: CardProps) {
+  const answers = useStore($wizardAnswers)
+  const [building, setBuilding] = useState(false)
+  const built = useStore($firstScreenBuiltConfig)
+  const profile = { context: answers.context, focus: answers.focus, name: answers.name }
+  // The generated modules — THEIR screen's parts, from their own words. When
+  // generation produced candidates the card is keep/drop rows; when it
+  // failed (or hasn't landed) the kind tiles carry the fallback.
+  const candidates = useStore($moduleCandidates)
+  const dropped = useStore($droppedModuleIds)
+  const keptCount = candidates ? candidates.length - dropped.length : 0
+  // This card now appears right after the context answer, so generation is
+  // usually still in flight for its first seconds: show an honest designing
+  // state, and degrade to the template confirm only if generation never
+  // lands (grace expires).
+  const [waitedOut, setWaitedOut] = useState(false)
+
+  useEffect(() => {
+    if (candidates) {
+      return
+    }
+
+    const grace = window.setTimeout(() => setWaitedOut(true), 45_000)
+
+    return () => window.clearTimeout(grace)
+  }, [candidates])
+
+  // Continue = build. The config compiles synchronously, then materializes
+  // (screen.json lands on disk) before the model is told — so when the chat
+  // says "it's built", the pane IS ALREADY OPEN beside the conversation —
+  // the app assembles itself around the user; nobody hunts for a button.
+  const build = () => {
+    if (building || (candidates !== null && keptCount === 0)) {
+      return
+    }
+
+    setBuilding(true)
+    // Build owns the file from here — the speculative writer stands down,
+    // and whatever it already wrote rides into the final file so the kept
+    // modules are usually ALREADY filled (the selectors were the fill's
+    // working time).
+    stopSpeculativeWrites()
+    const config = candidates ? compileLiveScreen('dashboard') : compileFirstScreen(profile, 'dashboard')
+
+    void materializeFirstScreen(config).then(result => {
+      // Population runs behind the reveal: a hidden fast-lane session fills
+      // every block with real content (feed items via live search, skeletons,
+      // steps) and rewrites screen.json — the pane's file watcher repaints it
+      // as the content lands, seconds after it opens. Fire-and-forget: any
+      // failure leaves the deterministic screen exactly as materialized.
+      if (result.ok) {
+        void import('@/store/first-screen-populate').then(({ populateFirstScreenArtifact }) =>
+          populateFirstScreenArtifact(config, $speculativeFill.get())
+        )
+      }
+
+      if (
+        !report(
+          `built their dashboard "${config.title}" with ${config.blocks.length} modules${candidates ? ' they hand-picked' : ''}${result.ok ? `, saved to ${result.path}` : ''}. It is open beside this chat and writes itself while you finish the remaining setup steps together — acknowledge briefly and move to the next step.`
+        )
+      ) {
+        setBuilding(false)
+
+        return
+      }
+      // The living pane is usually ALREADY open (since the focus step). Only
+      // a run where the sketch never opened needs the grow+dock; otherwise a
+      // reveal is enough — growing again would widen the window twice.
+      void (async () => {
+        const [{ registry }, { dockPaneBeside, revealTreePane }, loader] = await Promise.all([
+          import('@/contrib/registry'),
+          import('@/components/pane-shell/tree/store'),
+          import('@/contrib/runtime-loader')
+        ])
+
+        // Skip the disk watcher's tick — rescan now so the pane docks the
+        // moment the build lands.
+        await loader.discoverRuntimePlugins().catch(() => undefined)
+
+        const deadline = Date.now() + 15_000
+
+        while (Date.now() < deadline) {
+          if (registry.getArea('panes').some(c => c.id === 'first-screen:pane')) {
+            if (!$livePaneOpen.get()) {
+              window.hermesDesktop?.chatOnboarding?.grow({ bottom: 0, left: 0, right: 380, top: 0 })
+            }
+
+            dockPaneBeside('first-screen:pane', 'workspace')
+            revealTreePane('first-screen:pane')
+
+            return
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      })()
+
+      $firstScreenBuiltConfig.set(config)
+    })
+  }
+
+  if (built) {
+    // The real artifact is the PANE that just opened beside this chat — the
+    // transcript keeps only a quiet one-line receipt. Less in the session,
+    // more in the GUI: the app visibly assembled around the user.
+    return (
+      <div className="my-3 flex items-center gap-1.5 text-muted-foreground text-xs" data-onboarding-card>
+        <span aria-hidden>✓</span>
+        <span>
+          <strong className="font-medium text-foreground">{built.title}</strong> is open beside this chat and sits in
+          your sidebar as <strong className="font-medium">Onboarding Dashboard</strong>.
+        </span>
+      </div>
+    )
+  }
+
+  if (!candidates && !waitedOut) {
+    // Generation in flight — honest designing state with a live spinner.
+    // Continue stays away entirely; the card swaps to keep/drop rows the
+    // moment candidates land.
+    return (
+      <div className="my-3 flex items-center gap-2.5 text-[12px] text-muted-foreground" data-onboarding-card>
+        <span className="size-3.5 flex-none animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+        Designing your dashboard from what you told me…
+      </div>
+    )
+  }
+
+  if (candidates) {
+    // THEIR modules, generated from their own answers mid-conversation:
+    // keep/drop rows (the choosing IS the interaction) + arrangement chips.
+    return (
+      <CardFrame disabled={keptCount === 0} done={built !== null} locked={locked || building} onContinue={build}>
+        <div className="flex min-w-0 flex-col gap-1 overflow-hidden">
+          {candidates.map(module => {
+            const off = dropped.includes(module.id)
+
+            return (
+              <button
+                aria-pressed={!off}
+                className={cn(
+                  'flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-[8px] border px-3 py-2 text-left transition-colors',
+                  off ? 'border-transparent opacity-45 hover:opacity-70' : 'border-border bg-card hover:border-primary/40'
+                )}
+                key={module.id}
+                onClick={() => {
+                  $droppedModuleIds.set(off ? dropped.filter(id => id !== module.id) : [...dropped, module.id])
+                  // Mirror the pick into the pane immediately: the dropped
+                  // module grays out beside the chat as the box unchecks.
+                  advanceSketch()
+                }}
+                type="button"
+              >
+                <span
+                  className={cn(
+                    'grid size-4 flex-none place-items-center rounded-[4px] border text-[10px] leading-none',
+                    off ? 'border-muted-foreground/40 text-transparent' : 'border-primary bg-primary text-primary-foreground'
+                  )}
+                >
+                  ✓
+                </span>
+                <span className="min-w-0">
+                  <span className={cn('block truncate text-[13px] font-medium', off && 'line-through')}>
+                    {module.label}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">{module.prompt}</span>
+                </span>
+                <span className="ml-auto flex-none font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                  {module.kind}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </CardFrame>
+    )
+  }
+
+  return (
+    <CardFrame done={built !== null} locked={locked || building} onContinue={build}>
+      <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+        <span className="grid size-4 flex-none place-items-center rounded-[4px] border border-primary bg-primary text-[10px] leading-none text-primary-foreground">✓</span>
+        Your dashboard is drafted from what you told me. Press Continue and it opens beside this chat.
+      </div>
+    </CardFrame>
+  )
+}
+
 const CARDS: Record<Exclude<ChatStep, 'first' | 'handoff' | 'progress'>, (props: CardProps) => React.JSX.Element> = {
   connectors: ConnectorsCard,
+  // 'context' and 'first-screen' are handled inline in the wrapper below
+  // (data effect + card mount); these entries are never reached.
+  context: () => <></>,
+  'first-screen': () => <></>,
   focus: FocusCard,
   layout: LayoutCard,
-  look: LookCard
+  look: LookCard,
+  // 'name' renders nothing — it's the model handing the renderer the name it
+  // was told, so the artifact compiler personalizes for real (see the
+  // OnboardingChatDirective wrapper: the value lands before this lookup).
+  name: () => <></>,
+  ready: () => <></>
 }
 
 /** Cards that need the directive's raw attrs (the model-written payload). */
@@ -456,6 +751,30 @@ export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<st
   const step = attrs.step
 
   if (!isChatStep(step)) {
+    return null
+  }
+
+  // Data directives: the model hands the renderer what the user said — the
+  // name, and the one-line summary of what they're working on. Stored in an
+  // effect (never during render). The CONTEXT directive also mounts the
+  // dashboard keep/drop card right there: the card no longer depends on the
+  // model remembering to emit a second directive (a live run narrated the
+  // card without emitting it — the user was stranded with nothing to do).
+  if (step === 'name' || step === 'context') {
+    const value = (attrs.value ?? '').trim()
+
+    return (
+      <>
+        <DataDirective step={step} value={value} />
+        {step === 'context' ? <FirstScreenCard locked={streaming} /> : null}
+      </>
+    )
+  }
+
+  // Legacy/compat: an explicitly emitted first-screen directive renders
+  // nothing — the card already lives at the context directive. 'ready' is the
+  // model's invisible ack of the pre-banked greeting (kickoff step 1).
+  if (step === 'first-screen' || step === 'ready') {
     return null
   }
 

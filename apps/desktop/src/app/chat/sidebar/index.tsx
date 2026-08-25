@@ -333,7 +333,7 @@ export function ChatSidebar({
       navContributions.flatMap(c => {
         const data = c.data as Partial<SidebarNavContribution> | undefined
 
-        if (!data?.path?.startsWith('/') || !data.label) {
+        if (!data?.label || (!data.path?.startsWith('/') && !data.onClick)) {
           return []
         }
 
@@ -341,9 +341,11 @@ export function ChatSidebar({
 
         return [
           {
-            id: c.id,
-            label: data.label,
             icon: (props: { className?: string }) => <Codicon name={codicon} {...props} />,
+            id: c.id,
+            isNew: c.isNew,
+            label: data.label,
+            onClick: data.onClick,
             route: data.path
           }
         ]
@@ -1471,7 +1473,7 @@ export function ChatSidebar({
           <SidebarGroupContent>
             <SidebarMenu className="gap-px">
               {[...SIDEBAR_NAV, ...contributedNav].map(item => {
-                const isInteractive = Boolean(item.action) || Boolean(item.route)
+                const isInteractive = Boolean(item.action) || Boolean(item.route) || Boolean(item.onClick)
 
                 const active =
                   (item.id === 'skills' && currentView === 'skills') ||
@@ -1498,7 +1500,10 @@ export function ChatSidebar({
                       active &&
                         'border-(--ui-stroke-tertiary) bg-(--ui-control-active-background) text-foreground shadow-none hover:border-(--ui-stroke-tertiary)!',
                       !isInteractive &&
-                        'cursor-default hover:border-transparent hover:bg-transparent hover:text-inherit'
+                        'cursor-default hover:border-transparent hover:bg-transparent hover:text-inherit',
+                      // First-time cue: a fresh contribution that hasn't been
+                      // seen gets a gentle attention shimmer until it's viewed.
+                      item.isNew && 'border-(--ui-stroke-tertiary)'
                     )}
                     onClick={() => {
                       // A plain new session lands in whatever profile the live
@@ -1509,7 +1514,11 @@ export function ChatSidebar({
                         $newChatProfile.set(null)
                       }
 
-                      onNavigate(item)
+                      if (item.onClick) {
+                        item.onClick()
+                      } else {
+                        onNavigate(item)
+                      }
                     }}
                     tooltip={
                       item.keybindActionId

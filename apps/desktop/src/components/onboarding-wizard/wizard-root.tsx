@@ -7,6 +7,12 @@ import { I18nProvider } from '@/i18n'
 import { queryClient } from '@/lib/query-client'
 import { $desktopOnboarding } from '@/store/onboarding'
 import {
+  $firstScreenKind,
+  compileFirstScreen,
+  materializeFirstScreen
+} from '@/store/onboarding-first-screen'
+import {
+  $wizardAnswers,
   completeOnboardingWizard,
   devStartOnboardingWizard,
   type OnboardingWizardOutcome,
@@ -96,7 +102,33 @@ export function mountOnboardingWizard(): void {
               <WizardSurface
                 onComplete={() => {
                   completeOnboardingWizard()
-                  report({ completed: true, providerReady: providerReady() })
+
+                  // Full run: materialize the finale's artifact BEFORE the
+                  // outcome reports home, so the reveal's promise about the
+                  // file is already true — and the config rides the payload
+                  // to the main window, which mentions it in the first chat.
+                  if (mode === 'full') {
+                    const answers = $wizardAnswers.get()
+
+                    const config = compileFirstScreen(
+                      { context: answers.context, focus: answers.focus, name: answers.name },
+                      $firstScreenKind.get() ?? 'dashboard'
+                    )
+
+                    void materializeFirstScreen(config).then(result =>
+                      report({
+                        completed: true,
+                        firstScreen: {
+                          configJson: JSON.stringify(config),
+                          filePath: result.ok ? result.path : undefined,
+                          kind: config.kind
+                        },
+                        providerReady: providerReady()
+                      })
+                    )
+                  } else {
+                    report({ completed: true, providerReady: providerReady() })
+                  }
                 }}
                 onSkip={() => {
                   skipOnboardingWizard()

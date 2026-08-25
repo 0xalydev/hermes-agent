@@ -28,6 +28,8 @@ import type { LayoutNode } from '@/components/pane-shell/tree/model'
 import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import { registry } from '@/contrib/registry'
 import { $introReveal, startIntroReveal } from '@/store/intro-reveal'
+import { $desktopOnboarding } from '@/store/onboarding'
+import type { FirstScreenConfig } from '@/store/onboarding-first-screen'
 import {
   $guideKickoffPending,
   $onboardingWizard,
@@ -89,12 +91,17 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
   // Mid-flow restart: intro already seen, wizard unfinished — pick it back up.
   // Unless a dev entry point baked a stage: the stage owns the boot (e.g.
   // `dev:kickoff` must not have this racing it with a wizard window).
+  //
+  // Also covers the case this dev app was CLOSED mid-flow and reopened into
+  // the next boot's resume path — the wizard's own window can be live with
+  // the store still 'hidden' (its own mount order), and this main renderer is
+  // the one that actually launches the wizard store on the same profile.
   useEffect(() => {
     if (onboardingDevStage()) {
       return
     }
 
-    if (enabled && intro.phase === 'hidden' && wizard.phase === 'hidden' && shouldResumeOnboardingWizard()) {
+    if (intro.phase === 'hidden' && wizard.phase === 'hidden' && shouldResumeOnboardingWizard()) {
       startOnboardingWizard()
     }
   }, [enabled, intro.phase, wizard.phase])
@@ -143,18 +150,18 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
 
   const handleOutcome = useCallback(
     (outcome: OnboardingWizardOutcome) => {
-      completeOnboardingWizard()
-
       // Guide mode: no picks to commit — the guided chat IS the setup. The
       // wizard window never opened, so the app window is still hidden from
       // the intro: ask main to pre-size it to the solo chat and reveal it.
-      // The persistent kicked-latch is NOT stamped here — kickoffFirstChat
-      // burns it only once the seeded session really exists, so a crash or
-      // reload anywhere in between retries the handoff instead of stranding
-      // a vanilla shell.
+      // Kickoff BEFORE the wizard store clears (same overlay race as login
+      // mode below). The persistent kicked-latch is NOT stamped here —
+      // kickoffFirstChat burns it only once the seeded session really
+      // exists, so a crash or reload anywhere in between retries the
+      // handoff instead of stranding a vanilla shell.
       if (outcome.mode === 'guide') {
         window.hermesDesktop?.chatOnboarding?.soloBoot?.()
         onKickoff('guide')
+        completeOnboardingWizard()
 
         return
       }
@@ -163,18 +170,74 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
       // whenever inference exists (sign-in completed OR skipped-but-already
       // -configured); without inference there is nothing to guide with.
       if (outcome.mode === 'login') {
-        if (outcome.providerReady !== false) {
+        // The wizard WINDOW's provider snapshot can lag its own sign-in (it
+        // closes on "Connected", sometimes before its classic store flips
+        // configured). This renderer's state is the truth at THIS moment —
+        // dropped a signed-in user at the bare landing page once.
+        const configuredHere = $desktopOnboarding.get().configured === true
+
+        if (outcome.providerReady !== false || configuredHere) {
+          // Kickoff BEFORE the wizard store clears: startChatOnboardingSolo
+          // raises the solo-chat presence while the wizard presence is still
+          // up, so the classic onboarding overlay (gated on presence) never
+          // sees an empty set mid-handoff and can't pop a second sign-in.
           onKickoff('guide')
+        } else {
+          // Neither side confirms inference yet — but the sign-in may still
+          // be LANDING (auth written by the wizard window's gateway; this
+          // renderer's probe hasn't re-run). Watch the classic store briefly:
+          // the overlay's own refresh flips `configured` once the runtime
+          // reports ready, and the guided chat starts then. A user who truly
+          // skipped with no provider never flips it, and the timer disposes
+          // the watcher silently — nothing to guide with.
+          let fired = false
+          let expiry: number | undefined
+
+          const unsubscribe = $desktopOnboarding.subscribe(state => {
+            if (state.configured === true && !fired) {
+              fired = true
+              unsubscribe()
+              window.clearTimeout(expiry)
+              onKickoff('guide')
+            }
+          })
+
+          expiry = window.setTimeout(() => {
+            if (!fired) {
+              fired = true
+              unsubscribe()
+            }
+          }, 30_000)
         }
+
+        completeOnboardingWizard()
 
         return
       }
+
+      completeOnboardingWizard()
 
       if (!outcome.completed) {
         return
       }
 
       commitAnswers(reloadWizardAnswers())
+
+      // Full run: the wizard window materialized the deterministic artifact
+      // as it closed; the gateway lives HERE, so this renderer runs the
+      // population pass (hidden fast-lane session → real content → rewrite
+      // screen.json; the pane repaints on the file watcher). Fire-and-forget.
+      if (outcome.firstScreen?.configJson) {
+        try {
+          const config = JSON.parse(outcome.firstScreen.configJson) as FirstScreenConfig
+
+          void import('@/store/first-screen-populate').then(({ populateFirstScreenArtifact }) =>
+            populateFirstScreenArtifact(config)
+          )
+        } catch {
+          // Malformed payload — the deterministic screen stands.
+        }
+      }
 
       // No kickoff without inference: the run needed a provider and the user
       // skipped past the step — there is nothing to greet with. (The classic
@@ -199,16 +262,31 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
     const offDone = bridge.onDone(handleOutcome)
 
     const offClosed = bridge.onClosed(() => {
-      if ($onboardingWizard.get().phase === 'active' && !hasCompletedOnboardingWizard()) {
-        dismissOnboardingWizardSession()
+      const state = $onboardingWizard.get()
+
+      if (state.phase !== 'active' || hasCompletedOnboardingWizard()) {
+        return
       }
+
+      // Login mode + inference already landed: the user read "Connected" as
+      // done and closed the window — that IS completion, not abandonment.
+      // Hand off to the guided chat instead of stranding them on the bare
+      // landing page (the exact drop reported from the first live run).
+      if (state.mode === 'login' && $desktopOnboarding.get().configured === true) {
+        onKickoff('guide')
+        completeOnboardingWizard()
+
+        return
+      }
+
+      dismissOnboardingWizardSession()
     })
 
     return () => {
       offDone()
       offClosed()
     }
-  }, [handleOutcome])
+  }, [handleOutcome, onKickoff])
 
   useEffect(() => {
     if (wizard.phase !== 'active') {
@@ -221,6 +299,20 @@ export function OnboardingWizardGate({ enabled, onKickoff }: OnboardingWizardGat
 
     if (bridge && !openRequested.current) {
       openRequested.current = true
+
+      // Login mode no longer opens a window at all: guest inference exists
+      // from first boot, so the portal sign-in card is gone from the chain —
+      // animation hands straight to the guided chat. Synthesizing the done
+      // payload (instead of special-casing intro-reveal) reuses the whole
+      // outcome path: main sizes the hidden app to the solo chat, reveals
+      // it, and handleOutcome starts the guide + marks the run complete.
+      // Sign-in still lives in the chat's connect step and Settings.
+      if (wizard.mode === 'login') {
+        bridge.done({ completed: true, mode: 'login', soloChat: true })
+
+        return
+      }
+
       void bridge.open({ mode: wizard.mode, needsProvider: wizardNeedsProviderStep() }).catch(() => undefined)
     }
   }, [wizard.mode, wizard.phase])

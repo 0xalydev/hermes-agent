@@ -21,10 +21,14 @@ import type { CSSProperties } from 'react'
 import { allPaneIds, group, type LayoutNode } from '@/components/pane-shell/tree/model'
 import { applyLayoutPreset } from '@/components/pane-shell/tree/presets'
 import { $layoutTree, dismissTreePane, isCollapsePane } from '@/components/pane-shell/tree/store'
+import { registry } from '@/contrib/registry'
+import { redockLivePane } from '@/store/first-screen-live'
 import { setSidebarOpen } from '@/store/layout'
 import { setOnboardingSurfaceActive } from '@/store/onboarding-presence'
-import { onboardingDevStage } from '@/store/onboarding-wizard'
+import { onboardingDevStage, skipOnboardingWizard } from '@/store/onboarding-wizard'
 import { $statusbarVisible } from '@/store/statusbar-prefs'
+import { setTranslucency, setTranslucencyMaterial, setTranslucencyMode } from '@/store/translucency'
+import { setZoomPercent } from '@/store/zoom'
 
 /** True from guide kickoff until the layout pick assembles the app. */
 export const $chatOnboardingSolo = atom(false)
@@ -37,6 +41,34 @@ $chatOnboardingSolo.subscribe(solo => setOnboardingSurfaceActive('solo-chat', so
  *  id). That one thread gets the onboarding transcript treatment and drops the
  *  composer's git strip; every other session is untouched. */
 export const $chatOnboardingThreadIds = atom<readonly string[]>([])
+
+/** The opening line of the guided chat — PRE-BANKED, never generated. The
+ *  first thing a new user sees must be instant; the model's cold-stack first
+ *  turn took up to 10 seconds in live runs. The transcript renders this
+ *  client-side the moment the chat opens; the model is told what was said
+ *  and picks up from the user's answer. */
+const GREETINGS = [
+  "Hey, welcome — I'm Setup, your Hermes guide. I'll get things arranged around you, then spin up your first agent and stick around while you find your feet.\n\nFirst — what should I call you?",
+  "Welcome in — I'm Setup. A few quick questions, then I'll spin up your first agent and stay close while you settle in.\n\nWhat should I call you?",
+  "Hey, you made it — I'm Setup, your guide here. Quick setup, then I mint an agent for your first build and stick around after.\n\nFirst things first: what should I call you?"
+] as const
+
+export const $onboardingGreeting = atom('')
+
+/** Pick (and remember) the canned opening line for this run. */
+export function pickOnboardingGreeting(): string {
+  const existing = $onboardingGreeting.get()
+
+  if (existing) {
+    return existing
+  }
+
+  const line = GREETINGS[Math.floor(Math.random() * GREETINGS.length)] ?? GREETINGS[0]
+
+  $onboardingGreeting.set(line)
+
+  return line
+}
 
 /** Whether the layout card's pick happened. A STORE, not card-local state:
  *  applying the layout replaces the pane tree, which remounts the chat pane
@@ -58,6 +90,25 @@ export function startChatOnboardingSolo(): void {
 
   $chatOnboardingSolo.set(true)
   $chatLayoutPicked.set(false)
+  // First-run look: the glass material is the default face of the app —
+  // the cinematic hands into a translucent window, not a flat slab, and the
+  // look PERSISTS after onboarding (the translucency book is localStorage-
+  // backed like any Appearance edit). Mode alone isn't enough: the dark-mac
+  // default is intensity 22 on the titlebar material — vibrancy under the
+  // titlebar only, body effectively opaque — so the blur would vanish the
+  // moment the app assembles. Write the full recipe: under-window (the real
+  // full-window blur) with enough tint pulled off for it to read. The store
+  // guards unsupported platforms, and this is a first-run write on a fresh
+  // profile, so no user pref is clobbered.
+  setTranslucencyMode('glass')
+  setTranslucencyMaterial('under-window')
+  setTranslucency(50)
+  // First-run type size: the shipped 90% preset reads small in the guided
+  // chat (side-by-side screenshots: the wanted size is ~1.3x). 118% is the
+  // measured target; real Chromium zoom, so every surface scales coherently
+  // and nothing can break layout. Persisted by the main process — the user
+  // keeps this size after onboarding until they change UI Scale themselves.
+  setZoomPercent(118)
   // Both the statusbar pref and the layout persist — a dev run killed mid-flow
   // must not leave the bar hidden forever, so the dev:chat stage always
   // restores to visible (a real first run has it visible anyway).
@@ -121,6 +172,28 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
   }
 
   $chatOnboardingSolo.set(false)
+}
+
+/** Skip the guided setup: assemble the default layout so the user lands in
+ *  the full app immediately, and mark onboarding done so nothing resumes it.
+ *  The guided chat stays in the transcript — skipping is about ending the
+ *  questionnaire, not destroying the conversation. */
+export function skipChatOnboarding(): void {
+  const preset = registry.getArea('layouts').find(contribution => contribution.id === 'basic')
+
+  if (preset?.data) {
+    assembleChatOnboarding(preset.id, preset.data as LayoutNode)
+    // Assembly dismisses panes the preset doesn't declare — a mid-flow skip
+    // must not eat the living dashboard the user already has beside the chat.
+    redockLivePane()
+  } else {
+    // No layout contribution (shouldn't happen): at minimum leave solo mode
+    // and put the statusbar back.
+    $chatOnboardingSolo.set(false)
+    $statusbarVisible.set(statusbarWasVisible)
+  }
+
+  skipOnboardingWizard()
 }
 
 // ── Pane entrance ("lego") ───────────────────────────────────────────────────

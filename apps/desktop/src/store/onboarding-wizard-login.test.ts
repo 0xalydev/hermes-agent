@@ -80,3 +80,29 @@ describe('onboarding wizard guide mode', () => {
     expect(shouldStartGuideKickoff()).toBe(false)
   })
 })
+
+describe('pre-banked greeting', () => {
+  it('the seed rows carry the exact on-screen greeting and the runbook forbids re-greeting', async () => {
+    const { buildChatOnboardingSeedMessages } = await import('./onboarding-wizard')
+    const greeting = 'Hey, welcome to Hermes. What should I call you?'
+    const seeds = buildChatOnboardingSeedMessages(greeting)
+
+    // Runbook (hidden) first, then the greeting as a REAL assistant row —
+    // the canonical Bot Chat must rehydrate with the same words the banked
+    // reveal typed in.
+    expect(seeds[0].display_kind).toBe('hidden')
+    expect(seeds[0].content).toContain('Do not greet again')
+    expect(seeds[1]).toEqual({ content: greeting, role: 'assistant' })
+  })
+
+  it('pickOnboardingGreeting is stable within a run and never empty', async () => {
+    const { $onboardingGreeting, pickOnboardingGreeting } = await import('@/components/onboarding-chat/assembly')
+
+    $onboardingGreeting.set('')
+    const first = pickOnboardingGreeting()
+
+    expect(first.length).toBeGreaterThan(20)
+    expect(first).toContain('call you')
+    expect(pickOnboardingGreeting()).toBe(first)
+  })
+})

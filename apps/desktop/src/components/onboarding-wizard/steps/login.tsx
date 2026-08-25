@@ -52,6 +52,19 @@ export function LoginStep() {
     }
   }, [flow, ctx])
 
+  // Sign-in landed: hold on "Connected" and let the surface auto-advance
+  // (surface.tsx completes the run ~900ms after `configured` flips). WITHOUT
+  // this hold, the classic flow resets to an idle picker after success and
+  // the card re-renders a SECOND sign-in — users obliged (two device-code
+  // logins in one first run, seen live in gui.log).
+  if (onboarding.configured === true) {
+    return (
+      <div className="wizard-login">
+        <Blurb>Connected. Your agent is thinking — one moment.</Blurb>
+      </div>
+    )
+  }
+
   const showPicker = flow.status === 'idle' || flow.status === 'success' || flow.status === 'confirming_model'
 
   return (

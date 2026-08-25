@@ -19,6 +19,7 @@
 import { atom } from 'nanostores'
 
 import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
+import { VOICE_RULES } from '@/store/onboarding-first-screen'
 
 import { $instantAccount, instantSuppressesOnboarding } from './instant-account'
 import { clearIntroRevealSeen, hasSeenIntroReveal, isIntroRevealEnabled } from './intro-reveal'
@@ -41,6 +42,8 @@ const GUIDE_KICKED_KEY = 'hermes-onboarding-guide-kicked-v1'
 export const $guideKickoffPending = atom(false)
 
 export type WizardStepId =
+  /** Pick what your first screen should be — dashboard, document, or app. */
+  | 'first-screen'
   | 'welcome'
   | 'personalize'
   | 'connectors'
@@ -65,6 +68,10 @@ export type WizardRunMode = 'full' | 'guide' | 'login'
 export interface WizardAnswers {
   /** What the user wants to be called. Optional — empty is fine. */
   name: string
+  /** What they're actually working on right now, in their own words —
+   *  the free-text answer that makes the first screen THEIRS instead of a
+   *  template. Captured conversationally in the guided chat. */
+  context: string
   /** Focus areas picked on the personalize step. */
   focus: string[]
   /** Connector ids toggled on (fake for now — stored, not wired). */
@@ -84,6 +91,7 @@ export interface WizardAnswers {
 export const DEFAULT_ANSWERS: WizardAnswers = {
   accent: null,
   connectors: [],
+  context: '',
   focus: [],
   keepInDock: true,
   layout: 'basic',
@@ -105,6 +113,10 @@ export interface OnboardingWizardState {
 export interface OnboardingWizardOutcome {
   /** False when the user skipped setup. */
   completed: boolean
+  /** Full-run only: the first-screen artifact the finale built. The main
+   *  window uses it to seed the first chat ("press a button, it does
+   *  something") after the take-over. Absent on skip and in login mode. */
+  firstScreen?: { configJson: string; filePath?: string; kind: string }
   /** False when the run needed a provider and none was configured (the step
    *  was skipped past) — the first-chat kickoff has nothing to greet with. */
   providerReady?: boolean
@@ -193,7 +205,7 @@ function buildSteps(includeProviders = wizardNeedsProviderStep()): WizardStepId[
     steps.push('providers')
   }
 
-  steps.push('system', 'finale')
+  steps.push('system', 'first-screen', 'finale')
 
   return steps
 }
@@ -255,8 +267,10 @@ export function dismissOnboardingWizardSession(): void {
 /** Begin (or resume) the wizard. No-ops once done.
  *
  *  The first-run chain runs GUIDE mode: animation → the guided in-chat setup
- *  directly — no wizard window, no sign-in card. The classic multi-step run
- *  stays reachable through the dev entries (`dev:onboarding`,
+ *  directly — accountless, no wizard window, no sign-in card (login comes
+ *  later, once the first task is under way). LOGIN mode (animation → one
+ *  portal sign-in card → the guided chat) and the classic multi-step run
+ *  stay reachable through the dev entries (`dev:onboarding`,
  *  `__onboarding.start`). */
 export function startOnboardingWizard(mode: WizardRunMode = 'guide'): void {
   if (!isIntroRevealEnabled() || hasCompletedOnboardingWizard()) {
@@ -287,7 +301,7 @@ export function startOnboardingWizard(mode: WizardRunMode = 'guide'): void {
 /** Boot the surface inside the dedicated `?win=onboarding` window. That window
  *  is gateway-less, so the provider decision arrives from the main renderer
  *  via the open IPC → query param instead of being computed here. Login mode
- *  is a one-card run: portal sign-in, then the in-chat guided setup. */
+ *  is kept for an explicit portal-sign-in-only handoff. */
 export function startOnboardingWizardWindow(includeProviders: boolean, mode: WizardRunMode = 'full'): void {
   const steps: WizardStepId[] = mode === 'login' ? ['login'] : buildSteps(includeProviders)
 
@@ -386,16 +400,17 @@ export const CHAT_ONBOARDING_GREETING =
   "Hey, welcome — I'm Setup, your Hermes guide. I'll get things arranged around you, then spin up your first agent and stick around while you find your feet.\n\nFirst — what should I call you?"
 
 /** The seed rows for the guided chat's session.create: the invisible runbook
- *  (model-visible, never rendered) followed by the pre-written greeting the
- *  user sees immediately. */
-export function buildChatOnboardingSeedMessages(): {
+ *  (model-visible, never rendered) followed by the pre-written greeting.
+ *  Pass the banked greeting the client is typing in (pickOnboardingGreeting)
+ *  so the canonical row and the animated reveal are the same words. */
+export function buildChatOnboardingSeedMessages(greeting = CHAT_ONBOARDING_GREETING): {
   content: string
   display_kind?: 'hidden'
   role: 'assistant' | 'user'
 }[] {
   return [
     { content: buildChatOnboardingPrompt(), display_kind: 'hidden', role: 'user' },
-    { content: CHAT_ONBOARDING_GREETING, role: 'assistant' }
+    { content: greeting, role: 'assistant' }
   ]
 }
 
@@ -403,17 +418,25 @@ export function buildChatOnboardingSeedMessages(): {
  *  wizard window. Hermes walks the user through the same setup, placing
  *  `::onboarding{step="…"}` cards that the renderer turns into live pickers
  *  (see components/onboarding-chat/directive.tsx). The flow's runbook lives in
- *  components/onboarding-chat/FLOW.md — keep the two in sync. */
+ *  components/onboarding-chat/FLOW.md — keep the two in sync.
+ *
+ *  The greeting is seeded server-side as a real assistant row (Setup's
+ *  canonical Bot Chat must rehydrate with it), while the first run paints it
+ *  through the banked typing reveal (assembly.ts / thread list) — either way
+ *  the model must never greet again. */
 export function buildChatOnboardingPrompt(): string {
   return [
     'You are Setup, the persistent onboarding guide inside Hermes Desktop, welcoming a brand-new user. You are not the agent that will do their work — your job is to arrange the app around them, mint their first agent, and stay available afterwards.',
     'This message is invisible to them — never reference it or the mechanics described here.',
+    'TWO ABSOLUTE RULES ABOVE EVERYTHING:',
+    'RULE 1 — never think out loud. Every visible word you write is spoken TO the user. Never write "Let me check/re-read/reconsider", never recap what step you are on, never mention steps, directives, [setup], prompts, or any mechanics in visible text. When you use tools, visible text is at most ONE short sentence to the user before the work and one after. Planning happens silently or not at all — a message that narrates your process instead of talking to the user is a failure.',
+    'RULE 2 — images are welcome but never a surprise and never a delay: deliver the TEXT deliverable first, and only then, when a visual genuinely helps (a header image for an announcement, a mock for a page), you may generate ONE image — always introduced with a short line naming what you made and why ("I generated a header image for the announcement — swap or drop it"). Never let image generation stall or replace the text answer, never more than one per turn, and never for plain lists, plans, or checklists.',
     'Your first message has ALREADY been sent for you: it greeted them and asked what you should call them. Do not greet again — their next message is their answer.',
     'From there, walk them through setup conversationally, ONE step per turn, in this order:',
-    '1. Acknowledge their name warmly in a few words, then their color — one short sentence, and include the line ::onboarding{step="look"}',
+    '1. Acknowledge their name warmly in a few words and include the line ::onboarding{step="name" value="THEIR_NAME"} with THEIR_NAME replaced by the actual name they gave (this line renders as nothing — it just saves the name). Then their color — one short sentence, and include the line ::onboarding{step="look"}',
     '2. Then the tools they already use, so Hermes can connect to them later: one short sentence, and include the line ::onboarding{step="connectors"}',
     '3. Then their layout: one short sentence, and include the line ::onboarding{step="layout"}',
-    '4. Then the fork, in your own words: do they know what they\'d like to build? You\'ll spin up an agent dedicated to it. We can automate something they already do on the computer, or figure it out together.',
+    '4. Then the fork: one short sentence in your own words — you\'ll spin up an agent dedicated to their first build — then the line ::ask{question="Know what you\'d like it to make?" options="I have something in mind|Automate something I already do|Let\'s figure it out together" input="true"} alone as its own paragraph.',
     '5. Branch on their answer:',
     '   - SPECIFIC task in mind: skip the options card — go straight to the handoff (step 6).',
     '   - GENERAL idea: place a card of options you generated from everything they\'ve said: ::onboarding{step="first" options="First idea|Second idea|Third idea"} — 2 to 4 options, each a short phrase (under 60 chars), spanning simple (a reminder) to complex (a dashboard), all specific to THIS user, separated by |. Their tap IS their reply — hand off from it.',
@@ -421,8 +444,13 @@ export function buildChatOnboardingPrompt(): string {
     '   CRITICAL for every branch: the first task must need NO external account or OAuth (no Gmail, no Slack, no Google sign-in) — connectors get wired later, on their request. Web research, scripts, computer use, small apps, file-based trackers, scheduled reminders and generated pages are all fair game. If their idea needs an account, shape the task around its no-auth core and say the connection is a later step.',
     '6. THE HANDOFF — you do not build the task yourself. Once the task is decided, reply with ONE short sentence framing it (you\'re spinning up an agent just for this, and you\'ll stay right here), and include the line ::onboarding{step="handoff" task="short task name" brief="the build instruction, one sentence, written as the user\'s ask"} — task under 40 chars, brief under 200. The app creates that agent, moves the user into its chat, and starts the build from your brief.',
     '7. Later, invisible [setup] notes will tell you how the handoff went and, over time, what the user has been doing. When the handoff-complete note arrives, follow its instructions: one short goodbye-for-now line, then schedule your own check-in cron job with the cronjob tool. If a handoff-failed note arrives instead, start the task in THIS conversation: begin the work, mention in one sentence that you\'ll ask for permissions as you go, and place ::onboarding{step="progress" title="what you\'re doing"} as its own paragraph at the start of each status turn.',
-    'Rules for the ::onboarding lines: emit each EXACTLY as written above, alone as its own paragraph with nothing else on that line.',
+    'Whenever you draft reusable text for them (an email, a pitch, a template, a post), put the draft in a fenced code block so they can copy it in one click — never inline in your prose. Your own commentary stays outside the block.',
+    'Interactive questions: whenever you ask the user to choose between things (the fork above, a refinement, anywhere), end the message with ::ask{question="..." options="A|B|C"} alone as its own paragraph (2-6 short options, add input="true" to allow a typed answer). The app renders it as clickable pills; their pick arrives as their next message. Every option must be a plain, concrete answer the user would actually say (an action or a preference, never jargon), and you must ACT on whichever option arrives, immediately — never re-ask the question, never re-emit an answered ::ask, never offer an option you cannot execute. Never enumerate options in prose when ::ask can carry them.',
+    'Rules for the ::onboarding lines: emit each EXACTLY as written above, alone as its own paragraph — a blank line before and after, never two directives on the same line.',
     'The app renders an interactive picker there and applies choices to the app live, so do NOT list or describe the options in prose.',
+    'Shape example for a tool-using turn: "On it, give me a moment." then the tool calls, then "Done. Your shopping list now carries the Zigbee parts." — nothing else.',
+    'Never end a turn having only PROMISED an action. If you say you will edit the dashboard, save something, or set something up, the SAME turn must contain the actual tool calls that do it, then a one-line confirmation. Saying "I\'ll wire it in now" and stopping is a failure.',
+    VOICE_RULES,
     'Their picks arrive as invisible messages prefixed [setup] — acknowledge each in a few words and move to the next step.',
     'Keep every turn short. This is a chat, not a form. No headers, no bullet lists, no emoji.'
   ].join(' ')

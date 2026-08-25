@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils'
 import { $desktopBoot, type DesktopBootState } from '@/store/boot'
 import { $instantAccount, instantSuppressesOnboarding } from '@/store/instant-account'
 import { $introReveal, shouldPlayFirstRunIntro } from '@/store/intro-reveal'
-import { $onboardingWizard, shouldResumeOnboardingWizard } from '@/store/onboarding-wizard'
 import {
   $desktopOnboarding,
   clearPendingProviderOAuth,
@@ -29,6 +28,8 @@ import {
   setOnboardingMode,
   startProviderOAuth
 } from '@/store/onboarding'
+import { onboardingSurfaceActive } from '@/store/onboarding-presence'
+import { $onboardingWizard, shouldResumeOnboardingWizard } from '@/store/onboarding-wizard'
 import type { ModelOptionProvider, OAuthProvider } from '@/types/hermes'
 
 import { DocsLink, FlowPanel, Status } from './flow'
@@ -295,10 +296,14 @@ export function DesktopOnboardingOverlay({
   // on: this classic overlay is demoted to manual-only for the whole window
   // between "intro should play" and "wizard finished". The wizard's provider
   // step re-enters through startManualOnboarding (manual=true, wins above).
+  // The guided solo chat counts too (onboardingSurfaceActive): the handoff
+  // wizard→chat must never open a gap this overlay can pop through with a
+  // SECOND sign-in card.
   if (
     !onboarding.manual &&
     (introReveal.phase !== 'hidden' ||
       wizard.phase === 'active' ||
+      onboardingSurfaceActive() ||
       shouldPlayFirstRunIntro(onboarding.configured, onboarding.firstRunSkipped) ||
       shouldResumeOnboardingWizard())
   ) {

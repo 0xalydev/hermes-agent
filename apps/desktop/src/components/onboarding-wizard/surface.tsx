@@ -16,10 +16,16 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Title, WizardShell } from '@/components/wizard-shell'
+import { $desktopOnboarding } from '@/store/onboarding'
+import {
+  $firstScreenKind,
+  compileFirstScreen,
+  theaterDuration
+} from '@/store/onboarding-first-screen'
 import {
   $onboardingWizard,
   $wizardAnswers,
@@ -37,8 +43,10 @@ import { FONT_CSS } from './brand'
 import { Finale } from './finale'
 import { STEP_DEFS, WizardStepBody } from './steps'
 
-/** How long the finale line holds before the app takes over. */
-const FINALE_HOLD_MS = 3200
+/** Hold AFTER the theater's reveal — how long the finished screen fills the
+ *  card before the app takes over. The theater's own duration comes from the
+ *  compiled config (see the finale timer below). */
+const FINALE_HOLD_MS = 2400
 /** The card's dissolve after the hold, before the window closes. Matches the
  *  `wizard-finale-card-out` duration in finale.tsx. */
 const FINALE_LEAVE_MS = 500
@@ -133,23 +141,54 @@ export function WizardSurface({ onComplete, onSkip }: WizardSurfaceProps) {
     bodyRef.current?.scrollTo({ top: 0 })
   }, [step])
 
-  // Finale: hold the line, dissolve the card, then hand the app over. The
-  // onboarding-only dev entry (`npm run dev:onboarding`) pauses here
-  // indefinitely so the finale animation can be iterated on — edits to
-  // finale.tsx hot-replace and replay.
+  // Login mode auto-advance: the moment sign-in lands (classic store flips
+  // configured), the card completes itself after a short "Connected" beat.
+  // The old shape waited for a Continue click — and a user who reads
+  // "Connected ✓" as done CLOSES the window instead, which the gate reads
+  // as a dismissal and the classic overlay then pops a SECOND sign-in.
+  // No click, no closable gap.
+  const configured = useStore($desktopOnboarding).configured === true
+
+  useEffect(() => {
+    if (step !== 'login' || !configured) {
+      return
+    }
+
+    const settle = window.setTimeout(onComplete, 900)
+
+    return () => window.clearTimeout(settle)
+  }, [configured, onComplete, step])
+
+  // Finale: the build theater runs its own rAF clock inside Finale; the
+  // surface waits for its duration (config-dependent) plus a hold on the
+  // revealed artifact, then hands the app over. The onboarding-only dev entry
+  // (`npm run dev:onboarding`) pauses the wizard one step earlier so the whole
+  // finale can be iterated on from the store without a timer racing it.
+  const finaleMs = useMemo(
+    () => {
+      const a = $wizardAnswers.get()
+      const kind = $firstScreenKind.get() ?? 'dashboard'
+
+      return theaterDuration(compileFirstScreen({ context: a.context, focus: a.focus, name: a.name }, kind))
+    },
+    // Recomputed only when the finale mounts — the profile is final by then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [finale]
+  )
+
   useEffect(() => {
     if (!finale || onboardingDevStage() === 'wizard') {
       return
     }
 
-    const hold = window.setTimeout(() => setFinaleLeaving(true), FINALE_HOLD_MS)
-    const done = window.setTimeout(onComplete, FINALE_HOLD_MS + FINALE_LEAVE_MS)
+    const hold = window.setTimeout(() => setFinaleLeaving(true), finaleMs + FINALE_HOLD_MS)
+    const done = window.setTimeout(onComplete, finaleMs + FINALE_HOLD_MS + FINALE_LEAVE_MS)
 
     return () => {
       window.clearTimeout(hold)
       window.clearTimeout(done)
     }
-  }, [finale, onComplete])
+  }, [finale, finaleMs, onComplete])
 
   if (finale) {
     return (

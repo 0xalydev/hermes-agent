@@ -16,13 +16,25 @@ the next step when there is a genuinely useful one.
 
 ## Script (the model's runbook)
 
-1. **Name** — "What should I call you?" (one turn, warm)
+0. **The banked greeting** — Setup's opening line is pre-written: seeded as a
+   real assistant row at `session.create` (the canonical Bot Chat must
+   rehydrate with it) AND typed in client-side like a streamed turn
+   (`OnboardingGreetingRow`), so the first paint is instant and alive. The
+   runbook tells the model it already spoke; its first real turn answers the
+   user's name. Setup's guided turns ride the fast lane (DeepSeek flash,
+   minimal reasoning) pinned on the `hermes-setup` profile — the user's real
+   default model is untouched.
+1. **Name** — "What should I call you?" — the reply is saved via the invisible
+   `::onboarding{step="name" value="…"}` data directive (it feeds the task
+   bot's soul later)
 2. **Theme** — `::onboarding{step="look"}` (accent pick, live retint)
 3. **Connectors** — `::onboarding{step="connectors"}` (tools they use; stored, not wired)
 4. **Layout** — `::onboarding{step="layout"}` (the app assembles around the chat)
-5. **The fork** — "Do you know what you'd like to build? I'll spin up an agent
-   dedicated to it. We can automate something you already do on the computer,
-   or figure it out together."
+5. **The fork** — one sentence, then `::ask{question="Know what you'd like it
+   to make?" options="I have something in mind|Automate something I already
+   do|Let's figure it out together" input="true"}` — clickable pills, typed
+   answers welcome. (`::ask` is the general capability: any fork Setup or the
+   task bot needs to pose renders as pills, never a prose wall.)
 
 ### Branch A — they have something in mind (general or specific)
 
@@ -143,9 +155,25 @@ the next step when there is a genuinely useful one.
 
 | step | attrs | renders | tap does |
 |------|-------|---------|----------|
+| `name` | `value="…"` | nothing | saves the name into the wizard answers (soul fuel) |
 | `look` | — | accent swatches | retints live, hidden `[setup]` report |
 | `connectors` | — | connector chips | stored, hidden `[setup]` report |
 | `layout` | — | layout previews | assembles the app live, hidden `[setup]` report |
 | `first` | `options="A\|B\|C"` | generated chips | **visible user turn** — decides the task |
 | `handoff` | `task="…" brief="…"` | one-line status (spinning up → built) | none — raises the handoff beacon on settle; the wiring mints + switches |
 | `progress` | `title="…"` | live build card (task bot's chat) | read-only; updates as the work streams |
+
+Plus the general-purpose `::ask{question="…" options="A|B|C" input="true"}`
+(ask-directive.tsx) — clickable pills for any fork; the pick is the user's
+next visible turn.
+
+Hidden `[setup]` reports are remembered (retry.ts): if a machine turn dies
+before delivering anything, the report replays once, quietly — no red HTTP
+row mid-setup. The skip affordance (skip.tsx) stays available throughout.
+
+Also in the tree from the same lineage (dormant in bot mode, used by the
+login-mode dashboard flow): the generative first-screen system —
+`FirstScreenCard` keep/drop picker, the living sketch pane
+(first-screen-live.ts), populate pipeline (first-screen-populate.ts), and the
+`context`/`first-screen`/`ready` directives. Bot mode's runbook doesn't place
+them; the components stay available for the task bot's future artifacts.
