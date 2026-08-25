@@ -1,8 +1,7 @@
+import { atom } from 'nanostores'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { atom } from 'nanostores'
-
-import { allPaneIds, group, split } from '@/components/pane-shell/tree/model'
+import { allPaneIds, findGroupOfPane, group, split } from '@/components/pane-shell/tree/model'
 import {
   $dismissedPanes,
   $layoutTree,
@@ -133,5 +132,16 @@ describe('picking a different layout replaces the previous one', () => {
     assembleChatOnboarding('basic', basic())
 
     expect(allPaneIds($layoutTree.get()!)).not.toContain('terminal')
+  })
+
+  // A pick is a request for the layout as a whole, tab included. Fronting the
+  // roster only on the first pick rebuilt Basic's panes on the way back but
+  // left the sidebar showing whatever Elite had.
+  it('fronts the roster again on the way back', () => {
+    assembleChatOnboarding('basic', basic())
+    assembleChatOnboarding('terminal-deck', elite())
+    assembleChatOnboarding('basic', basic())
+
+    expect(findGroupOfPane($layoutTree.get()!, BOTS_PANE)?.active).toBe(BOTS_PANE)
   })
 })

@@ -154,7 +154,7 @@ const LAYOUT_GROWTH: Record<string, { bottom?: number; left?: number; right?: nu
  * the two (Elite after Basic kept Basic's terminal dismissal, so Elite's
  * terminal was placed and invisible).
  */
-function reconcileLayout(id: string, tree: LayoutNode, frontRoster: boolean): void {
+function reconcileLayout(id: string, tree: LayoutNode): void {
   assembleStamp = Date.now()
   assembleOrder = 0
   applyLayoutPreset(id, tree)
@@ -209,18 +209,20 @@ function reconcileLayout(id: string, tree: LayoutNode, frontRoster: boolean): vo
   resetEnforcedDocks()
   adoptContributedPanes()
 
-  // First-run sidebar payoff: the user's only conversations at this moment
-  // are bot canonicals (Setup + soon their task bot), which the Sessions
-  // list hides — so its tab would front as an EMPTY pane. Front the roster
-  // instead: the sidebar's first face is their agents. FIRST pick only; a
-  // re-pick must not yank the sidebar back off a tab the user chose since.
-  // No-op if the bots plugin is absent.
+  // Sidebar payoff: the user's only conversations at this moment are bot
+  // canonicals (Setup + soon their task bot), which the Sessions list hides —
+  // so its tab would front as an EMPTY pane. Front the roster instead: the
+  // sidebar's face is their agents. No-op if the bots plugin is absent.
+  //
+  // On EVERY pick, not just the first. A pick is a request for that layout as
+  // a whole, tab included; fronting only once meant re-picking Basic rebuilt
+  // its panes but left the sidebar showing whatever the layout before it had.
   //
   // Strictly a SIDEBAR payoff: if the dock above didn't take, Bots is still
   // stacked with the chat, and fronting it there would bury the conversation
   // the user is mid-sentence in. Never front a pane over the chat.
   const assembled = $layoutTree.get()
-  const botsGroup = frontRoster && assembled ? findGroupOfPane(assembled, BOTS_PANE_ID) : null
+  const botsGroup = assembled ? findGroupOfPane(assembled, BOTS_PANE_ID) : null
 
   if (botsGroup && !botsGroup.panes.includes('workspace')) {
     setActiveTreePane(BOTS_PANE_ID)
@@ -257,7 +259,7 @@ export function assembleChatOnboarding(id: string, tree: LayoutNode): void {
     })
   }
 
-  reconcileLayout(id, tree, firstPick)
+  reconcileLayout(id, tree)
 
   if (statusbarWasVisible) {
     $statusbarVisible.set(true)
