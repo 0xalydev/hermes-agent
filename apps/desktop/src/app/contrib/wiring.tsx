@@ -24,7 +24,7 @@ import { GatewayConnectingOverlay } from '@/components/gateway-connecting-overla
 import { IntroRevealGate } from '@/components/intro-reveal'
 import { NotificationStack } from '@/components/notifications'
 import { DesktopOnboardingOverlay } from '@/components/onboarding'
-import { $chatOnboardingThreadIds, startChatOnboardingSolo } from '@/components/onboarding-chat/assembly'
+import { $chatOnboardingThreadIds, pickOnboardingGreeting, startChatOnboardingSolo } from '@/components/onboarding-chat/assembly'
 import { rememberOnboardingSubmit } from '@/components/onboarding-chat/retry'
 import { OnboardingSkip } from '@/components/onboarding-chat/skip'
 import { OnboardingWizardGate } from '@/components/onboarding-wizard'
@@ -596,6 +596,9 @@ export function ContribWiring({ children }: { children: ReactNode }) {
   const kickoffFirstChat = useCallback(
     (kind: 'greet' | 'guide' = 'greet') => {
       if (kind === 'guide') {
+        // The opening line is PRE-BANKED and on screen before anything else
+        // happens — picked synchronously so the thread's first paint has it.
+        pickOnboardingGreeting()
         // Solo mode: chat-only layout, no statusbar — the app assembles
         // around the conversation when the layout card is answered.
         startChatOnboardingSolo()
@@ -666,7 +669,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         setAwaitingResponse(true)
         setBusy(true)
 
-        const kickoffText = kind === 'guide' ? buildChatOnboardingPrompt() : buildKickoffPrompt($wizardAnswers.get())
+        const kickoffText = kind === 'guide' ? buildChatOnboardingPrompt(pickOnboardingGreeting()) : buildKickoffPrompt($wizardAnswers.get())
 
         // The kickoff brief is the retryable machine turn par excellence — a
         // cold-stack failure here strands the user on an empty greeting-less

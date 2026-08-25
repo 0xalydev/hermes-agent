@@ -42,6 +42,34 @@ $chatOnboardingSolo.subscribe(solo => setOnboardingSurfaceActive('solo-chat', so
  *  composer's git strip; every other session is untouched. */
 export const $chatOnboardingThreadIds = atom<readonly string[]>([])
 
+/** The opening line of the guided chat — PRE-BANKED, never generated. The
+ *  first thing a new user sees must be instant; the model's cold-stack first
+ *  turn took up to 10 seconds in live runs. The transcript renders this
+ *  client-side the moment the chat opens; the model is told what was said
+ *  and picks up from the user's answer. */
+const GREETINGS = [
+  "Hey, welcome to Hermes. I'll get you set up, and as we talk I'll learn how you like to work. First: what should I call you?",
+  'Welcome in. A few quick questions and this app will start shaping itself around you. What should I call you?',
+  "Hey, you made it. I'm Hermes, your agent. Quick setup, then the app starts building itself around you. What should I call you?"
+] as const
+
+export const $onboardingGreeting = atom('')
+
+/** Pick (and remember) the canned opening line for this run. */
+export function pickOnboardingGreeting(): string {
+  const existing = $onboardingGreeting.get()
+
+  if (existing) {
+    return existing
+  }
+
+  const line = GREETINGS[Math.floor(Math.random() * GREETINGS.length)] ?? GREETINGS[0]
+
+  $onboardingGreeting.set(line)
+
+  return line
+}
+
 /** Whether the layout card's pick happened. A STORE, not card-local state:
  *  applying the layout replaces the pane tree, which remounts the chat pane
  *  and the card with it — component state would forget the selection the

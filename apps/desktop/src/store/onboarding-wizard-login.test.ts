@@ -64,3 +64,26 @@ describe('onboarding wizard login mode', () => {
     expect(s.steps).not.toContain('login')
   })
 })
+
+describe('pre-banked greeting', () => {
+  it('the kickoff brief carries the exact on-screen greeting and forbids re-greeting', async () => {
+    const { buildChatOnboardingPrompt } = await import('./onboarding-wizard')
+    const greeting = 'Hey, welcome to Hermes. What should I call you?'
+    const brief = buildChatOnboardingPrompt(greeting)
+
+    expect(brief).toContain(greeting)
+    expect(brief).toContain('Do NOT greet again')
+    expect(brief).toContain('::onboarding{step="ready"}')
+  })
+
+  it('pickOnboardingGreeting is stable within a run and never empty', async () => {
+    const { $onboardingGreeting, pickOnboardingGreeting } = await import('@/components/onboarding-chat/assembly')
+
+    $onboardingGreeting.set('')
+    const first = pickOnboardingGreeting()
+
+    expect(first.length).toBeGreaterThan(20)
+    expect(first).toContain('call you')
+    expect(pickOnboardingGreeting()).toBe(first)
+  })
+})

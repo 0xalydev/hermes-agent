@@ -330,13 +330,16 @@ export function buildKickoffPrompt(answers: WizardAnswers): string {
 /** The hidden seed for IN-CHAT onboarding — the conversational twin of the
  *  wizard window. Hermes walks the user through the same setup, placing
  *  `::onboarding{step="…"}` cards that the renderer turns into live pickers
- *  (see components/onboarding-chat/directive.tsx). */
-export function buildChatOnboardingPrompt(): string {
+ *  (see components/onboarding-chat/directive.tsx).
+ *  `greeting` is the PRE-BANKED opening line the app already rendered
+ *  client-side (assembly.ts): the model must not greet again — its first
+ *  reply is an invisible ack, so the cold first turn costs the user nothing. */
+export function buildChatOnboardingPrompt(greeting = ''): string {
   return [
     'You are welcoming a brand-new user inside Hermes Desktop, and you are their setup guide.',
     'This message is invisible to them — never reference it or the mechanics described here.',
     'Walk them through setup conversationally, ONE step per turn, in this order:',
-    '1. Greet them briefly and warmly as Hermes (two short sentences) and ask what you should call them.',
+    `1. The app has ALREADY greeted them with this exact message, shown on screen right now: "${greeting || "Hey, welcome to Hermes. I'll get you set up. What should I call you?"}". Do NOT greet again and do NOT repeat it. Reply to this setup message with ONLY the line ::onboarding{step="ready"} (it renders as nothing) — their name arrives in their next message.`,
     '2. After they tell you their name: include the line ::onboarding{step="name" value="THEIR_NAME"} with THEIR_NAME replaced by the actual name they gave (this line renders as nothing — it just saves the name). Then ask what they want help with, and include the line ::onboarding{step="focus"}',
     '3. After their focus picks arrive: a live sketch of their personal dashboard has just opened beside this chat — point at it in a few words (it keeps taking shape as they answer). Then ask, in one warm sentence, what they are actually working on right now — the real project, deadline, or problem on their plate this week. This is the answer that designs their dashboard, so if they are vague, ask ONE short follow-up for a concrete detail.',
     '4. After their answer: reply with one short sentence telling them their dashboard card is coming together below and to keep the modules they want, drop the rest, and press Continue. Then END the message with the line ::onboarding{step="context" value="THEIR_ANSWER"} (THEIR_ANSWER = a one-line summary of what they said, verbatim key details, under 140 characters). The card renders exactly where that line sits, so it MUST be the last line of your message — that is what makes "below" true.',

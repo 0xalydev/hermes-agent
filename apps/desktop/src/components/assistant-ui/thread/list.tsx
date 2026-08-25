@@ -17,7 +17,7 @@ import {
 } from 'react'
 import { type GetTargetScrollTop, useStickToBottom } from 'use-stick-to-bottom'
 
-import { $chatOnboardingThreadIds } from '@/components/onboarding-chat/assembly'
+import { $chatOnboardingThreadIds, $onboardingGreeting } from '@/components/onboarding-chat/assembly'
 import { usePaneLifecycle } from '@/components/pane-shell/pane-visibility'
 import { useI18n } from '@/i18n'
 import { messagePaintWeight } from '@/lib/render-weight'
@@ -385,7 +385,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // part-appends can't churn group identity (that would defeat the rows memo
   // below on every tick). Weights are folded in separately for the budget.
   const groups = useMemo(() => buildGroups(structuralSignature), [structuralSignature])
-  const renderEmpty = groups.length === 0 && Boolean(emptyPlaceholder)
+  const renderEmpty = groups.length === 0 && Boolean(emptyPlaceholder) && !(sessionKey && $chatOnboardingThreadIds.get().includes(sessionKey) && $onboardingGreeting.get())
 
   // use-stick-to-bottom owns scrollTop (single writer): follow while locked,
   // escape on user scroll-up, re-lock at bottom. Snap instantly, not spring — a
@@ -562,13 +562,31 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   // turn) have no user bubble above the opening assistant turn, so the first
   // painted row is the assistant's thought/text flush against the pane
   // chrome. Give the greeting some air.
-  const assistantOpensThread = hiddenCount === 0 && groups[0]?.kind === 'standalone'
 
   // The guided-setup thread reads larger (~16px body vs the app's 14px) — a
   // conversation, not a work surface. Marked with data-thread-type so the
   // scaling itself lives in styles.css as a plain override.
   const onboardingThreadIds = useStore($chatOnboardingThreadIds)
   const threadType = sessionKey && onboardingThreadIds.includes(sessionKey) ? 'onboarding' : undefined
+
+  // The guided chat's opening line is PRE-BANKED and rendered here, client-
+  // side, the instant the thread mounts — the model's cold first turn took up
+  // to 10s in live runs and the greeting must never wait on it. The kickoff
+  // brief tells the model exactly what was said; its first reply is an
+  // invisible ready-ack, and the conversation continues from the user's name.
+  const onboardingGreeting = useStore($onboardingGreeting)
+
+  const greetingRow =
+    threadType === 'onboarding' && onboardingGreeting ? (
+      <div
+        className="mb-(--conversation-turn-gap) whitespace-pre-wrap leading-relaxed duration-500 animate-in fade-in-0 slide-in-from-bottom-2"
+        data-onboarding-greeting
+      >
+        {onboardingGreeting}
+      </div>
+    ) : null
+
+  const assistantOpensThread = (hiddenCount === 0 && groups[0]?.kind === 'standalone') || Boolean(greetingRow)
 
   const threadContentTopPad = secondaryWindow
     ? 'pt-[calc(var(--titlebar-height)+0.75rem)]'
@@ -799,6 +817,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
                 {t.assistant.thread.showEarlier}
               </button>
             )}
+            {greetingRow}
             {rows}
             {loadingIndicator}
             {clampToComposer && (

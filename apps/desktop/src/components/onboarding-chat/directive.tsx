@@ -56,7 +56,7 @@ import { $wizardAnswers, setWizardAnswers } from '@/store/onboarding-wizard'
 import { useTheme } from '@/themes'
 import { setAccentOverride } from '@/themes/accent-override'
 
-type ChatStep = 'connectors' | 'context' | 'first-screen' | 'focus' | 'layout' | 'look' | 'name'
+type ChatStep = 'connectors' | 'context' | 'first-screen' | 'focus' | 'layout' | 'look' | 'name' | 'ready'
 
 function isChatStep(value: string | undefined): value is ChatStep {
   return (
@@ -66,7 +66,8 @@ function isChatStep(value: string | undefined): value is ChatStep {
     value === 'look' ||
     value === 'layout' ||
     value === 'first-screen' ||
-    value === 'name'
+    value === 'name' ||
+    value === 'ready'
   )
 }
 
@@ -550,7 +551,8 @@ const CARDS: Record<ChatStep, (props: CardProps) => React.JSX.Element> = {
   // 'name' renders nothing — it's the model handing the renderer the name it
   // was told, so the artifact compiler personalizes for real (see the
   // OnboardingChatDirective wrapper: the value lands before this lookup).
-  name: () => <></>
+  name: () => <></>,
+  ready: () => <></>
 }
 
 export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<string, string>; streaming: boolean }) {
@@ -578,8 +580,9 @@ export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<st
   }
 
   // Legacy/compat: an explicitly emitted first-screen directive renders
-  // nothing — the card already lives at the context directive.
-  if (step === 'first-screen') {
+  // nothing — the card already lives at the context directive. 'ready' is the
+  // model's invisible ack of the pre-banked greeting (kickoff step 1).
+  if (step === 'first-screen' || step === 'ready') {
     return null
   }
 
