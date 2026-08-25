@@ -36,13 +36,29 @@ const HANDOFF_DONE_KEY = 'hermes-setup-handoff-done-v1'
 
 export type SetupHandoffPhase = 'done' | 'error' | 'minting' | 'pending'
 
+/** Where the first build lands. A bot is a STANDING relationship — its own
+ *  profile, its own canonical chat, it can check in later. A session is a
+ *  discrete piece of work on the user's default profile: visible in the
+ *  Sessions list, git strip and panels intact, the normal app. Setup proposes
+ *  one from the conversation; the user picks on the handoff card. */
+export type HandoffSurface = 'bot' | 'session'
+
 export interface SetupHandoffState {
   task: string
   brief: string
   phase: SetupHandoffPhase
-  /** Set once the task bot exists. */
+  surface: HandoffSurface
+  /** Set once the task bot exists (bot surface only). */
   botName?: string
   botTitle?: string
+}
+
+/** Read the model's `surface="…"` attr; null when absent or unrecognized so
+ *  the card can fall back to its own default. */
+export function parseHandoffSurface(raw: string | undefined): HandoffSurface | null {
+  const value = (raw ?? '').trim().toLowerCase()
+
+  return value === 'bot' || value === 'session' ? value : null
 }
 
 /** The handoff beacon: HandoffCard raises it, the wiring effect performs it.
@@ -62,12 +78,12 @@ export const $setupBotSession = atom<null | {
 /** Raise the handoff request (once per task — re-parses and re-mounts of the
  *  directive are no-ops, and a relaunch after a completed handoff stays
  *  quiet thanks to the storage latch). */
-export function requestSetupHandoff(task: string, brief: string): boolean {
+export function requestSetupHandoff(task: string, brief: string, surface: HandoffSurface): boolean {
   if ($setupHandoff.get() !== null || readKey(HANDOFF_DONE_KEY) === '1') {
     return false
   }
 
-  $setupHandoff.set({ brief, phase: 'pending', task })
+  $setupHandoff.set({ brief, phase: 'pending', surface, task })
 
   return true
 }
@@ -142,11 +158,13 @@ export function composeTaskBotSoul(task: string, answers: WizardAnswers): string
 /** The hidden runbook seeded into the task bot's chat — the work-side half of
  *  the old single-chat script: no-auth first build, the permissions note, and
  *  the live progress cards. */
-export function buildTaskBotRunbook(task: string, answers: WizardAnswers): string {
+export function buildTaskBotRunbook(task: string, answers: WizardAnswers, surface: HandoffSurface): string {
   const name = answers.name.trim()
 
   return [
-    `You are a brand-new agent that Setup (the onboarding guide) just created around one task: ${task.trim()}.`,
+    surface === 'bot'
+      ? `You are a brand-new agent that Setup (the onboarding guide) just created around one task: ${task.trim()}.`
+      : `Setup (the onboarding guide) just opened this session for one task: ${task.trim()}.`,
     'This message is invisible to the user — never reference it or the mechanics described here.',
     name ? `The user is called ${name}.` : '',
     'Their next message is the go signal: really begin the work — plan briefly, then build (scaffold, research, first artifact).',
@@ -164,15 +182,18 @@ export function buildTaskBotRunbook(task: string, answers: WizardAnswers): strin
  *  which is what starts the build. */
 export function buildTaskBotSeedMessages(
   task: string,
-  answers: WizardAnswers
+  answers: WizardAnswers,
+  surface: HandoffSurface
 ): { content: string; display_kind?: 'hidden'; role: 'assistant' | 'user' }[] {
-  return [{ content: buildTaskBotRunbook(task, answers), display_kind: 'hidden', role: 'user' }]
+  return [{ content: buildTaskBotRunbook(task, answers, surface), display_kind: 'hidden', role: 'user' }]
 }
 
 /** The hidden note whispered into the Setup chat once the task bot is live —
  *  Setup's cue to close the loop and schedule its check-ins. */
-export function buildHandoffCompleteNote(task: string, botTitle: string): string {
-  return `[setup] handoff complete — "${task.trim()}" is now building in the ${botTitle} bot's chat, and the user is watching it there. Say one short line: you'll check in as they get going, and this chat is always here. Then schedule yourself a check-in cron job (cronjob tool, e.g. daily) that reviews what the user has set up so far and offers ONE next step if a genuinely useful one exists.`
+export function buildHandoffCompleteNote(task: string, botTitle: string, surface: HandoffSurface): string {
+  const where = surface === 'bot' ? `the ${botTitle} bot's chat` : 'a new session'
+
+  return `[setup] handoff complete — "${task.trim()}" is now building in ${where}, and the user is watching it there. Say one short line: you'll check in as they get going, and this chat is always here. Then schedule yourself a check-in cron job (cronjob tool, e.g. daily) that reviews what the user has set up so far and offers ONE next step if a genuinely useful one exists.`
 }
 
 /** The hidden note when minting the task bot failed — Setup falls back to

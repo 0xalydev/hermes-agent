@@ -43,7 +43,7 @@ import {
 } from '@/components/onboarding-chat/setup-bot'
 import { OnboardingSkip } from '@/components/onboarding-chat/skip'
 import { OnboardingWizardGate } from '@/components/onboarding-wizard'
-import { $newSessionTabAction, registerPaneCloser } from '@/components/pane-shell/tree/store'
+import { $newSessionTabAction, registerPaneCloser, setActiveTreePane } from '@/components/pane-shell/tree/store'
 import { FloatingPet } from '@/components/pet/floating-pet'
 import { RemoteDisplayBanner } from '@/components/remote-display-banner'
 import { emitGatewayEvent } from '@/contrib/events'
@@ -821,7 +821,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
       return
     }
 
-    const { brief, task } = setupHandoff
+    const { brief, surface, task } = setupHandoff
 
     $setupHandoff.set({ ...setupHandoff, phase: 'minting' })
 
@@ -848,18 +848,30 @@ export function ContribWiring({ children }: { children: ReactNode }) {
 
       try {
         const answers = $wizardAnswers.get()
-        const botName = await mintTaskBotProfile(requestGateway, task, answers)
         const botTitle = taskBotTitle(task)
+        let botName: string | undefined
 
-        // Same selectProfile-style swap as the kickoff: the task bot's chat
-        // is created on (and every later ambient RPC lands on) its backend.
-        $newChatProfile.set(botName)
-        await ensureGatewayProfile(botName)
+        if (surface === 'bot') {
+          botName = await mintTaskBotProfile(requestGateway, task, answers)
+          // Same selectProfile-style swap as the kickoff: the task bot's chat
+          // is created on (and every later ambient RPC lands on) its backend.
+          $newChatProfile.set(botName)
+          await ensureGatewayProfile(botName)
+        } else {
+          // A plain session belongs in the user's normal working context, so
+          // target `default` EXPLICITLY — the active gateway is Setup's own
+          // profile right now, and a null target means "keep the current one".
+          $newChatProfile.set(null)
+          await ensureGatewayProfile('default')
+        }
 
-        const runtimeId = await createBackendSessionForSend(brief, buildTaskBotSeedMessages(task, answers), {
-          hidden: true,
-          title: 'Bot Chat'
-        })
+        const runtimeId = await createBackendSessionForSend(
+          brief,
+          buildTaskBotSeedMessages(task, answers, surface),
+          // A bot's chat is its hidden canonical registry row; a session is an
+          // ordinary visible row the user finds by the task's name.
+          surface === 'bot' ? { hidden: true, title: 'Bot Chat' } : { title: botTitle }
+        )
 
         if (!runtimeId) {
           throw new Error('task session create failed')
@@ -867,22 +879,30 @@ export function ContribWiring({ children }: { children: ReactNode }) {
 
         const storedId = $selectedStoredSessionId.get()
 
-        void stampBotMeta(requestGateway, botName, {
-          ...TASK_BOT_LOOK,
-          ...(storedId ? { chat: storedId } : {}),
-          title: botTitle
-        })
+        if (botName) {
+          void stampBotMeta(requestGateway, botName, {
+            ...TASK_BOT_LOOK,
+            ...(storedId ? { chat: storedId } : {}),
+            title: botTitle
+          })
 
-        // The first build keeps the first-run treatment (no git strip, no
-        // floating user panels) — the task chat joins the onboarding threads.
-        $chatOnboardingThreadIds.set([
-          ...$chatOnboardingThreadIds.get(),
-          ...(storedId ? [storedId] : []),
-          runtimeId
-        ])
+          // The first build keeps the first-run treatment (no git strip, no
+          // floating user panels) — the task chat joins the onboarding threads.
+          $chatOnboardingThreadIds.set([
+            ...$chatOnboardingThreadIds.get(),
+            ...(storedId ? [storedId] : []),
+            runtimeId
+          ])
+        } else {
+          // Session mode IS the normal app: the git strip and the user's own
+          // panels belong here, so the thread stays out of the onboarding set.
+          // Assembly fronted BOTS when Setup was the only conversation — this
+          // build lives in Sessions, so hand the sidebar back to that tab.
+          setActiveTreePane('sessions')
+        }
 
         // The go signal — Setup's brief lands as the user's first visible
-        // turn in the new bot's chat, and the build starts from it. Painted
+        // turn in the new chat, and the build starts from it. Painted
         // optimistically (same trick as the guide greeting) so the new chat
         // never opens empty while the submit round-trips.
         setMessages(current => [
@@ -906,12 +926,12 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         })
 
         markSetupHandoffDone()
-        $setupHandoff.set({ botName, botTitle, brief, phase: 'done', task })
-        whisperToSetup(buildHandoffCompleteNote(task, botTitle))
+        $setupHandoff.set({ botName, botTitle, brief, phase: 'done', surface, task })
+        whisperToSetup(buildHandoffCompleteNote(task, botTitle, surface))
       } catch {
         // Undo the half-swap so the user's chat context stays with the guide.
         $newChatProfile.set(previousNewChatProfile)
-        $setupHandoff.set({ brief, phase: 'error', task })
+        $setupHandoff.set({ brief, phase: 'error', surface, task })
         whisperToSetup(buildHandoffFailedNote(task))
       }
     })()

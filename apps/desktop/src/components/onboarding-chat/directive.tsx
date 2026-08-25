@@ -22,7 +22,9 @@ import { $chatLayoutPicked, $chatOnboardingSolo, assembleChatOnboarding } from '
 import { rememberOnboardingSubmit } from '@/components/onboarding-chat/retry'
 import {
   $setupHandoff,
+  type HandoffSurface,
   hasCompletedSetupHandoff,
+  parseHandoffSurface,
   requestSetupHandoff,
   taskBotTitle
 } from '@/components/onboarding-chat/setup-bot'
@@ -394,25 +396,26 @@ function FirstBuildCard({ attrs, locked = false }: CardProps & { attrs: Record<s
   )
 }
 
+const HANDOFF_SURFACE_LABELS: Record<HandoffSurface, string> = {
+  bot: 'Give it its own agent',
+  session: 'Open it as a session'
+}
+
 /**
- * The handoff card — bot mode's replacement for "the task starts in this
- * chat". Setup emits `::onboarding{step="handoff" task="…" brief="…"}` once
- * the task is decided; when the turn settles this card raises the handoff
- * beacon and the wiring effect does the real work (mint the task bot, seed
- * its chat, move the user there). The card itself just narrates: spinning
- * up → built. Both latches (atom + storage) make re-parses, re-mounts, and
- * relaunches into old transcripts inert.
+ * The handoff card — where the first build leaves this chat. Setup emits
+ * `::onboarding{step="handoff" task="…" brief="…" surface="…"}` once the task
+ * is decided, and the card asks the one question the conversation can't
+ * answer for the user: should this be a standing agent or a plain session?
+ * Setup's `surface` is the proposal (from everything they've said) and leads;
+ * the other option sits beside it. The pick raises the handoff beacon and the
+ * wiring effect does the real work — mint or not, seed, move the user there.
+ * After that the card just narrates: spinning up → built. Both latches (atom
+ * + storage) make re-parses, re-mounts, and relaunches inert.
  */
 function HandoffCard({ attrs, locked = false }: CardProps & { attrs: Record<string, string> }) {
   const task = (attrs.task ?? '').trim().slice(0, 60)
   const brief = (attrs.brief ?? '').trim().slice(0, 240)
   const state = useStore($setupHandoff)
-
-  useEffect(() => {
-    if (!locked && task && brief) {
-      requestSetupHandoff(task, brief)
-    }
-  }, [brief, locked, task])
 
   if (!task || !brief) {
     return null
@@ -421,6 +424,33 @@ function HandoffCard({ attrs, locked = false }: CardProps & { attrs: Record<stri
   const settled = state?.phase === 'done' || (state === null && hasCompletedSetupHandoff())
   const failed = state?.phase === 'error'
   const title = state?.botTitle ?? taskBotTitle(task)
+
+  // Unanswered: the user hasn't chosen yet and nothing has run. A locked
+  // (replayed) transcript never re-asks — it falls through to the narration.
+  if (!state && !settled && !locked) {
+    // Setup's read of the conversation leads; 'bot' when it didn't say.
+    const suggested = parseHandoffSurface(attrs.surface) ?? 'bot'
+    const order: HandoffSurface[] = suggested === 'session' ? ['session', 'bot'] : ['bot', 'session']
+
+    return (
+      <div className="my-3 grid max-w-md gap-2" data-onboarding-card>
+        <span className="text-sm text-(--ui-text-secondary)">How should we run it?</span>
+        <div className="flex flex-wrap gap-2">
+          {order.map(surface => (
+            <Chip
+              key={surface}
+              label={HANDOFF_SURFACE_LABELS[surface]}
+              on={false}
+              onToggle={() => void requestSetupHandoff(task, brief, surface)}
+              variant="pill"
+            />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  const asSession = state?.surface === 'session'
 
   return (
     <div className="my-3 flex max-w-md items-center gap-2 text-sm" data-onboarding-card>
@@ -433,9 +463,11 @@ function HandoffCard({ attrs, locked = false }: CardProps & { attrs: Record<stri
       />
       <span className="text-(--ui-text-secondary)">
         {failed
-          ? 'Couldn\u2019t spin up a separate agent — building here instead'
+          ? 'Couldn\u2019t open it separately — building here instead'
           : settled
-            ? `${title} is on it — find it in your agents`
+            ? asSession
+              ? `${title} is on it — find it in your sessions`
+              : `${title} is on it — find it in your agents`
             : `Spinning up ${title}\u2026`}
       </span>
     </div>
