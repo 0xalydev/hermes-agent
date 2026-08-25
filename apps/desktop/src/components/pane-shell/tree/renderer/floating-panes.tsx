@@ -13,12 +13,14 @@ import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef,
 
 import { HUD_SURFACE } from '@/app/floating-hud'
 import { TITLEBAR_HEIGHT } from '@/app/shell/titlebar'
+import { $chatOnboardingSolo, $chatOnboardingThreadIds } from '@/components/onboarding-chat/assembly'
 import { Codicon } from '@/components/ui/codicon'
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
 import type { Contribution } from '@/contrib/types'
 import { readJson, writeJson } from '@/lib/storage'
 import { cn } from '@/lib/utils'
+import { $activeSessionId, $selectedStoredSessionId } from '@/store/session'
 
 import { $hiddenTreePanes } from '../store'
 
@@ -189,8 +191,23 @@ function FloatingPane({ pane }: { pane: Contribution }) {
 export function FloatingPanes() {
   const panes = useContributions('panes')
   const hidden = useStore($hiddenTreePanes)
+  // The first-run story is a bare conversation: user/plugin panels must not
+  // float over it — not during the solo phase, and not over the guided or
+  // first-build threads after the app assembles. They're back the moment the
+  // user is in any other session.
+  const solo = useStore($chatOnboardingSolo)
+  const onboardingThreadIds = useStore($chatOnboardingThreadIds)
+  const activeRuntimeId = useStore($activeSessionId)
+  const selectedStoredId = useStore($selectedStoredSessionId)
 
-  const floating = panes.filter(pane => paneChrome(pane).placement === FLOATING_PLACEMENT && !hidden.has(pane.id))
+  const onboardingActive =
+    solo ||
+    (activeRuntimeId != null && onboardingThreadIds.includes(activeRuntimeId)) ||
+    (selectedStoredId != null && onboardingThreadIds.includes(selectedStoredId))
+
+  const floating = onboardingActive
+    ? []
+    : panes.filter(pane => paneChrome(pane).placement === FLOATING_PLACEMENT && !hidden.has(pane.id))
 
   if (floating.length === 0) {
     return null

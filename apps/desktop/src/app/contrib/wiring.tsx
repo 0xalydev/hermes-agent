@@ -873,6 +873,14 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           title: botTitle
         })
 
+        // The first build keeps the first-run treatment (no git strip, no
+        // floating user panels) — the task chat joins the onboarding threads.
+        $chatOnboardingThreadIds.set([
+          ...$chatOnboardingThreadIds.get(),
+          ...(storedId ? [storedId] : []),
+          runtimeId
+        ])
+
         // The go signal — Setup's brief lands as the user's first visible
         // turn in the new bot's chat, and the build starts from it. Painted
         // optimistically (same trick as the guide greeting) so the new chat
