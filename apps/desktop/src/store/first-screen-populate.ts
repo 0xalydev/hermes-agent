@@ -511,6 +511,57 @@ export async function fillScreenContent(
   }
 }
 
+// ── Write ownership ──────────────────────────────────────────────────────────
+// Machine writers (speculative fill, final fill) must never clobber an edit
+// made by the AGENT or the USER while a fill turn was in flight (live
+// failure: the user deleted cards mid-fill; the fill finished 90s later and
+// resurrected them). Every machine write records the exact text it wrote;
+// before the next machine write we re-read the file — if it no longer
+// matches our last write, another author owns the file and the machine
+// stands down.
+let lastMachineWrite: null | string = null
+
+export function resetPopulateOwnershipForTests(): void {
+  lastMachineWrite = null
+}
+
+async function machineWrite(
+  desktop: NonNullable<Window['hermesDesktop']>,
+  filePath: string,
+  text: string,
+  options: { force?: boolean } = {}
+): Promise<boolean> {
+  if (!desktop.writeTextFile) {
+    return false
+  }
+
+  if (!options.force && lastMachineWrite !== null && typeof desktop.readFileText === 'function') {
+    try {
+      const current = (await desktop.readFileText(filePath)) as unknown
+
+      const text =
+        typeof current === 'string'
+          ? current
+          : current && typeof current === 'object' && 'text' in current
+            ? String((current as { text: unknown }).text)
+            : null
+
+      if (text !== null && text !== lastMachineWrite) {
+        // Foreign edit since our last write — the file has a new owner.
+        return false
+      }
+    } catch {
+      // Unreadable (deleted?) — do not resurrect it.
+      return false
+    }
+  }
+
+  await desktop.writeTextFile(filePath, text)
+  lastMachineWrite = text
+
+  return true
+}
+
 /** Fire-and-forget FINAL fill: write `precomputed` content (the speculative
  *  fill that ran while the user was picking selectors) immediately, then fill
  *  only the gaps. Resolves true when the file ends populated. Never throws —
@@ -545,19 +596,24 @@ export async function populateFirstScreenArtifact(
     const missing = config.blocks.filter(block => !carried.content[block.id])
 
     // Everything the user kept is already written — finalize in one write.
+    // Build's first write takes ownership unconditionally (it follows the
+    // user's explicit Continue); later writes must still hold the file.
     if (missing.length === 0) {
-      await desktop.writeTextFile(filePath, populatedFileContent(config, carried))
+      await machineWrite(desktop, filePath, populatedFileContent(config, carried), { force: true })
 
       return true
     }
 
-    await desktop.writeTextFile(filePath, populatedFileContent(config, carried, { stillPopulating: true }))
+    await machineWrite(desktop, filePath, populatedFileContent(config, carried, { stillPopulating: true }), {
+      force: true
+    })
 
     const gap = await fillScreenContent({ ...config, blocks: missing })
 
     if (!gap) {
-      // Clear the flag so the shimmer can't run forever; carried content stays.
-      await desktop.writeTextFile(filePath, populatedFileContent(config, carried))
+      // Clear the flag so the shimmer can't run forever; carried content
+      // stays. Skipped silently if the agent/user edited meanwhile.
+      await machineWrite(desktop, filePath, populatedFileContent(config, carried))
 
       return Object.keys(carried.content).length > 0
     }
@@ -568,15 +624,16 @@ export async function populateFirstScreenArtifact(
       overrides: { ...carried.overrides, ...gap.overrides }
     }
 
-    await desktop.writeTextFile(filePath, populatedFileContent(config, merged))
+    await machineWrite(desktop, filePath, populatedFileContent(config, merged))
 
     return true
   } catch {
     try {
-      if (desktop.desktopPluginsRoot && desktop.writeTextFile) {
+      if (desktop.desktopPluginsRoot) {
         const root = await desktop.desktopPluginsRoot()
 
-        await desktop.writeTextFile(
+        await machineWrite(
+          desktop,
           `${root}/${FIRST_SCREEN_PLUGIN_DIR}/screen.json`,
           populatedFileContent(config, { content: {}, extra: [], overrides: {} })
         )

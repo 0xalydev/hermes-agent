@@ -174,7 +174,7 @@ function sendWork(task) {
   send(
     '[Onboarding Dashboard button] Do this task now and give me the finished output directly in chat: ' +
       task +
-      '\\n\\nRules: write like a person: plain declaratives, active voice, no em dashes, no exclamation marks, no praise, no AI diction (delve, seamless, robust, crucial), end on the last real point. Produce the actual deliverable (list, draft, plan), not a description of it. Reusable text goes in a fenced code block. When the next move is a decision or you need one fact from me, END with one interactive question as its own paragraph: ::ask{question="..." options="A|B|C"} (2-6 short options; add input="true" for free text) instead of asking in prose. Do not talk about, edit, or rebuild the dashboard or its config unless I explicitly ask you to change the dashboard. If I DO ask for a dashboard change (save a result as a module, rename, rewire a card), make the edit yourself in that same turn: read ' + (screenPath || 'screen.json in my first-screen plugin folder') + ' , keep the JSON schema: each block is {id, kind, label, prompt, content} and the card body ALWAYS lives nested under content with its own kind, e.g. {"kind": "action", "steps": []} or {"kind": "feed", "items": [{"line", "source"}]}. When you change what a card is about, rewrite its label, prompt, AND content together (a renamed card with stale content is a failure). Write it back, confirm in one line. Never end a turn with a promise to wire something in later.'
+      '\\n\\nRules: write like a person: plain declaratives, active voice, no em dashes, no exclamation marks, no praise, no AI diction (delve, seamless, robust, crucial), end on the last real point. Produce the actual deliverable (list, draft, plan), not a description of it. Reusable text goes in a fenced code block. When the next move is a decision or you need one fact from me, END with one interactive question as its own paragraph: ::ask{question="..." options="A|B|C"} (2-6 short options; add input="true" for free text) instead of asking in prose. Do not talk about, edit, or rebuild the dashboard or its config unless I explicitly ask you to change the dashboard. If I DO ask for a dashboard change (save a result as a module, rename, rewire a card), make the edit yourself in that same turn: read ' + (screenPath || 'screen.json in my first-screen plugin folder') + ' , keep the JSON schema: each block is {id, kind, label, prompt, content} and the card body ALWAYS lives nested under content with its own kind, e.g. {"kind": "action", "steps": []} or {"kind": "feed", "items": [{"line", "source"}]}. When you change what a card is about, rewrite its label, prompt, AND content together (a renamed card with stale content is a failure). When removing or reordering cards, keep every surviving block byte-identical, content included; stripping content from kept cards is a failure. Never write a populating flag; keep populatedAt. Write it back, confirm in one line. Never end a turn with a promise to wire something in later.'
   )
 }
 
@@ -420,14 +420,28 @@ export default {
       const blocks = (config && config.blocks) || []
       const stage = (config && config.stage) || 'final'
       const populated = Boolean(config && config.populatedAt)
-      // In-progress: populating:true means the fill is STILL RUNNING — that
-      // always wins (a partial write stamps populatedAt with content for only
-      // SOME blocks; the rest must keep shimmering, never say "Press Run").
-      // Age heuristic stays as the fallback for files from older builds.
-      const freshPending = Boolean(
-        (config && config.populating) ||
-          (!populated && config && config.generatedAt && Date.now() - Date.parse(config.generatedAt) < 180000)
+      // In-progress: populating:true means the fill is STILL RUNNING. The
+      // writing state must be INCAPABLE of sticking forever (live failure: an
+      // agent edit left stale flags + stripped content and every card sat
+      // disabled on 'WRITING YOURS NOW' with no fill running). Shimmer only
+      // while the file's newest stamp is under 3 minutes old; after that the
+      // cards fall back to their enabled Run/Refresh states.
+      const stamp = Math.max(
+        (config && config.populatedAt && Date.parse(config.populatedAt)) || 0,
+        (config && config.generatedAt && Date.parse(config.generatedAt)) || 0
       )
+      const fresh = stamp > 0 && Date.now() - stamp < 180000
+      const freshPending = Boolean(config && (config.populating || !populated) && fresh)
+      // Exit the writing state LIVE when the window lapses — the file watcher
+      // only fires on changes, so without this the stale shimmer would hold
+      // until the next unrelated repaint.
+      const [, bumpClock] = useState(0)
+      useEffect(() => {
+        if (!freshPending) return
+        const left = Math.max(180000 - (Date.now() - stamp), 0) + 1000
+        const t = setTimeout(() => bumpClock(n => n + 1), left)
+        return () => clearTimeout(t)
+      }, [freshPending, stamp])
       const filePath = (config && config.path) || '~/.hermes/desktop-plugins/first-screen/screen.json'
       screenPath = filePath
 
