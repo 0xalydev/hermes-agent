@@ -169,6 +169,17 @@ def _hmac_str_equal(provided: str, expected: str) -> bool:
     return hmac.compare_digest(provided.encode(), expected.encode())
 
 
+def _is_workflow_route(route_name: str, route_config: dict) -> bool:
+    """True for a hook the Workflows canvas owns.
+
+    Such a route answers only to its workflow: it accepts an unsigned POST
+    (the unguessable URL is the credential) and 404s rather than falling
+    through to the generic agent dispatch. The `wf-` prefix is the fallback
+    for a route whose flag an older sync dropped.
+    """
+    return bool(route_config.get("hermes_workflow")) or str(route_name).startswith("wf-")
+
+
 def check_webhook_requirements() -> bool:
     """Check if webhook adapter dependencies are available."""
     return AIOHTTP_AVAILABLE
@@ -714,14 +725,19 @@ class WebhookAdapter(BasePlatformAdapter):
                 {"error": "Webhook route is missing an HMAC secret"},
                 status=403,
             )
+        workflow_route = _is_workflow_route(route_name, route_config)
         if secret != _INSECURE_NO_AUTH:
-            if not self._validate_signature(request, raw_body, secret):
-                logger.warning(
-                    "[webhook] Invalid signature for route %s", route_name
-                )
-                return web.json_response(
-                    {"error": "Invalid signature"}, status=401
-                )
+            # Workflow hooks are n8n-shaped: the unguessable URL is the
+            # credential. A sender that *does* sign (GitHub, etc.) is still
+            # checked. Unsigned POST is how you point a generic tool at it.
+            if self._request_carries_signature(request) or not workflow_route:
+                if not self._validate_signature(request, raw_body, secret):
+                    logger.warning(
+                        "[webhook] Invalid signature for route %s", route_name
+                    )
+                    return web.json_response(
+                        {"error": "Invalid signature"}, status=401
+                    )
 
         # ── Rate limiting (after auth) ───────────────────────────
         now = time.time()
@@ -782,7 +798,13 @@ class WebhookAdapter(BasePlatformAdapter):
                 }
             )
 
-        workflow_id = str(route_config.get("workflow") or "").strip()
+        workflow_id = ""
+        try:
+            from workflow.triggers import workflow_id_for_route
+
+            workflow_id = workflow_id_for_route(route_name, route_config)
+        except Exception:
+            workflow_id = str(route_config.get("workflow") or "").strip()
         if workflow_id:
             try:
                 from workflow.runner import start_matching, start_run
@@ -805,6 +827,12 @@ class WebhookAdapter(BasePlatformAdapter):
                 return web.json_response(
                     {"error": f"Failed to start workflow: {exc}"}, status=500
                 )
+
+        if workflow_route:
+            return web.json_response(
+                {"error": "No workflow bound to this hook"},
+                status=404,
+            )
 
         workflow_event = str(route_config.get("workflow_event") or "").strip()
         if workflow_event:
@@ -1119,6 +1147,17 @@ class WebhookAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
     # Signature validation
     # ------------------------------------------------------------------
+
+    def _request_carries_signature(self, request: "web.Request") -> bool:
+        names = (
+            "X-Webhook-Signature-V2",
+            "X-Webhook-Signature",
+            "X-Hub-Signature-256",
+            "X-Gitlab-Token",
+            "svix-signature",
+            "linear-signature",
+        )
+        return any(request.headers.get(name) or request.headers.get(name.lower()) for name in names)
 
     def _validate_signature(
         self, request: "web.Request", body: bytes, secret: str

@@ -111,12 +111,17 @@ def _(rid, params: dict) -> dict:
         }
         _register_session_cwd(_sessions[sid])
 
-    # NOTE: we intentionally do NOT persist a DB row here. Every TUI/desktop
-    # launch (and every "New agent" / draft) opens a session here just to paint
-    # the composer, so eagerly creating a row left an "Untitled" empty session
-    # behind for every launch the user never typed into. The row is now created
-    # lazily on the first prompt (see _ensure_session_db_row + prompt.submit),
-    # and the AIAgent's own INSERT-OR-IGNORE persists it on the first turn too.
+    # NOTE: we intentionally do NOT persist a DB row here by default. Every
+    # TUI/desktop launch (and every "New agent" / draft) opens a session here
+    # just to paint the composer, so eagerly creating a row left an "Untitled"
+    # empty session behind for every launch the user never typed into. The row
+    # is created lazily on the first prompt (see _ensure_session_db_row +
+    # prompt.submit), and the AIAgent's own INSERT-OR-IGNORE persists it on
+    # the first turn too. Surfaces that *own* the conversation (a workflow
+    # canvas, a named hidden chat) pass persist=true so a refresh can resume
+    # the same id instead of 404ing "session not found".
+    if is_truthy_value(params.get("persist", False)):
+        _ensure_session_db_row(_sessions[sid])
 
     # Return the lightweight session immediately so Ink can paint the composer
     # + skeleton panel, then build the real AIAgent just after this response is

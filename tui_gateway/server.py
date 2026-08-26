@@ -3412,6 +3412,13 @@ def _ensure_session_db_row(session: dict) -> None:
                 db.set_session_hidden(key, True)
             except Exception:
                 logger.debug("failed to apply pending hidden flag", exc_info=True)
+        title = str(session.get("pending_title") or "").strip()
+        if title:
+            try:
+                if db.set_session_title(key, title):
+                    session["pending_title"] = None
+            except Exception:
+                logger.debug("failed to apply pending title", exc_info=True)
     except Exception as exc:
         # Disk-full is not a soft failure: if we swallow it here, prompt.submit
         # returns {"status":"streaming"} and the user's message vanishes with
