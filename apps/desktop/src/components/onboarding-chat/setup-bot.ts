@@ -153,11 +153,15 @@ export function composeSetupBotSoul(): string {
 /** SOUL.md for a freshly minted task bot. */
 export function composeTaskBotSoul(task: string, answers: WizardAnswers): string {
   const name = answers.name.trim()
+  const context = answers.context.trim()
+  const tools = answers.connectors.filter(Boolean)
 
   return [
     `# ${taskBotTitle(task)}`,
     '',
     `You are a Hermes agent minted for one job: ${task.trim()}.${name ? ` You work for ${name}.` : ''}`,
+    ...(context ? ['', `What they are working on: ${context}`] : []),
+    ...(tools.length ? [`Tools they use day to day: ${tools.join(', ')} (not connected yet — wiring one up is a later step, on their request).`] : []),
     '',
     '- Own this task end to end: build it, improve it, keep it running.',
     '- Be direct and brief; show your work as you go.',
@@ -177,6 +181,10 @@ export function buildTaskBotRunbook(task: string, answers: WizardAnswers, surfac
       : `Setup (the onboarding guide) just opened this session for one task: ${task.trim()}.`,
     'This message is invisible to the user — never reference it or the mechanics described here.',
     name ? `The user is called ${name}.` : '',
+    answers.context.trim() ? `They told Setup what they are working on: ${answers.context.trim()}. Let it shape your choices without re-asking.` : '',
+    answers.connectors.filter(Boolean).length
+      ? `Tools they use day to day: ${answers.connectors.filter(Boolean).join(', ')} — none are connected yet; never require one for this first build.`
+      : '',
     'Their next message is the go signal: really begin the work — plan briefly, then build (scaffold, research, first artifact).',
     'As you start, tell them in one short sentence: you\'ll ask for permissions as you go, and they can say no to anything or redirect you.',
     'CRITICAL: this first build must need NO external account or OAuth (no Gmail, no Slack, no Google sign-in) — connectors get wired later, on their request. Everything else is fair game and the more visible the better: web research with the browser shown to the user as you work, scripts, computer use, a small app, a file-based tracker, a scheduled reminder, a generated page. If the idea needs an account, build the no-auth core first and say the connection is a later step.',
