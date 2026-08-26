@@ -112,18 +112,23 @@ export function machineDescription(): string {
     return ''
   }
 
-  const age = profile.ageDays
-
   return [
-    machineLooksNew() ? `set up ${age === 0 ? 'today' : `${age} days ago`}` : '',
-    machineIsSpark() ? 'an NVIDIA Spark' : '',
+    machineLooksNew() ? `set up ${daysAgo(profile.ageDays)}` : '',
+    machineIsSpark() ? 'an NVIDIA Spark' : profile.nvidia ? 'has an NVIDIA GPU' : '',
     profile.model,
     `${profile.platform} ${profile.release}`,
-    profile.arch,
-    profile.nvidia ? 'NVIDIA GPU' : ''
+    profile.arch
   ]
     .filter(Boolean)
     .join(', ')
+}
+
+function daysAgo(days: null | number): string {
+  if (days === 0) {
+    return 'today'
+  }
+
+  return days === 1 ? 'yesterday' : `${days} days ago`
 }
 
 export function resetMachineProfileForTests(): void {

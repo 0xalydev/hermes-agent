@@ -176,7 +176,7 @@ const PRETEND = {
 async function main() {
   const keep = process.argv.includes('--keep')
   const mock = process.argv.includes('--mock')
-  const pretend = process.argv.includes('--spark') ? 'spark' : process.argv.includes('--new') ? 'new' : ''
+  const pretend = Object.keys(PRETEND).find(name => process.argv.includes(`--${name}`))
 
   await assertPortFree(RENDERER_PORT)
 

@@ -233,18 +233,7 @@ const NO_AUTH_RULE =
  *  briefing: look first, propose, then install with consent. Audit-before-plan
  *  is the load-bearing part — a plan invented before looking is how an agent
  *  ends up installing a second copy of something, or "fixing" drivers that
- *  were already fine.
- *
- *  It opens with what the app already knows about the machine — freshness
- *  first. That is the fact that decides whether this job is an afternoon of
- *  real work or a tour of things already handled, and the agent should not
- *  have to spend its first two turns discovering it. */
-function machineSetupRunbook(): string[] {
-  const description = machineDescription()
-
-  return [...(description ? [`What the app can already see about it: ${description}.`] : []), ...MACHINE_SETUP_RUNBOOK]
-}
-
+ *  were already fine. */
 const MACHINE_SETUP_RUNBOOK = [
   'THIS IS A MACHINE SETUP JOB: get this computer genuinely ready to use, end to end, with the terminal. It is the one first task that does not need an account anywhere — never send them to a sign-in to complete it.',
   'START BY LOOKING, NOT PLANNING. Before proposing anything, use the terminal to find out what is actually here: OS name and version, architecture, pending system updates, free disk, which package manager exists (Homebrew / winget / apt / dnf), and which everyday things are already installed (a browser, an editor, git, python, node, docker, and whatever tools they told Setup they use). On an NVIDIA machine also check the GPU and driver (nvidia-smi) and whether a container runtime and CUDA toolchain are present. Report what you found in a few short lines — plainly, no tables.',
@@ -255,6 +244,18 @@ const MACHINE_SETUP_RUNBOOK = [
   'Anything that genuinely needs their sign-in, a licence key, or a payment: do not attempt it. Collect those into a short "yours to do" list for the end.',
   'FINISH with a few lines: what changed, what you skipped and why, and what is left for them. If a reboot is needed, say so plainly.'
 ]
+
+/** The same runbook, opening with what the app already knows about the machine
+ *  — freshness first. That fact decides whether the job is an afternoon of real
+ *  work or a tour of things already handled, and the agent should not spend its
+ *  first two turns discovering what one IPC already answered. */
+function machineSetupRunbook(): string[] {
+  const description = machineDescription()
+
+  return description
+    ? [`What the app can already see about it: ${description}.`, ...MACHINE_SETUP_RUNBOOK]
+    : MACHINE_SETUP_RUNBOOK
+}
 
 /** Seed rows for the task bot's session.create — just the hidden runbook; the
  *  visible go-signal (the task brief) is submitted as a real turn right after,
