@@ -740,7 +740,7 @@ export function TaskDrawer({
               {typeof task.priority === 'number' && <SidePanelMetaRow label={k.metaPriority}>{task.priority}</SidePanelMetaRow>}
               {task.tenant && <SidePanelMetaRow label={k.metaTenant}>{task.tenant}</SidePanelMetaRow>}
               {task.workspace_path && (
-                <SidePanelMetaRow wrap label={k.workspace}>
+                <SidePanelMetaRow label={k.workspace} wrap>
                   {task.workspace_kind ? `${task.workspace_kind}: ` : ''}
                   {task.workspace_path}
                 </SidePanelMetaRow>

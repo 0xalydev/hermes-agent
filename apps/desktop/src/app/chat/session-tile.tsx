@@ -15,31 +15,21 @@
  */
 
 import { useStore } from '@nanostores/react'
-import { useQueryClient } from '@tanstack/react-query'
 import { atom, computed } from 'nanostores'
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 
-import { useGatewayRequest } from '@/app/gateway/hooks/use-gateway-request'
-import { useModelControls } from '@/app/session/hooks/use-model-controls'
-import { blobToDataUrl } from '@/app/session/hooks/use-prompt-actions/utils'
 import { resolveStoredSession } from '@/app/session/hooks/use-session-actions/utils'
-import { ModelMenuPanel } from '@/app/shell/model-menu-panel'
-import { formatRefValue } from '@/components/assistant-ui/directive-text'
 import { CenteredThreadSpinner } from '@/components/assistant-ui/thread/status'
 import { findGroupOfPane } from '@/components/pane-shell/tree/model'
 import { $layoutTree, closeTreePane, moveTreePane, setTreeGroupTabStrip } from '@/components/pane-shell/tree/store'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { transcribeAudio } from '@/hermes'
 import { useI18n } from '@/i18n'
 import type { ChatMessage } from '@/lib/chat-messages'
 import { NEW_SESSION_TITLE, sessionTitle } from '@/lib/chat-runtime'
-import { transcribeAudioClientDirect } from '@/lib/voice-client-direct'
-import { createComposerAttachmentScope, draftTitleFor } from '@/store/composer'
+import { draftTitleFor } from '@/store/composer'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
-import { $activeGatewayProfile } from '@/store/profile'
 import { $projectTree } from '@/store/projects'
-import { sessionAwaitingInput } from '@/store/prompts'
 import {
   $gatewayState,
   $selectedStoredSessionId,
@@ -47,7 +37,6 @@ import {
   sessionMatchesStoredId,
   sessionPinId
 } from '@/store/session'
-import { requestForSessionProfile } from '@/store/session-request-router'
 import {
   $sessionStates,
   $sessionTileDelegateRevision,
@@ -61,19 +50,14 @@ import {
 import type { SessionInfo } from '@/types/hermes'
 
 import type { SessionDragPayload } from './composer/inline-refs'
-import { type ComposerScope, ComposerScopeProvider } from './composer/scope'
-import { useComposerActions } from './hooks/use-composer-actions'
 import { paneMirror } from './pane-mirror'
+import { SessionChat } from './session-chat'
 import { SessionDraftTitle } from './session-draft-title'
 import { startSessionDrag } from './session-drag'
 import { SessionStatusDot } from './session-status-dot'
-import { useSessionTileActions } from './session-tile-actions'
-import { SessionChat } from './session-chat'
 import { buildSessionView, type SessionView } from './session-view'
 import { SessionContextMenu } from './sidebar/session-actions-menu'
-import { lastVisibleMessageIsUser } from './thread-loading'
 
-import { ChatView } from '.'
 
 const NO_MESSAGES: ChatMessage[] = []
 
