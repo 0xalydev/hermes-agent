@@ -16422,6 +16422,7 @@ def _mcp_summarize_server(name, cfg):  # noqa: E402
 from . import (  # noqa: E402
     methods_browser_control as _methods_browser_control,
     methods_bot_relay as _methods_bot_relay,
+    methods_workflow as _methods_workflow,
     methods_complete as _methods_complete,
     methods_config as _methods_config,
     methods_images as _methods_images,
@@ -16441,6 +16442,7 @@ for _m in (
     _methods_profiles,
     _methods_images,
     _methods_bot_relay,
+    _methods_workflow,
 ):
     _m.register(sys.modules[__name__])
 del _m
