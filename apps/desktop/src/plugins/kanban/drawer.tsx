@@ -248,7 +248,7 @@ function AssigneeMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="-mx-1 inline-flex max-w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-(--chrome-action-hover)"
+          className="inline-flex max-w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-(--chrome-action-hover)"
           type="button"
         >
           {current ? (
@@ -731,7 +731,7 @@ export function TaskDrawer({
         ) : (
           <div className="flex flex-col gap-4 text-sm">
             <SidePanelMeta>
-              <SidePanelMetaRow label={k.assignee}>
+              <SidePanelMetaRow control label={k.assignee}>
                 <AssigneeMenu
                   current={task.assignee}
                   onReassign={profile => void mutate(() => reassignTask(task.id, profile))()}
@@ -740,12 +740,12 @@ export function TaskDrawer({
               {typeof task.priority === 'number' && <SidePanelMetaRow label={k.metaPriority}>{task.priority}</SidePanelMetaRow>}
               {task.tenant && <SidePanelMetaRow label={k.metaTenant}>{task.tenant}</SidePanelMetaRow>}
               {task.workspace_path && (
-                <SidePanelMetaRow label={k.workspace}>
+                <SidePanelMetaRow wrap label={k.workspace}>
                   {task.workspace_kind ? `${task.workspace_kind}: ` : ''}
                   {task.workspace_path}
                 </SidePanelMetaRow>
               )}
-              <SidePanelMetaRow label={k.model}>
+              <SidePanelMetaRow control label={k.model}>
                 <ModelOverrideField
                   onChange={next => void mutate(() => patchTask(task.id, overridePatch(next)))()}
                   value={{

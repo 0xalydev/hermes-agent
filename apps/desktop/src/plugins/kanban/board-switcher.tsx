@@ -107,7 +107,12 @@ function NewBoardDialog({ onClose, open }: { onClose: () => void; open: boolean 
           <DialogTitle>{k.newBoard}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          <Field label={k.name}>
+          {/* A name of pure punctuation slugs to nothing, which only showed up
+              as a Create button that wouldn't light. */}
+          <Field
+            label={k.name}
+            status={name.trim() && !slug ? { level: 'error', message: k.boardNameUnusable } : undefined}
+          >
             <Input
               autoFocus
               onChange={event => setName(event.target.value)}
