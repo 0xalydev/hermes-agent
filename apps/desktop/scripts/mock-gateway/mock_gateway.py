@@ -46,6 +46,7 @@ import os
 import re
 import struct
 import sys
+import tempfile
 import threading
 import time
 from base64 import b64encode
@@ -71,7 +72,7 @@ MOCK_UNCONFIGURED_MS = float(os.environ.get('MOCK_UNCONFIGURED_MS', '6000'))
 # and writes ONE logical store.
 STATE_PATH = os.environ.get(
     'HERMES_MOCK_STATE',
-    os.path.join(os.environ.get('HERMES_HOME', '/tmp'), 'mock-state.json'),
+    os.path.join(os.environ.get('HERMES_HOME') or tempfile.gettempdir(), 'mock-state.json'),
 )
 
 WS_MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -536,12 +537,22 @@ class Gateway:
 
         if method == 'profiles.list':
             def _do(state):
+                # canonical_session is the bot roster's whole identity contract:
+                # the profile's `Bot Chat` row, resolved server-side by title,
+                # so preview and click target the same session by construction.
+                # A roster without it half-works in ways the real one cannot.
+                canonical = {}
+                for s in state['sessions'].values():
+                    if s['hidden'] and s['title'] == 'Bot Chat':
+                        canonical[s['profile']] = _session_info(s)
+
                 return [
                     {
                         'name': name,
                         'description': p.get('description', ''),
                         'ui_meta': p.get('ui_meta', {}),
-                        'is_active': name == 'default',
+                        'is_active': name == self.profile,
+                        'canonical_session': canonical.get(name),
                         'backend': 'local',
                     }
                     for name, p in state['profiles'].items()
@@ -617,7 +628,7 @@ class Gateway:
                         'text': text[:80],
                         'reply': (reply or '')[:80],
                     }
-                    with open('/tmp/mock-scenario.log', 'a', encoding='utf-8') as f:
+                    with open(os.path.join(tempfile.gettempdir(), 'mock-scenario.log'), 'a', encoding='utf-8') as f:
                         f.write(json.dumps(_trace) + '\n')
             if reply:
                 threading.Thread(target=self.play_turn, args=(sid, reply), daemon=True).start()
@@ -896,10 +907,10 @@ def _profiles(gateway, match, query, body):
             'name': p['name'],
             'description': p['description'],
             'ui_meta': p['ui_meta'],
-            'is_active': p['name'] == 'default',
+            'is_active': p['is_active'],
             'backend': 'local',
             'sessions': 0,
-            'home': '/tmp/hermes-magic-flow/profiles/' + p['name'],
+            'home': os.path.join(os.path.dirname(STATE_PATH), 'profiles', p['name']),
         }
         for p in result['profiles']
     ]

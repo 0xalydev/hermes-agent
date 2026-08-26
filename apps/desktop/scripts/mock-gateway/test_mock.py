@@ -12,12 +12,28 @@ import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 
 MOCK_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get('MOCK_TEST_PORT', '8899'))
 PORT2 = int(os.environ.get('MOCK_TEST_PORT2', '8900'))
-STATE = '/tmp/mock-test-state.json'
+STATE = os.path.join(tempfile.gettempdir(), 'mock-test-state.json')
+
+# The shape of the real runbook's scripted asks — the mock quotes these back
+# rather than keeping its own copy of the pills, so a seed without them is a
+# guide with no fork. Two tiers here, which is what a new machine gets.
+FORK_ASK = ('::ask{question="Know what you\'d like it to make?" '
+            'options="Help me set up this Mac|Something else" input="true"}')
+FALLBACK_ASK = ('::ask{question="What sounds better?" '
+                'options="I have something in mind|Automate something I already do|'
+                'Let\'s figure it out together|Skip this for now" input="true"}')
+RUNBOOK = (
+    'You are Setup, the persistent onboarding guide…\n'
+    f'4. Then the fork: {FORK_ASK} alone as its own paragraph.\n'
+    f'   If they pick "Something else": {FALLBACK_ASK} — same exactness rule.\n'
+    'Interactive questions: end the message with ::ask{question="..." options="A|B|C"} alone.'
+)
 
 
 def _rm_state():
@@ -165,7 +181,7 @@ def main():
 
         # ── Setup's canonical chat: seeded create + adopt-before-mint lookup ──
         seed = [
-            {'content': 'You are Setup, the persistent onboarding guide…', 'display_kind': 'hidden', 'role': 'user'},
+            {'content': RUNBOOK, 'display_kind': 'hidden', 'role': 'user'},
             {'content': "Hey, welcome — I'm Setup, your Hermes guide.", 'role': 'assistant'},
         ]
         created = setup_cl.rpc('session.create', {
@@ -202,18 +218,49 @@ def main():
         reply = setup_cl.submit(sid, '[setup] connect later: none for now', display_kind='hidden')
         assert '::onboarding{step="layout"}' in reply, reply
         reply = setup_cl.submit(sid, '[setup] layout: Basic', display_kind='hidden')
-        assert "::ask{question=\"Know what you'd like it to make?\"" in reply, reply
-        print('look/connectors/layout turns + fork ::ask OK')
+        # The fork is quoted from the seeded runbook, not composed here — which
+        # is the contract that keeps the mock honest as the real pills change.
+        assert FORK_ASK in reply, reply
+        print('look/connectors/layout turns + fork ::ask quoted from the runbook OK')
+
+        reply = setup_cl.submit(sid, 'Something else')
+        assert FALLBACK_ASK in reply, reply
+        print('two-tier fork: "Something else" opens the second ask OK')
 
         reply = setup_cl.submit(sid, 'Automate something I already do')
+        assert 'working on right now' in reply, reply
+        reply = setup_cl.submit(sid, 'Shipping the onboarding demo this week')
+        assert '::onboarding{step="working" value="' in reply, reply
         assert '::onboarding{step="first" options="' in reply, reply
-        print('fork → options card OK')
+        print('fork → what are you working on → options card OK')
 
         reply = setup_cl.submit(sid, 'A tracker for the thing you repeat every week')
         assert '::onboarding{step="handoff" task="' in reply, reply
         assert 'surface="bot"' in reply, reply
         assert 'brief="' in reply, reply
+        assert 'plan=' not in reply, reply
         print('options tap → handoff directive OK (surface=bot on Basic layout)')
+
+        # ── the machine-setup branch, on a second guide session ──
+        second = setup_cl.rpc('session.create', {'messages': [
+            {'content': RUNBOOK, 'display_kind': 'hidden', 'role': 'user'},
+        ]})['session_id']
+        setup_cl.submit(second, 'Sam')
+        setup_cl.submit(second, '[setup] accent color: Flame', display_kind='hidden')
+        setup_cl.submit(second, '[setup] connect later: none for now', display_kind='hidden')
+        setup_cl.submit(second, '[setup] layout: Elite', display_kind='hidden')
+        reply = setup_cl.submit(second, 'Help me set up this Mac')
+        assert 'mainly want' in reply, reply
+        reply = setup_cl.submit(second, 'A bit of everything')
+        assert 'plan="machine-setup"' in reply, reply
+        # Elite picks the other surface — the layout rule, both ways.
+        assert 'surface="session"' in reply, reply
+        print('machine branch → handoff with plan=machine-setup, surface=session on Elite OK')
+
+        # ── the roster's identity contract ──
+        rows = {p['name']: p for p in default.rpc('profiles.list')['profiles']}
+        assert rows['hermes-setup']['canonical_session']['id'] == sid, rows['hermes-setup']
+        print('profiles.list reports the canonical Bot Chat per profile OK')
 
         # ── task bot: mint profile, seeded canonical, visible brief ──
         taskbot_proc = start_server(8901, 'week-tracker')

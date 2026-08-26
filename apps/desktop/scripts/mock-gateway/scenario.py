@@ -18,12 +18,59 @@ Directive contract (onboarding-wizard.ts runbook + FLOW.md):
 
 The module-gen / populate prompts (first-screen-live/populate) are kept for
 the dormant dashboard flow so the JSON stays validator-clean.
+
+The fork's pills are NOT copied here. The runbook that pins them is seeded
+into the guide session at session.create, so the mock reads the ::ask lines
+back out of it and emits them verbatim — the same thing the model is told to
+do. Reword the options, reorder them, add the machine tier: the mock follows,
+because it is quoting the same source the real turn quotes. What the mock
+still has to know is what each pill MEANS, and that is matched loosely, on the
+one word carrying the branch (see FORK_BRANCHES).
 """
 
 import json
 import re
 
-ASK_FORK = '::ask{question="Know what you\'d like it to make?" options="I have something in mind|Automate something I already do|Let\'s figure it out together" input="true"}'
+ASK_RE = re.compile(r'::ask\{[^}]*\}')
+
+# The runbook's own worked example of the ::ask syntax, which is not a question
+# anyone is being asked.
+ASK_EXAMPLE_RE = re.compile(r'options="A\|B\|C"')
+
+# Which branch a tapped pill means, by the one word that carries it. Loose on
+# purpose: the wording of these options is the runbook's business.
+FORK_BRANCHES = (
+    ('set up this', 'machine'),
+    ('something else', 'fallback'),
+    ('in mind', 'task'),
+    ('automate', 'first'),
+    ('skip', 'skip'),
+)
+
+
+def _fork_branch(text):
+    lowered = text.lower()
+
+    for needle, branch in FORK_BRANCHES:
+        if needle in lowered:
+            return branch
+
+    # A typed answer, or "let's figure it out together".
+    return 'probe'
+
+
+def _scripted_asks(session):
+    """Every ::ask the seeded runbook pins, in the order it pins them: the fork
+    first, then the "Something else" follow-up when the machine earned one."""
+    seed = next((m['content'] for m in session['messages'] if m.get('display_kind') == 'hidden'), '')
+
+    return [ask for ask in ASK_RE.findall(seed) if not ASK_EXAMPLE_RE.search(ask)]
+
+
+def _ask(session, index, fallback=''):
+    asks = _scripted_asks(session)
+
+    return asks[index] if index < len(asks) else fallback
 
 MODULES_RE = re.compile(r'Design starter-screen modules')
 POPULATE_RE = re.compile(r'Fill in the starter screen')
@@ -250,6 +297,20 @@ class Scenario:
             return _populate_for(text)
         return 'I am still with you. Anything else you want built?'
 
+    def _handoff(self, session, task, brief, plan=None):
+        """The one line Setup exists to emit. `plan` marks the jobs the app
+        scripts itself rather than taking from the user's own words."""
+        self.gateway.touch_step(session['id'], 'handoff')
+        attrs = f'step="handoff" task="{task}" brief="{brief}" surface="{_surface_for(self.layout_report)}"'
+
+        if plan:
+            attrs += f' plan="{plan}"'
+
+        return (
+            'Perfect — I am handing that to an agent built just for it. '
+            f'I will stay right here.\n\n::onboarding{{{attrs}}}'
+        )
+
     # ── Setup (the guide) ──
     def _setup_reply(self, session, text, display_kind):
         step = session.get('step', 'name')
@@ -257,8 +318,7 @@ class Scenario:
 
         if hidden:
             if text.startswith('[setup] accent color'):
-                session_step = 'connectors'
-                self.gateway.touch_step(session['id'], session_step)
+                self.gateway.touch_step(session['id'], 'connectors')
                 return (
                     'Noted. Now the tools you already use, so Hermes can connect '
                     'to them later.\n\n'
@@ -275,7 +335,7 @@ class Scenario:
                 self.gateway.touch_step(session['id'], 'fork')
                 return (
                     'Almost there. If you have a first build in mind, I can spin '
-                    'up an agent just for it.\n\n' + ASK_FORK
+                    'up an agent just for it.\n\n' + _ask(session, 0)
                 )
             if text.startswith('[setup] handoff complete'):
                 self.gateway.touch_step(session['id'], 'after')
@@ -304,48 +364,53 @@ class Scenario:
                 '::onboarding{step="look"}'
             )
 
-        if step == 'fork':
-            if 'I have something in mind' in text:
+        if step in ('fork', 'fallback'):
+            branch = _fork_branch(text)
+
+            if branch == 'fallback':
+                self.gateway.touch_step(session['id'], 'fallback')
+                return 'No problem — what sounds better?\n\n' + _ask(session, 1)
+
+            if branch == 'machine':
+                self.gateway.touch_step(session['id'], 'machine')
+                return (
+                    'Good — that I can do end to end. What do you mainly want '
+                    'this machine for: work, gaming, school, creative, a bit of '
+                    'everything?'
+                )
+
+            if branch == 'skip':
+                self.gateway.touch_step(session['id'], 'after')
+                return (
+                    "Then it's yours — go poke at it. I'll be right here if you "
+                    'ever want a hand.'
+                )
+
+            if branch == 'task':
                 self.gateway.touch_step(session['id'], 'task')
                 return 'Great — tell me what it is, in a sentence or two.'
-            if 'Automate something I already do' in text:
-                self.gateway.touch_step(session['id'], 'first')
-                return (
-                    'Perfect. A few shapes come to mind — tap whichever fits '
-                    'best.\n\n'
-                    '::onboarding{step="first" options="A daily briefing that lands each morning|A tracker for the thing you repeat every week|A page that turns your notes into a plan|A reminder that nudges you at the right time"}'
-                )
-            # "Let's figure it out together" or a typed answer.
-            self.gateway.touch_step(session['id'], 'probe')
-            return "What's something you wish you spent less time doing on the computer?"
 
-        if step == 'probe':
+            # "Automate something I already do", "let's figure it out together",
+            # or a typed answer: all of them need to hear what they are working
+            # on before the options card can be built from it.
+            self.gateway.touch_step(session['id'], 'working')
+            return "What are you working on right now — the real thing on your plate this week?"
+
+        if step == 'working':
             self.gateway.touch_step(session['id'], 'first')
             return (
+                f'::onboarding{{step="working" value="{_short(text)}"}}\n\n'
                 'Got it — that narrows things nicely. Tap the one that fits '
                 'best.\n\n'
                 '::onboarding{step="first" options="A daily briefing that lands each morning|A tracker for the thing you repeat every week|A page that turns your notes into a plan|A reminder that nudges you at the right time"}'
             )
 
-        if step == 'task':
-            task = _short(text, 40)
-            surface = _surface_for(self.layout_report)
-            self.gateway.touch_step(session['id'], 'handoff')
-            return (
-                f'Perfect — I am handing that to an agent built just for it. '
-                f'I will stay right here.\n\n'
-                f'::onboarding{{step="handoff" task="{task}" brief="{_brief_for(text)}" surface="{surface}"}}'
-            )
+        if step == 'machine':
+            return self._handoff(session, 'Set up this computer', _brief_for(f'get this machine ready for {text}'),
+                                 plan='machine-setup')
 
-        if step == 'first':
-            task = _short(text, 40)
-            surface = _surface_for(self.layout_report)
-            self.gateway.touch_step(session['id'], 'handoff')
-            return (
-                f'Good pick — I am handing that to an agent built just for it. '
-                f'I will stay right here.\n\n'
-                f'::onboarding{{step="handoff" task="{task}" brief="{_brief_for(text)}" surface="{surface}"}}'
-            )
+        if step in ('task', 'first'):
+            return self._handoff(session, _short(text, 40), _brief_for(text))
 
         if step == 'handoff':
             # The user may tap the handoff card more than once; stay quiet.
@@ -377,7 +442,6 @@ class Scenario:
             'Testing the happy path',
             'Polishing the edges',
         ]
-        idx = 0
         visible = [m for m in session['messages'] if m.get('display_kind') != 'hidden' and m['role'] == 'user']
         idx = min(len(visible) - 1, len(titles) - 1)
         return (
