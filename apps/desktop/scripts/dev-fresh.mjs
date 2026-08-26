@@ -2,9 +2,10 @@
 /**
  * Run the guided first-run flow against a throwaway install.
  *
- *   npm run dev:fresh          (from apps/desktop)
- *   npm run dev:mock           the same flow, scripted — no model, no venv
- *   npm run dev:mock -- --spark   ...as if the machine were an RTX Spark
+ *   npm run dev:fresh             (from apps/desktop)
+ *   npm run dev:mock              the same flow, scripted — no model, no venv
+ *   ... -- --new                  ...as if this machine were unboxed today
+ *   ... -- --spark                ...as if it were an RTX Spark, unboxed today
  *
  * Onboarding happens once per install and writes as it goes — profiles
  * (`hermes-setup`, then the task bot), Electron latches, connection state. So
@@ -158,18 +159,24 @@ function mockEnv(hermesHome) {
 }
 
 /**
- * Answer the machine probe with a Spark unboxed today — the case the whole
- * path is for, since a fresh machine is where taking over the drivers, the
- * updates and the toolchain is worth an afternoon of someone's life. The fork's
- * shape depends on hardware almost nobody testing this has on their desk, and
- * "only correct on the demo machine" is how a demo path rots.
+ * Fields to answer the machine probe with instead of this host's — they overlay
+ * the real ones, so --new is a brand-new version of the machine you are sitting
+ * at, and --spark is somebody else's entirely.
+ *
+ * Both are unboxed today, because a fresh machine is the case the whole path is
+ * for: it is where taking over the drivers, the updates and the toolchain is
+ * worth an afternoon of someone's life. On a lived-in machine setup is one
+ * option among five, which is what your own host already shows you.
  */
-const SPARK = { ageDays: 0, arch: 'arm64', model: '', nvidia: true, platform: 'win32', release: '10.0.26100' }
+const PRETEND = {
+  new: { ageDays: 0 },
+  spark: { ageDays: 0, arch: 'arm64', model: '', nvidia: true, platform: 'win32', release: '10.0.26100' }
+}
 
 async function main() {
   const keep = process.argv.includes('--keep')
   const mock = process.argv.includes('--mock')
-  const spark = process.argv.includes('--spark')
+  const pretend = process.argv.includes('--spark') ? 'spark' : process.argv.includes('--new') ? 'new' : ''
 
   await assertPortFree(RENDERER_PORT)
 
@@ -177,8 +184,8 @@ async function main() {
 
   console.log(`${mock ? 'Scripted' : 'Fresh'} guided run — sandbox at ${SANDBOX}${keep ? ' (kept)' : ''}`)
   console.log(`  seeded: ${copied.join(', ') || 'nothing (the mock answers)'}`)
-  if (spark) {
-    console.log('  machine: pretending to be an RTX Spark unboxed today')
+  if (pretend) {
+    console.log(`  machine: ${pretend === 'spark' ? 'an RTX Spark' : 'this one'}, unboxed today`)
   }
   console.log('')
   console.log('  Watch for: cinematic → guided chat → name, color, connectors,')
@@ -195,7 +202,7 @@ async function main() {
     env: {
       ...process.env,
       ...(mock ? mockEnv(hermesHome) : {}),
-      ...(spark ? { HERMES_DESKTOP_FAKE_MACHINE: JSON.stringify(SPARK) } : {}),
+      ...(pretend ? { HERMES_DESKTOP_FAKE_MACHINE: JSON.stringify(PRETEND[pretend]) } : {}),
       HERMES_DESKTOP_USER_DATA_DIR: userDataDir,
       HERMES_HOME: hermesHome,
       HOME: SANDBOX

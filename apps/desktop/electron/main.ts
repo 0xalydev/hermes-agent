@@ -15155,12 +15155,6 @@ ipcMain.handle('hermes:version', async () => {
 // costs a single stat. Filesystems that keep no birthtime report null, and the
 // flow reads unknown as not-new.
 ipcMain.handle('hermes:machine:profile', async () => {
-  const pretend = readFakeMachine()
-
-  if (pretend) {
-    return pretend
-  }
-
   let ageDays: null | number = null
 
   try {
@@ -15179,7 +15173,8 @@ ipcMain.handle('hermes:machine:profile', async () => {
     model: readHardwareModel(),
     nvidia: await hasNvidiaGpu(),
     platform: process.platform,
-    release: os.release()
+    release: os.release(),
+    ...readFakeMachine()
   }
 })
 
@@ -15195,19 +15190,24 @@ function readHardwareModel(): string {
   }
 }
 
-/** Dev only (`npm run dev:mock -- --spark`): answer the probe with another
- *  machine. The fork's shape depends on hardware almost nobody working on it
- *  has to hand, and a path that can only be exercised on the demo machine is
- *  a path that rots between demos. Ignored in a packaged app. */
-function readFakeMachine(): null | object {
+/** Dev only (`npm run dev:fresh -- --spark`, `-- --new`): fields to answer the
+ *  probe with instead of this host's. The fork's shape depends on hardware
+ *  almost nobody working on it has to hand, and a path that can only be
+ *  exercised on the demo machine is a path that rots between demos.
+ *
+ *  It overlays rather than replaces, so `{"ageDays":0}` is a brand-new version
+ *  of the machine you are actually sitting at — which is the difference between
+ *  rehearsing "Help me set up this Mac" and rehearsing a Linux box nobody has.
+ *  Ignored in a packaged app. */
+function readFakeMachine(): object {
   if (app.isPackaged || !process.env.HERMES_DESKTOP_FAKE_MACHINE) {
-    return null
+    return {}
   }
 
   try {
-    return JSON.parse(process.env.HERMES_DESKTOP_FAKE_MACHINE)
+    return JSON.parse(process.env.HERMES_DESKTOP_FAKE_MACHINE) as object
   } catch {
-    return null
+    return {}
   }
 }
 

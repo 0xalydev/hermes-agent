@@ -15,7 +15,8 @@ are iterating on.
 
 ```bash
 npm run dev:mock                 # from apps/desktop
-npm run dev:mock -- --spark      # ...answering the machine probe as an RTX Spark
+npm run dev:mock -- --new        # ...as if this machine were unboxed today
+npm run dev:mock -- --spark      # ...as if it were an RTX Spark, unboxed today
 ```
 
 That is `dev:fresh --mock`: the same throwaway sandbox (its own `HOME`,

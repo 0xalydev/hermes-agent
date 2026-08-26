@@ -253,6 +253,14 @@ alternatives beside the obvious answer is a menu; the obvious answer plus a way
 out is an offer. Anything unknown counts as not-new — the option is always in
 the list, it just doesn't lead without a reason.
 
+Neither case is reachable from the machine you develop on, so the dev runner
+can answer the probe for you: `npm run dev:fresh -- --new` overlays your own
+host with an age of zero (a brand-new version of this Mac, this PC), and
+`-- --spark` answers as an RTX Spark unboxed today. They overlay rather than
+replace so `--new` stays your platform — the point of it is rehearsing "Help me
+set up this Mac", which a wholesale fake payload can't give you. Your unmodified
+host is the lived-in case.
+
 The two Sparks are recognised differently because they are different computers.
 An **RTX Spark** is a Windows-on-Arm PC (the N1X superchip, in this fall's
 ASUS / Dell / HP / Lenovo / Surface / MSI laptops and mini desktops); the OEM
