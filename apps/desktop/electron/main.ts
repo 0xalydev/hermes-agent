@@ -15155,6 +15155,12 @@ ipcMain.handle('hermes:version', async () => {
 // costs a single stat. Filesystems that keep no birthtime report null, and the
 // flow reads unknown as not-new.
 ipcMain.handle('hermes:machine:profile', async () => {
+  const pretend = readFakeMachine()
+
+  if (pretend) {
+    return pretend
+  }
+
   let ageDays: null | number = null
 
   try {
@@ -15186,6 +15192,22 @@ function readHardwareModel(): string {
     return fs.readFileSync('/proc/device-tree/model', 'utf8').replace(/\0/g, '').trim()
   } catch {
     return ''
+  }
+}
+
+/** Dev only (`npm run dev:mock -- --spark`): answer the probe with another
+ *  machine. The fork's shape depends on hardware almost nobody working on it
+ *  has to hand, and a path that can only be exercised on the demo machine is
+ *  a path that rots between demos. Ignored in a packaged app. */
+function readFakeMachine(): null | object {
+  if (app.isPackaged || !process.env.HERMES_DESKTOP_FAKE_MACHINE) {
+    return null
+  }
+
+  try {
+    return JSON.parse(process.env.HERMES_DESKTOP_FAKE_MACHINE)
+  } catch {
+    return null
   }
 }
 
