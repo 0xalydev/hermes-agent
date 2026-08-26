@@ -14,13 +14,15 @@ are iterating on.
 ## Run it
 
 ```bash
-apps/desktop/scripts/dev-magic-mock.sh
+npm run dev:mock                 # from apps/desktop
+npm run dev:mock -- --spark      # ...answering the machine probe as an RTX Spark
 ```
 
-One command: wipes the scratch profile, reuses or starts vite (5176), then
-launches the dev window (CDP 9224). `HERMES_DESKTOP_PYTHON` points at
-`mock_hermes_shim.py`, which intercepts the backend spawn the desktop
-performs per profile:
+That is `dev:fresh --mock`: the same throwaway sandbox (its own `HOME`,
+`HERMES_HOME` and Electron user-data dir), with the backend replaced.
+Credentials are not needed, since the mock answers for the model too.
+`HERMES_DESKTOP_PYTHON` points at `mock_hermes_shim.py`, which intercepts the
+backend spawn the desktop performs per profile:
 
 - argv arrives as `-m hermes_cli.main --profile <p> serve --host … --port 0`
 - the shim binds, announces `HERMES_BACKEND_READY port=<N>` on stdout (the
@@ -68,10 +70,12 @@ Routed by session profile:
 | Setup (`hermes-setup`) | first visible message (the name) | `::onboarding{step="name" value="…"}` + look card |
 | Setup | `[setup] accent color: …` (hidden) | connectors card |
 | Setup | `[setup] connect later: …` (hidden) | layout card |
-| Setup | `[setup] layout: …` (hidden) | the fork `::ask{question="Know what you'd like it to make?" …}` |
-| Setup | fork: "Automate something I already do" | `::onboarding{step="first" options="…"}` chip card |
+| Setup | `[setup] layout: …` (hidden) | the fork — the first `::ask` line quoted out of the seeded runbook |
+| Setup | fork: "Something else" | the runbook's second `::ask` (the other four options) |
+| Setup | fork: "Help me set up this …" | one question about the machine, then a `plan="machine-setup"` handoff |
 | Setup | fork: "I have something in mind" | asks what it is |
-| Setup | fork: "Let's figure it out together" | probe question → chip card |
+| Setup | fork: anything else | what are you working on → `::onboarding{step="first" options="…"}` chip card |
+| Setup | fork: "Skip this for now" | stands down, stays available |
 | Setup | the task (typed or chip tap) | `::onboarding{step="handoff" task="…" brief="…" surface="…"}` |
 | Setup | `[setup] handoff complete` (hidden) | goodbye-for-now line |
 | Setup | `[setup] handoff failed` (hidden) | builds in its own chat + progress card |
@@ -81,6 +85,14 @@ Routed by session profile:
 The handoff surface follows the layout rule: Elite → `session`, anything
 else → `bot`. The handoff card renders both options and the user's tap
 decides, so the mock never needs to know which one won.
+
+**The fork's pills are not written here.** The runbook that pins them is
+seeded into the guide session at `session.create`, so the scenario reads its
+`::ask` lines back out and emits them verbatim — the same thing the real model
+is instructed to do. Reword the options or add a tier and the mock follows,
+because it is quoting the same source. What it still has to know is what each
+pill MEANS, and that is matched on one distinctive word (`FORK_BRANCHES`), so
+rewording a pill doesn't strand the branch behind it.
 
 ## Boot pacing
 
@@ -98,7 +110,8 @@ process's life, `setup.status` / `setup.runtime_check` answer unconfigured
   ~110 chars/s, hidden helper turns complete in ~120ms
 - `MOCK_UNCONFIGURED_MS` (default 6000) — unconfigured boot window
 - `HERMES_MOCK_STATE` — shared state file (all shim processes)
-- `MOCK_TRACE=1` — append per-turn scenario traces to /tmp/mock-scenario.log
+- `MOCK_TRACE=1` — append per-turn scenario traces to `mock-scenario.log` in
+  the system temp dir
 - Mock log: the shim's stdout is captured by the desktop (desktop.log);
   standalone logs go to stdout
 
@@ -110,10 +123,11 @@ python3 apps/desktop/scripts/mock-gateway/test_mock.py
 
 Exercises the whole Setup-bot flow at the protocol level: profile minting
 (+ duplicate-name RPC error), seeded hidden canonical creation, the
-adopt-before-mint title lookup, seed-message hydration, every guide turn,
-the fork branches, the handoff directive, the task-bot brief + progress
-card, the [setup] whisper back, cross-process shared-state visibility, and
-the dormant dashboard JSON.
+adopt-before-mint title lookup, `profiles.list` reporting each profile's
+canonical Bot Chat, seed-message hydration, every guide turn, both tiers of
+the fork, the machine-setup branch and its `plan` attribute, the surface rule
+in both directions, the task-bot brief + progress card, the `[setup]` whisper
+back, cross-process shared-state visibility, and the dormant dashboard JSON.
 
 ## Extending
 

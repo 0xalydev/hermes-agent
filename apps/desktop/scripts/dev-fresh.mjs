@@ -3,6 +3,8 @@
  * Run the guided first-run flow against a throwaway install.
  *
  *   npm run dev:fresh          (from apps/desktop)
+ *   npm run dev:mock           the same flow, scripted — no model, no venv
+ *   npm run dev:mock -- --spark   ...as if the machine were an RTX Spark
  *
  * Onboarding happens once per install and writes as it goes — profiles
  * (`hermes-setup`, then the task bot), Electron latches, connection state. So
@@ -25,6 +27,11 @@
  *
  * The sandbox is wiped every run — a second run of a once-per-install flow
  * tests nothing. Pass --keep to resume one (e.g. to inspect what it wrote).
+ *
+ * --mock replaces the backend with scripts/mock-gateway: the same flow, every
+ * turn scripted, in milliseconds. Use it for UI iteration and demo rehearsal,
+ * where waiting on a real model between every card is the whole cost; use the
+ * default when what you are testing is the model actually driving the flow.
  */
 
 import { spawn, spawnSync } from 'node:child_process'
@@ -96,7 +103,7 @@ function assertPortFree(port) {
   })
 }
 
-function stageSandbox({ keep }) {
+function stageSandbox({ keep, mock }) {
   const hermesHome = path.join(SANDBOX, '.hermes')
   const userDataDir = path.join(SANDBOX, 'electron-user-data')
 
@@ -121,37 +128,72 @@ function stageSandbox({ keep }) {
     return true
   })
 
-  if (copied.length === 0) {
+  // The mock answers for the backend, credentials included, so an unconfigured
+  // machine can still run the flow — that is half the point of it.
+  if (copied.length === 0 && !mock) {
     throw new Error(
       `Nothing to seed from ${source} — no .env, config.yaml or auth.json.\n` +
-        'The guided flow needs a working model. Configure Hermes normally first.'
+        'The guided flow needs a working model. Configure Hermes normally first,\n' +
+        'or run the scripted flow instead: npm run dev:mock'
     )
   }
 
   return { copied, hermesHome, userDataDir }
 }
 
+/**
+ * Env for the scripted backend. HERMES_DESKTOP_PYTHON is the seam: the app
+ * spawns `<python> -m hermes_cli.main --profile X serve …` per profile, and the
+ * shim answers that argv with a mock gateway instead. Every profile's shim
+ * shares one state file, so Setup's chat, the minted task bot and the roster
+ * stay one logical backend.
+ */
+function mockEnv(hermesHome) {
+  const mockDir = path.join(DESKTOP_ROOT, 'scripts', 'mock-gateway')
+
+  return {
+    HERMES_DESKTOP_PYTHON: path.join(mockDir, 'mock_hermes_shim.py'),
+    HERMES_MOCK_STATE: path.join(hermesHome, 'mock-state.json')
+  }
+}
+
+/**
+ * Answer the machine probe with a Spark. The fork's shape depends on hardware
+ * almost nobody testing this has on their desk, and "only correct on the demo
+ * machine" is how a demo path rots.
+ */
+const SPARK = { ageDays: 0, arch: 'arm64', model: '', nvidia: true, platform: 'win32', release: '10.0.26100' }
+
 async function main() {
   const keep = process.argv.includes('--keep')
+  const mock = process.argv.includes('--mock')
+  const spark = process.argv.includes('--spark')
 
   await assertPortFree(RENDERER_PORT)
 
-  const { copied, hermesHome, userDataDir } = stageSandbox({ keep })
+  const { copied, hermesHome, userDataDir } = stageSandbox({ keep, mock })
 
-  console.log(`Fresh guided run — sandbox at ${SANDBOX}${keep ? ' (kept)' : ''}`)
-  console.log(`  seeded: ${copied.join(', ')}`)
+  console.log(`${mock ? 'Scripted' : 'Fresh'} guided run — sandbox at ${SANDBOX}${keep ? ' (kept)' : ''}`)
+  console.log(`  seeded: ${copied.join(', ') || 'nothing (the mock answers)'}`)
+  if (spark) {
+    console.log('  machine: pretending to be an RTX Spark')
+  }
   console.log('')
   console.log('  Watch for: cinematic → guided chat → name, color, connectors,')
   console.log('  layout → the fork → the handoff card asking bot vs session.')
-  console.log(`  Elite layout leads with session, Basic with bot.`)
+  console.log('  Elite layout leads with session, Basic with bot.')
   console.log('')
-  console.log(`  Setup's check-in cron: HOME=${SANDBOX} hermes -p hermes-setup cron list`)
-  console.log('')
+  if (!mock) {
+    console.log(`  Setup's check-in cron: HOME=${SANDBOX} hermes -p hermes-setup cron list`)
+    console.log('')
+  }
 
   const child = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev:chat'], {
     cwd: DESKTOP_ROOT,
     env: {
       ...process.env,
+      ...(mock ? mockEnv(hermesHome) : {}),
+      ...(spark ? { HERMES_DESKTOP_FAKE_MACHINE: JSON.stringify(SPARK) } : {}),
       HERMES_DESKTOP_USER_DATA_DIR: userDataDir,
       HERMES_HOME: hermesHome,
       HOME: SANDBOX
