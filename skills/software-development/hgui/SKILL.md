@@ -116,6 +116,16 @@ store (`_provider_state_transaction`).
   can EEXIST on hermes-managed symlinks in `~/.local`).
 - **`VITE_ONBOARDING_STAGE` does nothing**: the branch has no stage gate;
   vars are inert on non-onboarding branches.
+- **Setup-bot branches: rerun skips the question flow.** Flows that mint
+  persistent profiles (e.g. `hermes-setup`) write them to
+  `~/.hermes/profiles/` — HOME-anchored, deliberately OUTSIDE `HERMES_HOME`
+  — and adopt-before-mint resumes the existing Bot Chat wherever it left
+  off. Wiping your fresh dirs is not enough: also
+  `rm -rf ~/.hermes/profiles/hermes-setup` (and any task-bot profiles the
+  run minted), or use the branch's `npm run dev:fresh` (dev-fresh.mjs
+  overrides HOME so the profiles root is sandboxed too; pass
+  `HERMES_DESKTOP_PYTHON=$HERMES_MAIN_CHECKOUT/.venv/bin/python` when
+  running it bare).
 - **Windows**: template is zsh-only. A PowerShell port exists on some team
   machines but is not shipped here.
 
