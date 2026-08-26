@@ -1,11 +1,14 @@
 /**
  * What Hermes knows about the computer it was just installed on.
  *
- * One question only: is this machine new? A brand-new computer makes "set this
- * thing up for me" the likeliest first task rather than one option among
+ * One question, really: is this machine new? A brand-new computer makes "set
+ * this thing up for me" the likeliest first task rather than one option among
  * several — drivers, updates, a package manager, the tools they just told us
  * they use — and it is a task Hermes can do end to end with no account
  * anywhere, which is exactly what the first build has to be.
+ *
+ * A Spark answers yes on its own, without waiting for the account age to say
+ * so; see machineIsSpark.
  *
  * Loaded once, before the guided chat's runbook is composed.
  */
@@ -41,16 +44,32 @@ export function machineLooksNew(): boolean {
   return age != null && age <= NEW_MACHINE_DAYS
 }
 
-/** An NVIDIA DGX Spark, or one of the GB10 partner boxes that are the same
- *  machine under another badge (ASUS Ascent GX10, Dell Pro Max, HP ZGX Nano,
- *  Lenovo ThinkStation PGX). A box nobody owns for its own sake — it is bought
- *  to be set up — so it takes the front of the flow whatever its account says
- *  about age.
+/** A Spark, either kind. Neither is a machine anyone owns for its own sake —
+ *  both are bought to be set up — so one takes the front of the flow whatever
+ *  its account age says.
  *
- *  Underscores are separators here, not letters: a real unit reports
- *  `NVIDIA_DGX_Spark`, which \b reads as ONE word and would never match. */
+ *  The two are identified differently because they are different computers.
+ *  An **RTX Spark** is a Windows-on-Arm PC (the N1X superchip, in this fall's
+ *  ASUS / Dell / HP / Lenovo / Surface / MSI laptops and mini desktops); the
+ *  OEM badge on the case is not a name we can enumerate, so it is recognised
+ *  by its shape — Windows, Arm, NVIDIA silicon, a combination nothing else
+ *  currently ships. A **DGX Spark** is the Linux GB10 developer box, and it
+ *  says so in the device tree.
+ *
+ *  On that string, underscores are separators rather than letters: a real unit
+ *  reports `NVIDIA_DGX_Spark`, which \b reads as ONE word and would never
+ *  match. */
 export function machineIsSpark(): boolean {
-  return /\b(dgx|spark|gb10)\b/i.test(($machine.get()?.model ?? '').replace(/_/g, ' '))
+  const profile = $machine.get()
+
+  if (!profile) {
+    return false
+  }
+
+  const rtx = profile.platform === 'win32' && profile.arch === 'arm64' && profile.nvidia
+  const dgx = /\b(dgx|spark|gb10)\b/i.test(profile.model.replace(/_/g, ' '))
+
+  return rtx || dgx
 }
 
 /** True when setting the machine up should be the only thing on offer, with
@@ -86,7 +105,9 @@ export function machineDescription(): string {
     return ''
   }
 
-  return [profile.model, `${profile.platform} ${profile.release}`, profile.arch].filter(Boolean).join(', ')
+  return [profile.model, `${profile.platform} ${profile.release}`, profile.arch, profile.nvidia ? 'NVIDIA GPU' : '']
+    .filter(Boolean)
+    .join(', ')
 }
 
 export function resetMachineProfileForTests(): void {

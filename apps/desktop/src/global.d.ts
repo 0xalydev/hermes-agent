@@ -560,8 +560,10 @@ export interface DesktopMachineProfile {
   /** Days since the OS created this user account; null when unknowable. */
   ageDays: null | number
   arch: string
-  /** Hardware's self-reported model (`NVIDIA DGX Spark`); '' when unavailable. */
+  /** Hardware's self-reported model (`NVIDIA_DGX_Spark`); '' when unavailable. */
   model: string
+  /** An NVIDIA GPU is present, by PCI vendor id. */
+  nvidia: boolean
   platform: string
   release: string
 }

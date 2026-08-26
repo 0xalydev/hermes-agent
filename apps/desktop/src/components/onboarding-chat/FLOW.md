@@ -241,17 +241,29 @@ Setup's cron — is identical across both.
 ## The machine fork
 
 Before the runbook is composed, the flow asks the host what it is
-(`loadMachineProfile`, one IPC): platform, release, arch, the hardware's own
-model string, and how many days ago the OS created this account.
+(`loadMachineProfile`, one IPC): platform, release, arch, whether there's an
+NVIDIA GPU, the hardware's own model string, and how many days ago the OS
+created this account.
 
 Two things follow from it. **What the machine-setup option is called** — "Help
-me set up this Mac", "…this PC", and on an NVIDIA DGX Spark, "…this Spark",
-read off `/proc/device-tree/model`. And **whether it leads**: a machine younger
-than three weeks, or a Spark at any age, gets that one option plus "Something
-else", which opens the other four as a second ask. Four alternatives beside the
-obvious answer is a menu; the obvious answer plus a way out is an offer.
-Anything unknown counts as not-new — the option is always in the list, it just
-doesn't lead without a reason.
+me set up this Mac", "…this PC", "…this Spark". And **whether it leads**: a
+machine younger than three weeks, or a Spark at any age, gets that one option
+plus "Something else", which opens the other four as a second ask. Four
+alternatives beside the obvious answer is a menu; the obvious answer plus a way
+out is an offer. Anything unknown counts as not-new — the option is always in
+the list, it just doesn't lead without a reason.
+
+The two Sparks are recognised differently because they are different computers.
+An **RTX Spark** is a Windows-on-Arm PC (the N1X superchip, in this fall's
+ASUS / Dell / HP / Lenovo / Surface / MSI laptops and mini desktops); the OEM
+badge on the case isn't a name we can enumerate, so it's identified by shape —
+Windows + Arm + NVIDIA silicon, which nothing else currently ships. The GPU
+vendor comes from Chromium's own GPU enumeration (`app.getGPUInfo('basic')`, PCI
+vendor `0x10DE`), so it's a lookup rather than a probe: no subprocess and no
+vendor tooling a just-unboxed machine may not have yet. A **DGX Spark** is the
+older Linux GB10 developer box and says so in `/proc/device-tree/model` — as
+`NVIDIA_DGX_Spark`, where the underscores are separators, which is why the match
+splits on them before applying word boundaries.
 
 Picking it hands off with `plan="machine-setup"`, and the plan (not the task
 text) is what swaps the task agent's runbook: audit the box with the terminal

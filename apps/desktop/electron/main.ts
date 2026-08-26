@@ -15167,18 +15167,41 @@ ipcMain.handle('hermes:machine:profile', async () => {
     // Unknown age — the option still shows, it just doesn't lead.
   }
 
-  return { ageDays, arch: process.arch, model: readHardwareModel(), platform: process.platform, release: os.release() }
+  return {
+    ageDays,
+    arch: process.arch,
+    model: readHardwareModel(),
+    nvidia: await hasNvidiaGpu(),
+    platform: process.platform,
+    release: os.release()
+  }
 })
 
 /** The board's own name for itself. Firmware writes it to the device tree on
- *  ARM systems (`NVIDIA DGX Spark`), which is how the first run can greet a
- *  Spark as a Spark instead of "a Linux box". Empty everywhere else — nothing
- *  downstream depends on having it. */
+ *  ARM systems (`NVIDIA_DGX_Spark`), which is how the first run can greet a
+ *  DGX Spark as a Spark instead of "a Linux box". Empty everywhere else,
+ *  Windows included — the RTX Spark is identified from the GPU instead. */
 function readHardwareModel(): string {
   try {
     return fs.readFileSync('/proc/device-tree/model', 'utf8').replace(/\0/g, '').trim()
   } catch {
     return ''
+  }
+}
+
+const NVIDIA_PCI_VENDOR_ID = 0x10de
+
+/** Chromium already enumerated the GPUs to decide how to composite, so this is
+ *  a lookup rather than a probe — no subprocess, no vendor tooling that a
+ *  just-unboxed machine may not have yet. Paired with Windows-on-Arm it is what
+ *  names an RTX Spark. */
+async function hasNvidiaGpu(): Promise<boolean> {
+  try {
+    const info = (await app.getGPUInfo('basic')) as { gpuDevice?: { vendorId?: number }[] }
+
+    return (info.gpuDevice ?? []).some(device => device.vendorId === NVIDIA_PCI_VENDOR_ID)
+  } catch {
+    return false
   }
 }
 

@@ -9,6 +9,7 @@ const profile = (patch: Partial<DesktopMachineProfile>): DesktopMachineProfile =
   ageDays: 900,
   arch: 'x64',
   model: '',
+  nvidia: false,
   platform: 'darwin',
   release: '24.6.0',
   ...patch
@@ -19,16 +20,36 @@ describe('machine profile', () => {
     $machine.set(null)
   })
 
-  it('reads a Spark off the hardware model, whatever the account age says', () => {
-    // What a real unit reports — underscores and all.
-    $machine.set(profile({ ageDays: 900, arch: 'arm64', model: 'NVIDIA_DGX_Spark', platform: 'linux' }))
+  it('knows an RTX Spark by its shape — Windows, Arm, NVIDIA — whatever the OEM badge says', () => {
+    $machine.set(profile({ ageDays: 900, arch: 'arm64', nvidia: true, platform: 'win32' }))
 
     expect(machineIsSpark()).toBe(true)
     expect(machineKind()).toBe('Spark')
     expect(machineSetupLeads()).toBe(true)
   })
 
-  it('knows the same machine under a partner badge', () => {
+  it('does not mistake the neighbours of that shape for one', () => {
+    const neighbours: Partial<DesktopMachineProfile>[] = [
+      { arch: 'arm64', platform: 'win32' }, // Snapdragon Windows-on-Arm
+      { arch: 'x64', nvidia: true, platform: 'win32' }, // an NVIDIA gaming tower
+      { arch: 'arm64', platform: 'darwin' } // an Apple silicon Mac
+    ]
+
+    for (const neighbour of neighbours) {
+      $machine.set(profile(neighbour))
+      expect(machineIsSpark()).toBe(false)
+    }
+  })
+
+  it('reads a DGX Spark off the device tree, underscores and all', () => {
+    // What a real unit reports.
+    $machine.set(profile({ ageDays: 900, arch: 'arm64', model: 'NVIDIA_DGX_Spark', nvidia: true, platform: 'linux' }))
+
+    expect(machineIsSpark()).toBe(true)
+    expect(machineKind()).toBe('Spark')
+  })
+
+  it('knows the GB10 box under a partner badge', () => {
     for (const model of ['NVIDIA DGX Spark', 'ASUS Ascent GX10 (GB10)', 'NVIDIA GB10']) {
       $machine.set(profile({ model, platform: 'linux' }))
       expect(machineIsSpark()).toBe(true)
