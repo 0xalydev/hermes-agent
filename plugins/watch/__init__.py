@@ -30,12 +30,22 @@ logger = logging.getLogger(__name__)
 
 
 def _on_session_end(**_kwargs) -> None:
-    """Never leave an ffmpeg recording orphaned by a closing session.
+    """Never leave capture running after a session closes.
 
-    Stop rather than abandon: an mp4 whose moov atom was never written is
-    unplayable, so an orphaned recorder does not just waste CPU — it destroys
-    the take. Swallows everything; session teardown must not fail here.
+    Two things to shut down. An orphaned recorder does not just waste CPU: an
+    mp4 whose moov atom was never written is unplayable, so abandoning it
+    destroys the take. An orphaned live loop keeps grabbing frames and calling
+    a model for a session nobody is reading.
+
+    Swallows everything; session teardown must not fail here.
     """
+    try:
+        from plugins.watch import slash
+
+        slash.shutdown()
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.debug("watch: live shutdown failed: %s", exc)
+
     try:
         from plugins.watch import recorder as rec
 
@@ -50,7 +60,7 @@ def _on_session_end(**_kwargs) -> None:
 
 
 def register(ctx) -> None:
-    """Register the CLI command and the session-end safety net."""
+    """Register the CLI command, the slash command, and the session-end net."""
     ctx.register_cli_command(
         name="watch",
         help="Record the screen and ask a model about the take",
@@ -60,6 +70,19 @@ def register(ctx) -> None:
             "Record a performance (screen + audio + window timeline) and hand "
             "it to a video-capable model. See: hermes watch start"
         ),
+    )
+
+    # The GUI surface. Registering here puts /watch in the desktop composer
+    # palette and the TUI at once — both discover plugin commands through the
+    # same registry, and the desktop surfaces non-builtins as extensions — so
+    # no core file needs to know this plugin exists.
+    from plugins.watch.slash import handle as _handle_slash
+
+    ctx.register_command(
+        "watch",
+        handler=_handle_slash,
+        description="Watch the screen and comment on what's happening.",
+        args_hint="live|stop|status|record|takes|replay",
     )
 
     ctx.register_hook("on_session_end", _on_session_end)

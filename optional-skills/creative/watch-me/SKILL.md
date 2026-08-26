@@ -46,7 +46,17 @@ ambient observation the user did not ask for, or reading text off a window (use
 
 ## How to Run
 
-Drive it through the `terminal` tool.
+In a chat surface (desktop app, TUI, messaging) use the slash command — it needs
+no terminal:
+
+```
+/watch live how I use my synths
+/watch status
+/watch stop
+/watch replay
+```
+
+From a terminal, or when you want the flags, drive the CLI through `terminal`:
 
 ```
 terminal(command="hermes watch live -b \"how I use my synths\"", timeout=3600)
@@ -56,11 +66,17 @@ terminal(command="hermes watch review -q \"how was my timing?\"", timeout=600)
 terminal(command="hermes watch replay --sweep")
 ```
 
+Prefer `/watch live` when the user is in a GUI: it detaches, so the session stays
+usable while watching continues, and `/watch stop` reports everything it said.
+
 ## Quick Reference
 
 | Command | Purpose |
 |---|---|
-| `hermes watch live -b "<brief>"` | Watch continuously, comment when it matters |
+| `/watch live <brief>` | Start live commentary from any chat surface |
+| `/watch stop` / `status` | Stop it, or check in |
+| `/watch replay` | Compare thresholds against the last session |
+| `hermes watch live -b "<brief>"` | Same, with flags |
 | `hermes watch live --duration 600` | Stop automatically after N seconds |
 | `hermes watch live --min-salience 0.4` | Speak less (higher bar to look) |
 | `hermes watch replay --sweep` | Re-tune the last session for free |

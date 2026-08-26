@@ -692,3 +692,38 @@ def test_bare_invocation_prints_usage_and_fails_cleanly(tmp_path, monkeypatch, c
 
     assert rc == 1
     assert "start" in capsys.readouterr().out
+
+
+def test_enabling_watch_registers_the_slash_command(tmp_path, monkeypatch):
+    """The GUI surface: /watch must reach the desktop and TUI palettes.
+
+    Both discover plugin slash commands through this registry, and the desktop
+    surfaces non-builtin commands as extensions, so registering here is the
+    whole integration — no core file needs to know the plugin exists.
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _enable_watch(tmp_path)
+    from hermes_cli import plugins as pmod
+
+    manager = pmod.PluginManager()
+    manager.discover_and_load()
+
+    assert "watch" in manager._plugin_commands, "/watch did not register"
+    entry = manager._plugin_commands["watch"]
+    assert entry["plugin"] == "watch"
+    assert callable(entry["handler"])
+    # An args_hint is what gives Discord/desktop pickers an argument field.
+    assert "live" in entry["args_hint"]
+
+
+def test_the_slash_handler_answers_without_touching_the_screen(tmp_path, monkeypatch):
+    """Bare /watch must explain itself rather than starting a capture."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _enable_watch(tmp_path)
+    from hermes_cli import plugins as pmod
+
+    manager = pmod.PluginManager()
+    manager.discover_and_load()
+    out = manager._plugin_commands["watch"]["handler"]("")
+
+    assert "/watch live" in out
