@@ -5,22 +5,16 @@ import { type Contribution, useContributions } from '@/contrib'
 import { ContribBoundary } from '@/contrib/react/boundary'
 import {
   type ParsedTranscriptDirective,
-  parseTranscriptDirectiveList,
   segmentTranscriptDirectives,
   TRANSCRIPT_DIRECTIVE_AREA,
   type TranscriptDirectiveContribution
 } from '@/lib/transcript-directives'
 
 /**
- * The transcript's directive slot. Given a paragraph's raw text, renders the
- * registered plugin component(s) when the whole paragraph is claimed
- * `::name{...}` directives; returns null otherwise so the caller keeps its
- * plain `<p>` — an unclaimed directive is just prose.
- *
- * A paragraph may carry SEVERAL directives (models merge lines under
- * formatting pressure); each claimed one renders in order, and the no-prose
- * guarantee holds for the paragraph as a whole (see
- * parseTranscriptDirectiveList).
+ * The transcript's directive slot. Given text, renders the plugin component
+ * for every claimed `::name{...}` in it, in order — several, because models
+ * merge lines under formatting pressure. Nothing renders for a name no plugin
+ * claimed; that text stays the prose it always was.
  *
  * Resolution is registry-backed (`transcript.directives`), so hot-loading a
  * plugin upgrades already-rendered paragraphs in place, exactly like every
@@ -74,19 +68,21 @@ const DirectiveEntry: FC<{
 
 export const TranscriptDirectiveLeaf: FC<{ text: string; streaming?: boolean }> = ({ text, streaming }) => {
   const contributions = useContributions(TRANSCRIPT_DIRECTIVE_AREA)
-  const parsedList = useMemo(() => parseTranscriptDirectiveList(text), [text])
+  const segments = useMemo(() => segmentTranscriptDirectives(text), [text])
 
-  const entries = useMemo(() => {
-    if (!parsedList) {
-      return []
-    }
+  const entries = useMemo(
+    () =>
+      (segments ?? []).flatMap(segment => {
+        if (segment.kind !== 'directive') {
+          return []
+        }
 
-    return parsedList.flatMap(parsed => {
-      const match = claimFor(contributions, parsed.name)
+        const match = claimFor(contributions, segment.directive.name)
 
-      return match ? [{ key: `${match.id}:${parsed.source}`, match, parsed }] : []
-    })
-  }, [contributions, parsedList])
+        return match ? [{ key: `${match.id}:${segment.directive.source}`, match, parsed: segment.directive }] : []
+      }),
+    [contributions, segments]
+  )
 
   if (entries.length === 0) {
     return null
