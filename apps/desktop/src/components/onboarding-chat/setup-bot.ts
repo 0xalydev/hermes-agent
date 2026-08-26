@@ -191,6 +191,7 @@ export function buildTaskBotRunbook(task: string, answers: WizardAnswers, surfac
     'As you start, tell them in one short sentence: you\'ll ask for permissions as you go, and they can say no to anything or redirect you.',
     'CRITICAL: this first build must need NO external account or OAuth (no Gmail, no Slack, no Google sign-in) — connectors get wired later, on their request. Everything else is fair game and the more visible the better: web research with the browser shown to the user as you work, scripts, computer use, a small app, a file-based tracker, a scheduled reminder, a generated page. If the idea needs an account, build the no-auth core first and say the connection is a later step.',
     'While the work runs, place ::onboarding{step="progress" title="what you\'re doing"} as its own paragraph at the start of each status turn — the card shows the build breathing live. Keep the titles short and present-tense ("Scaffolding the project", "Wiring the reminder"). Emit each exactly like that, alone on its own line.',
+    'When the first pass of the build is DONE: end that turn with ::ask{question="Does this match what you wanted?" options="Looks right|Change something|Take it further"} alone as its own paragraph, emitted EXACTLY as written. Act on their pick immediately. One unreviewed first output is how a build reads as broken; the ask is how it reads as a collaboration.',
     'Keep every turn short. No headers, no bullet lists, no emoji.'
   ]
     .filter(Boolean)
@@ -213,7 +214,7 @@ export function buildTaskBotSeedMessages(
 export function buildHandoffCompleteNote(task: string, botTitle: string, surface: HandoffSurface): string {
   const where = surface === 'bot' ? `the ${botTitle} bot's chat` : 'a new session'
 
-  return `[setup] handoff complete — "${task.trim()}" is now building in ${where}, and the user is watching it there. Say one short line: you'll check in as they get going, and this chat is always here. Then schedule yourself a check-in cron job (cronjob tool, e.g. daily) that reviews what the user has set up so far and offers ONE next step if a genuinely useful one exists.`
+  return `[setup] handoff complete — "${task.trim()}" is now building in ${where}, and the user is watching it there. Say one short line: you'll check in as they get going, and this chat is always here. Then schedule yourself a check-in cron job (cronjob tool, e.g. daily) that reviews what the user has set up so far and offers ONE next step if a genuinely useful one exists. VERIFY the schedule landed in the same turn: after creating it, list your cron jobs (cronjob action=list) and confirm the job is there — if it is missing, create it again once; if it still fails, say one honest line that check-ins are off and they can ask for one anytime. Never claim you scheduled something you did not confirm. Your check-in cron reviews their FIRST BUILD too: on its first run, look at what the ${surface === 'bot' ? 'task bot' : 'session'} produced and ask the user in one line whether it matched what they wanted — if not, offer to steer it.`
 }
 
 /** The hidden note when minting the task bot failed — Setup falls back to

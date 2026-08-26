@@ -356,17 +356,25 @@ function LayoutCard({ locked = false }: CardProps) {
 function FirstBuildCard({ attrs, locked = false }: CardProps & { attrs: Record<string, string> }) {
   const [picked, setPicked] = useState<null | string>(null)
 
-  // Parse + validate the model's options: 2–4 of them, each short enough to
-  // sit on a chip. Garbage in → no card (the directive degrades to prose).
+  // Parse + validate the model's options: 2-4 of them, each short enough to
+  // sit on a chip, deduped case-insensitively (models repeat themselves).
+  const seen = new Set<string>()
+
   const options = (attrs.options ?? '')
     .split('|')
-    .map(option => option.trim())
-    .filter(option => option.length > 0 && option.length <= 60)
-    .slice(0, 4)
+    .map(option => option.trim().replace(/\s+/g, ' '))
+    .filter(option => {
+      const key = option.toLowerCase()
 
-  if (options.length < 2) {
-    return null
-  }
+      if (option.length === 0 || option.length > 60 || seen.has(key)) {
+        return false
+      }
+
+      seen.add(key)
+
+      return true
+    })
+    .slice(0, 4)
 
   const pick = (option: string) => {
     if (picked || locked) {
@@ -378,6 +386,24 @@ function FirstBuildCard({ attrs, locked = false }: CardProps & { attrs: Record<s
     if (requestComposerSubmit(option)) {
       setPicked(option)
     }
+  }
+
+  // Garbage in (0-1 usable options) must not strand the user: the model's
+  // prose says "pick one below", so silent null leaves them staring at
+  // nothing. Degrade to the one option we can always offer.
+  if (options.length < 2) {
+    return (
+      <div className="my-3 grid max-w-md gap-4" data-onboarding-card inert={locked || undefined}>
+        <div className="flex flex-wrap gap-2">
+          <Chip
+            label="Let's figure it out together"
+            on={picked !== null}
+            onToggle={() => pick("Let's figure it out together")}
+            variant="pill"
+          />
+        </div>
+      </div>
+    )
   }
 
   return (
