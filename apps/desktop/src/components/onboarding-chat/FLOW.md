@@ -32,17 +32,25 @@ the next step when there is a genuinely useful one.
 3. **Connectors** — `::onboarding{step="connectors"}` (tools they use; stored, not wired)
 4. **Layout** — `::onboarding{step="layout"}` (the app assembles around the chat)
 5. **The fork** — one sentence, then `::ask{question="Know what you'd like it
-   to make?" options="I have something in mind|Automate something I already
-   do|Let's figure it out together" input="true"}` — clickable pills, typed
-   answers welcome. (`::ask` is the general capability: any fork Setup or the
-   task bot needs to pose renders as pills, never a prose wall.)
+   to make?" options="…" input="true"}` — clickable pills, typed answers
+   welcome. (`::ask` is the general capability: any fork Setup or the task bot
+   needs to pose renders as pills, never a prose wall.)
+
+    The options come from `forkOptions()`, because the machine decides the
+    shape (see **The machine fork** below): a lived-in computer gets all five
+    at once, a new one gets the machine-setup offer plus "Something else",
+    which opens the rest as a second ask.
 
 ### Branch A — they have something in mind (general or specific)
 
-6a. If general: surface **generated options** as tappable chips —
-    `::onboarding{step="first" options="…|…|…"}` — 2–4 options spanning simple
-    (a reminder) to complex (a dashboard), all specific to what they said.
-    If specific: skip the card, go straight to 7a.
+6a. If general or not-sure: ask **what they're working on right now** —
+    saved with `::onboarding{step="working" value="…"}`, which writes the same
+    `context` answer the rest of the flow reads. Then surface **generated
+    options** as tappable chips — `::onboarding{step="first" options="…|…|…"}`
+    — 2–4 options spanning simple (a reminder) to complex (a dashboard), built
+    from that answer plus their tools. If specific: skip both, go straight to
+    7a — that user already told us the task, and the options card they'd never
+    see is the only thing the question feeds.
 
     **Every branch is NO-AUTH, not local-only.** The first build must need
     zero external accounts — but the browser, web search, scripts, and
@@ -65,10 +73,16 @@ the next step when there is a genuinely useful one.
 
 ### Branch B — not sure
 
-6c. "What's something you wish you spent less time doing on the computer?"
-    - They answer → follow up generatively (1 turn, get specific) → Branch A (6a).
-    - "idk" → 7d: "What do you use your computer for?" → follow up generatively
-      → Branch A (6a).
+6c. Same question as 6a, asked the way a stuck user can answer it: "what do you
+    wish you spent less time doing on the computer?" One follow-up to get
+    concrete, then the options card.
+
+### Branch C — set up this machine
+
+6d. The machine itself is the job. Setup asks ONE question (what they mainly
+    want the machine for) and hands off with `plan="machine-setup"`. It does
+    not plan the setup or list what it would install — the agent that takes the
+    job audits the box first.
 
 ### After the handoff — Setup stays alive
 
@@ -160,8 +174,9 @@ the next step when there is a genuinely useful one.
 | `look` | — | accent swatches | retints live, hidden `[setup]` report |
 | `connectors` | — | connector chips | stored, hidden `[setup]` report |
 | `layout` | — | layout previews | assembles the app live, hidden `[setup]` report |
+| `working` | `value="…"` | nothing | saves what they're working on (same `context` field the options card is built from) |
 | `first` | `options="A\|B\|C"` | generated chips | **visible user turn** — decides the task |
-| `handoff` | `task="…" brief="…" surface="bot\|session"` | the surface choice, then a one-line status (spinning up → built) | the pick raises the handoff beacon; the wiring mints (or doesn't) + switches |
+| `handoff` | `task="…" brief="…" surface="bot\|session" plan="machine-setup"?` | the surface choice, then a one-line status (spinning up → built) | the pick raises the handoff beacon; the wiring mints (or doesn't) + switches |
 | `progress` | `title="…"` | live build card (task bot's chat) | read-only; updates as the work streams |
 
 Plus the general-purpose `::ask{question="…" options="A|B|C" input="true"}`
@@ -222,6 +237,30 @@ The task side is told which it is (its runbook opens as "a brand-new agent" or
 "this session"), and Setup's check-in note points at wherever the build landed.
 Everything else — the no-auth rule, the permissions note, the progress cards,
 Setup's cron — is identical across both.
+
+## The machine fork
+
+Before the runbook is composed, the flow asks the host what it is
+(`loadMachineProfile`, one IPC): platform, release, arch, the hardware's own
+model string, and how many days ago the OS created this account.
+
+Two things follow from it. **What the machine-setup option is called** — "Help
+me set up this Mac", "…this PC", and on an NVIDIA DGX Spark, "…this Spark",
+read off `/proc/device-tree/model`. And **whether it leads**: a machine younger
+than three weeks, or a Spark at any age, gets that one option plus "Something
+else", which opens the other four as a second ask. Four alternatives beside the
+obvious answer is a menu; the obvious answer plus a way out is an offer.
+Anything unknown counts as not-new — the option is always in the list, it just
+doesn't lead without a reason.
+
+Picking it hands off with `plan="machine-setup"`, and the plan (not the task
+text) is what swaps the task agent's runbook: audit the box with the terminal
+first — OS, updates, package manager, what's already installed, GPU and driver
+on NVIDIA hardware — report what's there, propose a numbered plan, and only
+install after an explicit `::ask`. Setting a machine up is the first task a new
+user most wants and can least brief, so the agent does the briefing. It is also
+the one job that needs no account anywhere, which is what the first build has
+to be regardless.
 
 Also in the tree from the same lineage (dormant in bot mode, used by the
 login-mode dashboard flow): the generative first-screen system —
