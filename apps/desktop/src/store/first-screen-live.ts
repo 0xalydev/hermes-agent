@@ -392,9 +392,13 @@ export function parseModuleReply(text: string): DraftModule[] {
  *  answer lands (the moment the screen has something real to build around).
  *  On success: candidates land in $moduleCandidates AND the pane advances to
  *  the proposals stage. On any failure: candidates stay null and the flow
- *  falls back to the deterministic templates — invisible to the user. */
+ *  falls back to the deterministic templates — invisible to the user.
+ *
+ *  Gated on the pane, like advanceSketch: this spends a hidden session and a
+ *  model turn, and the setup-bot flow answers the same context question
+ *  without ever opening a screen for the modules to land in. */
 export function generateModuleCandidates(): void {
-  if (generationInFlight || $moduleCandidates.get()) {
+  if (generationInFlight || $moduleCandidates.get() || !$livePaneOpen.get()) {
     return
   }
 
