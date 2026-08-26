@@ -1,3 +1,4 @@
+import os
 from fastapi.testclient import TestClient
 
 from hermes_cli import web_server
@@ -31,7 +32,19 @@ def test_ssh_ownership_reports_replaced_runtime(monkeypatch):
     monkeypatch.setattr(web_server, "_SSH_OWNER_NONCE", "0123456789abcdef")
     monkeypatch.setattr(web_server, "_SSH_RUNTIME_MARKER", None)
     monkeypatch.setattr(web_server, "_SSH_RUNTIME_PURELIB", ("/venv/site-packages", 10, 20))
-    monkeypatch.setattr(web_server.os, "stat", lambda _path: type("Stat", (), {"st_dev": 10, "st_ino": 21})())
+    # Path-scoped: web_server.os IS the global os module, so a blanket
+    # os.stat patch also hijacks linecache/traceback in OTHER threads during
+    # the patch window — a daemon-thread exception then dies inside pytest's
+    # excepthook ("'Stat' object has no attribute 'st_size'", flaky teardown
+    # ERROR under xdist load). Only the purelib path gets the fake.
+    _real_stat = os.stat
+
+    def _fake_stat(path, *args, **kwargs):
+        if str(path) == "/venv/site-packages":
+            return type("Stat", (), {"st_dev": 10, "st_ino": 21})()
+        return _real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(web_server.os, "stat", _fake_stat)
     client = TestClient(web_server.app)
 
     response = client.get("/api/ssh/ownership", headers={"X-Hermes-Session-Token": token})
