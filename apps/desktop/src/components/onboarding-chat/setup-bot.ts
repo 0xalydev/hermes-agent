@@ -22,6 +22,7 @@ import { atom } from 'nanostores'
 import type { GatewayRequest } from '@/app/session/hooks/use-prompt-actions/utils'
 import { ELITE_LAYOUT_ID } from '@/components/onboarding-wizard/options'
 import { readKey, writeKey } from '@/lib/storage'
+import { machineDescription } from '@/store/machine'
 import type { WizardAnswers } from '@/store/onboarding-wizard'
 
 /** Profile name of the onboarding guide. Prefixed so it can't collide with a
@@ -215,7 +216,7 @@ export function buildTaskBotRunbook(
       : '',
     'Their next message is the go signal: really begin the work — plan briefly, then build (scaffold, research, first artifact).',
     'As you start, tell them in one short sentence: you\'ll ask for permissions as you go, and they can say no to anything or redirect you.',
-    ...(plan === 'machine-setup' ? MACHINE_SETUP_RUNBOOK : [NO_AUTH_RULE]),
+    ...(plan === 'machine-setup' ? machineSetupRunbook() : [NO_AUTH_RULE]),
     'While the work runs, place ::onboarding{step="progress" title="what you\'re doing"} as its own paragraph at the start of each status turn — the card shows the build breathing live. Keep the titles short and present-tense ("Scaffolding the project", "Wiring the reminder"). Emit each exactly like that, alone on its own line.',
     'When the first pass of the build is DONE: end that turn with ::ask{question="Does this match what you wanted?" options="Looks right|Change something|Take it further"} alone as its own paragraph, emitted EXACTLY as written. Act on their pick immediately. One unreviewed first output is how a build reads as broken; the ask is how it reads as a collaboration.',
     'Keep every turn short. No headers, no bullet lists, no emoji.'
@@ -232,7 +233,18 @@ const NO_AUTH_RULE =
  *  briefing: look first, propose, then install with consent. Audit-before-plan
  *  is the load-bearing part — a plan invented before looking is how an agent
  *  ends up installing a second copy of something, or "fixing" drivers that
- *  were already fine. */
+ *  were already fine.
+ *
+ *  It opens with what the app already knows about the machine — freshness
+ *  first. That is the fact that decides whether this job is an afternoon of
+ *  real work or a tour of things already handled, and the agent should not
+ *  have to spend its first two turns discovering it. */
+function machineSetupRunbook(): string[] {
+  const description = machineDescription()
+
+  return [...(description ? [`What the app can already see about it: ${description}.`] : []), ...MACHINE_SETUP_RUNBOOK]
+}
+
 const MACHINE_SETUP_RUNBOOK = [
   'THIS IS A MACHINE SETUP JOB: get this computer genuinely ready to use, end to end, with the terminal. It is the one first task that does not need an account anywhere — never send them to a sign-in to complete it.',
   'START BY LOOKING, NOT PLANNING. Before proposing anything, use the terminal to find out what is actually here: OS name and version, architecture, pending system updates, free disk, which package manager exists (Homebrew / winget / apt / dnf), and which everyday things are already installed (a browser, an editor, git, python, node, docker, and whatever tools they told Setup they use). On an NVIDIA machine also check the GPU and driver (nvidia-smi) and whether a container runtime and CUDA toolchain are present. Report what you found in a few short lines — plainly, no tables.',

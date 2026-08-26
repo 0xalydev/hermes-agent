@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import type { DesktopMachineProfile } from '@/global'
 
-import { $machine, machineIsSpark, machineKind, machineLooksNew, machineSetupLeads } from './machine'
+import {
+  $machine,
+  machineDescription,
+  machineIsSpark,
+  machineKind,
+  machineLooksNew,
+  machineSetupLeads
+} from './machine'
 import { forkFallbackOptions, forkOptions, machineForkOption } from './onboarding-wizard'
 
 const profile = (patch: Partial<DesktopMachineProfile>): DesktopMachineProfile => ({
@@ -76,6 +83,17 @@ describe('machine profile', () => {
     $machine.set(profile({ ageDays: null }))
 
     expect(machineSetupLeads()).toBe(false)
+  })
+
+  it('leads the brief with how fresh the machine is, since that is what changes the work', () => {
+    $machine.set(profile({ ageDays: 0, arch: 'arm64', nvidia: true, platform: 'win32' }))
+    expect(machineDescription()).toMatch(/^set up today, an NVIDIA Spark, win32/)
+
+    $machine.set(profile({ ageDays: 4 }))
+    expect(machineDescription()).toMatch(/^set up 4 days ago, darwin/)
+
+    $machine.set(profile({ ageDays: 900 }))
+    expect(machineDescription()).toMatch(/^darwin/)
   })
 
   it('names the machine the way the user would', () => {

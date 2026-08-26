@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import { $machine } from '@/store/machine'
+
 import { OnboardingChatDirective } from './directive'
 import {
   $setupHandoff,
@@ -15,6 +17,7 @@ const ANSWERS = { connectors: [], name: 'BK' } as unknown as Parameters<typeof b
 describe('the machine-setup plan', () => {
   beforeEach(() => {
     resetSetupHandoffForTests()
+    $machine.set(null)
   })
 
   it('reads the attr, and anything else is an ordinary build', () => {
@@ -30,6 +33,14 @@ describe('the machine-setup plan', () => {
     expect(runbook).toContain('START BY LOOKING, NOT PLANNING')
     expect(runbook).toContain('nvidia-smi')
     expect(runbook).toContain('Want me to run this?')
+  })
+
+  it('hands the agent what the app already knows, freshness first', () => {
+    $machine.set({ ageDays: 0, arch: 'arm64', model: '', nvidia: true, platform: 'win32', release: '10.0.26100' })
+
+    const runbook = buildTaskBotRunbook('Set up this Spark', ANSWERS, 'bot', 'machine-setup')
+
+    expect(runbook).toContain('What the app can already see about it: set up today, an NVIDIA Spark')
   })
 
   it('keeps a plain build on the build rules, with no machine instructions', () => {

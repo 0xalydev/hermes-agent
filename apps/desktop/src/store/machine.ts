@@ -97,7 +97,14 @@ export function machineKind(): string {
 }
 
 /** One line for the machine-setup brief, so the agent that picks the job up
- *  starts knowing what it is looking at instead of asking. */
+ *  starts knowing what it is looking at instead of asking.
+ *
+ *  Age leads, because it is the fact that changes the work: on a machine
+ *  someone unboxed this week the drivers, updates and toolchain are genuinely
+ *  undone, and doing them is worth an afternoon of the user's life. On a
+ *  machine that has been running for two years most of it is already handled,
+ *  and an agent that doesn't know that will "fix" things that were never
+ *  broken. */
 export function machineDescription(): string {
   const profile = $machine.get()
 
@@ -105,7 +112,16 @@ export function machineDescription(): string {
     return ''
   }
 
-  return [profile.model, `${profile.platform} ${profile.release}`, profile.arch, profile.nvidia ? 'NVIDIA GPU' : '']
+  const age = profile.ageDays
+
+  return [
+    machineLooksNew() ? `set up ${age === 0 ? 'today' : `${age} days ago`}` : '',
+    machineIsSpark() ? 'an NVIDIA Spark' : '',
+    profile.model,
+    `${profile.platform} ${profile.release}`,
+    profile.arch,
+    profile.nvidia ? 'NVIDIA GPU' : ''
+  ]
     .filter(Boolean)
     .join(', ')
 }

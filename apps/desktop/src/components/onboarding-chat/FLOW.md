@@ -274,6 +274,15 @@ user most wants and can least brief, so the agent does the briefing. It is also
 the one job that needs no account anywhere, which is what the first build has
 to be regardless.
 
+The runbook opens with `machineDescription()`, and that line leads with age,
+because age is what decides whether this job is real. On a machine unboxed this
+week the drivers, updates and toolchain are genuinely undone and doing them is
+worth an afternoon of someone's life; on a two-year-old machine most of it is
+handled already, and an agent that doesn't know will "fix" things that were
+never broken. Setup's offer says the same thing out loud — it names the machine
+as new, and names the work as the setup nobody enjoys — because being recognised
+is what makes the offer land.
+
 Also in the tree from the same lineage (dormant in bot mode, used by the
 login-mode dashboard flow): the generative first-screen system —
 `FirstScreenCard` keep/drop picker, the living sketch pane

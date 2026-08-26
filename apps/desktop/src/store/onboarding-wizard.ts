@@ -488,7 +488,7 @@ export function buildChatOnboardingPrompt(): string {
     `4. Then the fork: one short sentence in your own words — you'll spin up an agent dedicated to their first build — then the line ::ask{question="${FORK_QUESTION}" options="${forkOptions().join('|')}" input="true"} alone as its own paragraph.`,
     ...(fallback.length
       ? [
-          `   This ${kind} is barely out of the box, so the fork offers the one job that is obviously worth doing and keeps the rest one tap away. Say so in your sentence — you can see it is a new ${kind}, and you can get it ready. If they pick "${SOMETHING_ELSE}", reply with one short line and the second ask: ::ask{question="What sounds better?" options="${fallback.join('|')}" input="true"} — same exactness rule — then branch on THAT answer below.`
+          `   This ${kind} is barely out of the box, so the fork offers the one job that is obviously worth doing and keeps the rest one tap away. Say so in your sentence: you can see it is a NEW ${kind}, and the setup nobody enjoys — updates, drivers, the tools they just told you about — is a thing you can take off their hands right now. Name it as a fresh machine; that recognition is the point. Do not list what you would install. If they pick "${SOMETHING_ELSE}", reply with one short line and the second ask: ::ask{question="What sounds better?" options="${fallback.join('|')}" input="true"} — same exactness rule — then branch on THAT answer below.`
         ]
       : []),
     '5. Branch on their answer:',

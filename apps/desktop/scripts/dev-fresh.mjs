@@ -158,9 +158,11 @@ function mockEnv(hermesHome) {
 }
 
 /**
- * Answer the machine probe with a Spark. The fork's shape depends on hardware
- * almost nobody testing this has on their desk, and "only correct on the demo
- * machine" is how a demo path rots.
+ * Answer the machine probe with a Spark unboxed today — the case the whole
+ * path is for, since a fresh machine is where taking over the drivers, the
+ * updates and the toolchain is worth an afternoon of someone's life. The fork's
+ * shape depends on hardware almost nobody testing this has on their desk, and
+ * "only correct on the demo machine" is how a demo path rots.
  */
 const SPARK = { ageDays: 0, arch: 'arm64', model: '', nvidia: true, platform: 'win32', release: '10.0.26100' }
 
@@ -176,7 +178,7 @@ async function main() {
   console.log(`${mock ? 'Scripted' : 'Fresh'} guided run — sandbox at ${SANDBOX}${keep ? ' (kept)' : ''}`)
   console.log(`  seeded: ${copied.join(', ') || 'nothing (the mock answers)'}`)
   if (spark) {
-    console.log('  machine: pretending to be an RTX Spark')
+    console.log('  machine: pretending to be an RTX Spark unboxed today')
   }
   console.log('')
   console.log('  Watch for: cinematic → guided chat → name, color, connectors,')
