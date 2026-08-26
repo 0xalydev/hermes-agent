@@ -20,11 +20,26 @@ describe('machine profile', () => {
   })
 
   it('reads a Spark off the hardware model, whatever the account age says', () => {
-    $machine.set(profile({ ageDays: 900, arch: 'arm64', model: 'NVIDIA DGX Spark', platform: 'linux' }))
+    // What a real unit reports — underscores and all.
+    $machine.set(profile({ ageDays: 900, arch: 'arm64', model: 'NVIDIA_DGX_Spark', platform: 'linux' }))
 
     expect(machineIsSpark()).toBe(true)
     expect(machineKind()).toBe('Spark')
     expect(machineSetupLeads()).toBe(true)
+  })
+
+  it('knows the same machine under a partner badge', () => {
+    for (const model of ['NVIDIA DGX Spark', 'ASUS Ascent GX10 (GB10)', 'NVIDIA GB10']) {
+      $machine.set(profile({ model, platform: 'linux' }))
+      expect(machineIsSpark()).toBe(true)
+    }
+  })
+
+  it('does not read an ordinary box as one', () => {
+    for (const model of ['', 'MacBookPro18,3', 'Raspberry Pi 5 Model B']) {
+      $machine.set(profile({ model }))
+      expect(machineIsSpark()).toBe(false)
+    }
   })
 
   it('leads on a machine set up days ago, and stands down on a lived-in one', () => {

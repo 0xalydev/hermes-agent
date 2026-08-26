@@ -41,11 +41,16 @@ export function machineLooksNew(): boolean {
   return age != null && age <= NEW_MACHINE_DAYS
 }
 
-/** An NVIDIA DGX Spark. A box nobody owns for its own sake — it is bought to
- *  be set up — so it takes the front of the flow whatever its account says
- *  about age. */
+/** An NVIDIA DGX Spark, or one of the GB10 partner boxes that are the same
+ *  machine under another badge (ASUS Ascent GX10, Dell Pro Max, HP ZGX Nano,
+ *  Lenovo ThinkStation PGX). A box nobody owns for its own sake — it is bought
+ *  to be set up — so it takes the front of the flow whatever its account says
+ *  about age.
+ *
+ *  Underscores are separators here, not letters: a real unit reports
+ *  `NVIDIA_DGX_Spark`, which \b reads as ONE word and would never match. */
 export function machineIsSpark(): boolean {
-  return /\bdgx\b|\bspark\b/i.test($machine.get()?.model ?? '')
+  return /\b(dgx|spark|gb10)\b/i.test(($machine.get()?.model ?? '').replace(/_/g, ' '))
 }
 
 /** True when setting the machine up should be the only thing on offer, with
