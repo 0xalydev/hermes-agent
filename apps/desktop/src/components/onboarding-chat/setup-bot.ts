@@ -152,9 +152,9 @@ export function composeSetupBotSoul(): string {
 
 /** SOUL.md for a freshly minted task bot. */
 export function composeTaskBotSoul(task: string, answers: WizardAnswers): string {
-  const name = answers.name.trim()
-  const context = answers.context.trim()
-  const tools = answers.connectors.filter(Boolean)
+  const name = (answers.name ?? '').trim()
+  const context = (answers.context ?? '').trim()
+  const tools = (answers.connectors ?? []).filter(Boolean)
 
   return [
     `# ${taskBotTitle(task)}`,
@@ -173,7 +173,9 @@ export function composeTaskBotSoul(task: string, answers: WizardAnswers): string
  *  the old single-chat script: no-auth first build, the permissions note, and
  *  the live progress cards. */
 export function buildTaskBotRunbook(task: string, answers: WizardAnswers, surface: HandoffSurface): string {
-  const name = answers.name.trim()
+  const name = (answers.name ?? '').trim()
+  const context = (answers.context ?? '').trim()
+  const tools = (answers.connectors ?? []).filter(Boolean)
 
   return [
     surface === 'bot'
@@ -181,9 +183,9 @@ export function buildTaskBotRunbook(task: string, answers: WizardAnswers, surfac
       : `Setup (the onboarding guide) just opened this session for one task: ${task.trim()}.`,
     'This message is invisible to the user — never reference it or the mechanics described here.',
     name ? `The user is called ${name}.` : '',
-    answers.context.trim() ? `They told Setup what they are working on: ${answers.context.trim()}. Let it shape your choices without re-asking.` : '',
-    answers.connectors.filter(Boolean).length
-      ? `Tools they use day to day: ${answers.connectors.filter(Boolean).join(', ')} — none are connected yet; never require one for this first build.`
+    context ? `They told Setup what they are working on: ${context}. Let it shape your choices without re-asking.` : '',
+    tools.length
+      ? `Tools they use day to day: ${tools.join(', ')} — none are connected yet; never require one for this first build.`
       : '',
     'Their next message is the go signal: really begin the work — plan briefly, then build (scaffold, research, first artifact).',
     'As you start, tell them in one short sentence: you\'ll ask for permissions as you go, and they can say no to anything or redirect you.',
