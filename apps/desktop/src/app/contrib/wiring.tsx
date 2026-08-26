@@ -638,8 +638,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         const seedMessages = kind === 'guide' ? buildChatOnboardingSeedMessages(pickOnboardingGreeting()) : undefined
         let asSetupBot = kind === 'guide' ? await ensureSetupBotProfile(requestGateway) : false
 
-        console.log('[setup-bot] kickoff', { asSetupBot, kind })
-
         if (asSetupBot) {
           // selectProfile-style: point new chats at the setup profile and make
           // its backend the active gateway BEFORE creating — the guided chat
@@ -648,7 +646,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           try {
             $newChatProfile.set(SETUP_BOT_PROFILE)
             await ensureGatewayProfile(SETUP_BOT_PROFILE)
-            console.log('[setup-bot] gateway swapped to setup profile')
           } catch (error) {
             console.warn('[setup-bot] setup profile swap failed', error)
             $newChatProfile.set(null)
@@ -672,7 +669,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           const canonical = registryHit?.sessions?.[0]
 
           if (canonical?.id) {
-            console.log('[setup-bot] adopted existing Bot Chat', canonical)
             markGuideKickoffStarted()
             await resumeSession(canonical.resolved_id ?? canonical.id, true)
 
@@ -704,8 +700,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
             ? { ...(asSetupBot ? { hidden: true, title: 'Bot Chat' } : {}), model: FAST_LANE }
             : undefined
         )
-
-        console.log('[setup-bot] created', { runtimeId, stored: $selectedStoredSessionId.get() })
 
         if (!runtimeId) {
           return

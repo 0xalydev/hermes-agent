@@ -163,6 +163,11 @@ function reconcileLayout(id: string, tree: LayoutNode): void {
   assembleOrder = 0
   applyLayoutPreset(id, tree)
 
+  const declared = new Set(allPaneIds(tree))
+
+  // Everything this layout asks for is wanted, whatever the last one decided.
+  undismissTreePanes(declared)
+
   // Adoption keeps every pane a preset doesn't declare — as a TAB. Hide-style
   // panes (files, review) vanish with their stores, but tool panels (terminal,
   // logs) keep their tab visible even while collapsed, so Basic would land
@@ -177,14 +182,6 @@ function reconcileLayout(id: string, tree: LayoutNode): void {
   // Candidates come from the REGISTRY, not just the tree: a pane that isn't
   // placed yet still gets its dismissal recorded, and adoption skips dismissed
   // panes — so this holds whether the pane arrives before or after the sweep.
-  const declared = new Set(allPaneIds(tree))
-
-  // Layouts are re-pickable, and a dismissal outlives the pick that caused it.
-  // Basic dismisses the terminal; choosing Elite afterwards put the terminal
-  // back in the tree still dismissed, so Elite came up as a half-applied mix of
-  // both. Whatever THIS layout declares is wanted, so clear its records first.
-  undismissTreePanes(declared)
-
   const dismissUndeclared = () => {
     const registered = registry.getArea('panes')
 
