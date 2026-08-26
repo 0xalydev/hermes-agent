@@ -471,6 +471,9 @@ declare global {
       cancelBootstrap: () => Promise<{ ok: boolean; cancelled: boolean }>
       onBootstrapEvent: (callback: (payload: DesktopBootstrapEvent) => void) => () => void
       getVersion: () => Promise<DesktopVersionInfo>
+      /** Host facts for the guided first run. Optional: an older preload (a
+       *  mid-upgrade managed install) simply doesn't answer. */
+      getMachineProfile?: () => Promise<DesktopMachineProfile>
       getRemoteDisplayReason?: () => Promise<string | null>
       updates: {
         check: () => Promise<DesktopUpdateStatus>
@@ -551,6 +554,16 @@ export interface DesktopVersionInfo {
   bundleOutOfSync?: boolean
   /** Commits under apps/desktop/ the running bundle is missing (null unknown). */
   bundleCommitsBehind?: null | number
+}
+
+export interface DesktopMachineProfile {
+  /** Days since the OS created this user account; null when unknowable. */
+  ageDays: null | number
+  arch: string
+  /** Hardware's self-reported model (`NVIDIA DGX Spark`); '' when unavailable. */
+  model: string
+  platform: string
+  release: string
 }
 
 export type DesktopUninstallMode = 'full' | 'gui' | 'lite'
