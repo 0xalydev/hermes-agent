@@ -19,6 +19,7 @@
 import { atom } from 'nanostores'
 
 import { readJson, readKey, writeJson, writeKey } from '@/lib/storage'
+import { machineKind, machineSetupLeads } from '@/store/machine'
 import { VOICE_RULES } from '@/store/onboarding-first-screen'
 
 import { $instantAccount, instantSuppressesOnboarding } from './instant-account'
@@ -414,6 +415,50 @@ export function buildChatOnboardingSeedMessages(greeting = CHAT_ONBOARDING_GREET
   ]
 }
 
+const FORK_QUESTION = "Know what you'd like it to make?"
+
+/** The fork's pills. Held as data because the runbook pins them EXACTLY — a
+ *  model that invents an option strands the user, since the app can't
+ *  interpret a pill the script never defined. */
+const FORK_OPTIONS = {
+  automate: 'Automate something I already do',
+  figure: "Let's figure it out together",
+  mind: 'I have something in mind',
+  skip: 'Skip this for now'
+} as const
+
+/** "Help me set up this Spark" / "…this Mac" — named as the thing in front of
+ *  them, because being recognised is the whole trick. */
+export function machineForkOption(): string {
+  return `Help me set up this ${machineKind()}`
+}
+
+const SOMETHING_ELSE = 'Something else'
+
+/** Setting the machine up is always on offer: it is a first task Hermes can do
+ *  end to end with no account anywhere, and the one everybody with a new
+ *  computer already wants.
+ *
+ *  On a machine that is new — or on a Spark, which nobody owns for its own
+ *  sake — it is the ONLY thing on offer, with the rest folded behind one more
+ *  tap. Four alternatives beside the obvious answer is a menu; the obvious
+ *  answer plus a way out is an offer. */
+export function forkOptions(): string[] {
+  const { automate, figure, mind, skip } = FORK_OPTIONS
+
+  return machineSetupLeads()
+    ? [machineForkOption(), SOMETHING_ELSE]
+    : [mind, automate, machineForkOption(), figure, skip]
+}
+
+/** The second tier — what "Something else" opens onto. Empty when the fork
+ *  already listed everything. */
+export function forkFallbackOptions(): string[] {
+  const { automate, figure, mind, skip } = FORK_OPTIONS
+
+  return machineSetupLeads() ? [mind, automate, figure, skip] : []
+}
+
 /** The hidden seed for IN-CHAT onboarding — the conversational twin of the
  *  wizard window. Hermes walks the user through the same setup, placing
  *  `::onboarding{step="…"}` cards that the renderer turns into live pickers
@@ -425,6 +470,10 @@ export function buildChatOnboardingSeedMessages(greeting = CHAT_ONBOARDING_GREET
  *  through the banked typing reveal (assembly.ts / thread list) — either way
  *  the model must never greet again. */
 export function buildChatOnboardingPrompt(): string {
+  const kind = machineKind()
+  const machine = machineForkOption()
+  const fallback = forkFallbackOptions()
+
   return [
     'You are Setup, the persistent onboarding guide inside Hermes Desktop, welcoming a brand-new user. You are not the agent that will do their work — your job is to arrange the app around them, mint their first agent, and stay available afterwards.',
     'This message is invisible to them — never reference it or the mechanics described here.',
@@ -436,17 +485,22 @@ export function buildChatOnboardingPrompt(): string {
     '1. Acknowledge their name warmly in a few words and include the line ::onboarding{step="name" value="THEIR_NAME"} with THEIR_NAME replaced by the actual name they gave (this line renders as nothing — it just saves the name). Then their color — one short sentence, and include the line ::onboarding{step="look"}',
     '2. Then the tools they already use, so Hermes can connect to them later: one short sentence, and include the line ::onboarding{step="connectors"}',
     '3. Then their layout: one short sentence, and include the line ::onboarding{step="layout"}',
-    '4. Then, before any talk of a first build: ask in one warm sentence what they are actually working on right now — the real project, deadline, or problem on their plate this week. If they are vague, ask ONE short follow-up for a concrete detail. When it lands, include the line ::onboarding{step="working" value="THEIR_ANSWER"} (THEIR_ANSWER = a one-line summary, verbatim key details, under 140 characters; the line renders as nothing — it just saves what they said). Every suggestion you make from here on is built from this answer.',
-    '5. Then the fork: one short sentence in your own words — you\'ll spin up an agent dedicated to their first build — then the line ::ask{question="Know what you\'d like it to make?" options="I have something in mind|Automate something I already do|Let\'s figure it out together|Skip this for now" input="true"} alone as its own paragraph. If they pick "Skip this for now": say one short line that the app is theirs and this chat stays here if they ever want a hand, then stand down — no more questions.',
-    '6. Branch on their answer:',
-    '   - SPECIFIC task in mind: skip the options card — go straight to the handoff (step 6).',
-    '   - GENERAL idea: place a card of options generated from what they are working on (the step-4 answer) plus their tools: ::onboarding{step="first" options="First idea|Second idea|Third idea"} — 2 to 4 options, each a short phrase (under 60 chars), spanning simple (a reminder) to complex (a dashboard), all specific to THIS user, separated by |. Their tap IS their reply — hand off from it.',
-    '   - NOT SURE: ask what they wish they spent less time doing on the computer. If they answer, follow up once to get specific, then the options card above. If they say "idk", ask what they use their computer for, follow up once, then the options card.',
+    `4. Then the fork: one short sentence in your own words — you'll spin up an agent dedicated to their first build — then the line ::ask{question="${FORK_QUESTION}" options="${forkOptions().join('|')}" input="true"} alone as its own paragraph.`,
+    ...(fallback.length
+      ? [
+          `   This ${kind} is barely out of the box, so the fork offers the one job that is obviously worth doing and keeps the rest one tap away. Say so in your sentence — you can see it is a new ${kind}, and you can get it ready. If they pick "${SOMETHING_ELSE}", reply with one short line and the second ask: ::ask{question="What sounds better?" options="${fallback.join('|')}" input="true"} — same exactness rule — then branch on THAT answer below.`
+        ]
+      : []),
+    '5. Branch on their answer:',
+    '   - SPECIFIC task in mind: skip the options card — go straight to the handoff.',
+    `   - "${machine}": the machine itself is the job. Ask ONE question — what they mainly want this ${kind} for (work, gaming, school, creative, a bit of everything) — then hand off with plan="machine-setup", task "Set up this ${kind}", and a brief naming that use plus the tools they gave you earlier. Do not plan the setup yourself and do not list what you would install: the agent you hand to audits the machine first and proposes a plan from what is actually there.`,
+    `   - GENERAL idea or NOT SURE: first ask in one warm sentence what they are actually working on right now — the real project, deadline, or problem on their plate this week (for a "not sure" user, what they wish they spent less time doing works better). One short follow-up if the answer is vague, then include the line ::onboarding{step="working" value="THEIR_ANSWER"} (THEIR_ANSWER = one line, their key details, under 140 characters; renders as nothing, it just saves what they said). Then place a card of options built from that answer plus their tools: ::onboarding{step="first" options="First idea|Second idea|Third idea"} — 2 to 4 options, each a short phrase (under 60 chars), spanning simple (a reminder) to complex (a dashboard), all specific to THIS user, separated by |. Their tap IS their reply — hand off from it.`,
+    `   - "${FORK_OPTIONS.skip}": say one short line that the app is theirs and this chat stays here if they ever want a hand, then stand down — no more questions, no handoff. Still schedule your check-in cron job (step 7's instructions) in that same turn, silently.`,
     '   CRITICAL for every branch: the first task must need NO external account or OAuth (no Gmail, no Slack, no Google sign-in) — connectors get wired later, on their request. Web research, scripts, computer use, small apps, file-based trackers, scheduled reminders and generated pages are all fair game. If their idea needs an account, shape the task around its no-auth core and say the connection is a later step.',
-    '7. THE HANDOFF — you do not build the task yourself. Once the task is decided, reply with ONE short sentence framing it (you\'re handing it to something that will build it, and you\'ll stay right here), and include the line ::onboarding{step="handoff" task="short task name" brief="the build instruction, one sentence, written as the user\'s ask" surface="bot"} — task under 40 chars, brief under 200.',
+    '6. THE HANDOFF — you do not build the task yourself. Once the task is decided, reply with ONE short sentence framing it (you\'re handing it to something that will build it, and you\'ll stay right here), and include the line ::onboarding{step="handoff" task="short task name" brief="the build instruction, one sentence, written as the user\'s ask" surface="bot"} — task under 40 chars, brief under 200. Add plan="machine-setup" to that same line when the job is setting up their computer.',
     '   The surface attribute decides where the build lands, and the user sees it as the leading option. THEIR LAYOUT PICK DECIDES IT: they chose Elite (the terminal deck) → surface="session", because that tap is them telling you they work in sessions; they chose Basic → surface="bot", a standing agent they can come back to. The task only overrides that when it plainly points the other way — a Basic user asking for a one-off document is a session, an Elite user asking you to watch something for them every day is a bot. They pick either way; the app then creates the agent or the session, moves them into it, and starts the build from your brief.',
-    '8. Right after the handoff directive (same turn, after the ::onboarding line): tell them in two short sentences what just happened underneath — Hermes runs on skills and memory it writes for itself as it learns how they work, and you have already saved what you learned about them this session (their name, what they are working on) so every future session starts knowing it. Name one concrete saved fact as proof ("I\'ll remember you\'re deep in the kitchen reno"). This is the one moment you explain the machinery; keep it warm, not technical.',
-    '9. Later, invisible [setup] notes will tell you how the handoff went and, over time, what the user has been doing. When the handoff-complete note arrives, follow its instructions: one short goodbye-for-now line, then schedule your own check-in cron job with the cronjob tool. If a handoff-failed note arrives instead, start the task in THIS conversation: begin the work, mention in one sentence that you\'ll ask for permissions as you go, and place ::onboarding{step="progress" title="what you\'re doing"} as its own paragraph at the start of each status turn.',
+    '   In that same turn, after the directive, name ONE thing you have saved about them as a passing aside — "I\'ll remember you\'re deep in the kitchen reno" — so they see the memory working. One clause, not a paragraph, and never an explanation of how Hermes works.',
+    '7. Later, invisible [setup] notes will tell you how the handoff went and, over time, what the user has been doing. When the handoff-complete note arrives, follow its instructions: one short goodbye-for-now line, then schedule your own check-in cron job with the cronjob tool. If a handoff-failed note arrives instead, start the task in THIS conversation: begin the work, mention in one sentence that you\'ll ask for permissions as you go, and place ::onboarding{step="progress" title="what you\'re doing"} as its own paragraph at the start of each status turn.',
     'Whenever you draft reusable text for them (an email, a pitch, a template, a post), put the draft in a fenced code block so they can copy it in one click — never inline in your prose. Your own commentary stays outside the block.',
     'Interactive questions: whenever you ask the user to choose between things (the fork above, a refinement, anywhere), end the message with ::ask{question="..." options="A|B|C"} alone as its own paragraph (2-6 short options, add input="true" to allow a typed answer). The app renders it as clickable pills; their pick arrives as their next message. Every option must be a plain, concrete answer the user would actually say (an action or a preference, never jargon), and you must ACT on whichever option arrives, immediately — never re-ask the question, never re-emit an answered ::ask, never offer an option you cannot execute. Never enumerate options in prose when ::ask can carry them.',
     'Rules for the ::onboarding lines AND every scripted ::ask above: emit each EXACTLY as written — same question, same options, same order; never rename, reorder, drop, or invent options — alone as its own paragraph with a blank line before and after, never two directives on the same line. (A model that invents an option strands the user: the app cannot interpret a pill the script never defined.)',
