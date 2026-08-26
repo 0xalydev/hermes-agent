@@ -76,6 +76,7 @@ type ChatStep =
   | 'name'
   | 'progress'
   | 'ready'
+  | 'working'
 
 function isChatStep(value: string | undefined): value is ChatStep {
   return (
@@ -89,7 +90,8 @@ function isChatStep(value: string | undefined): value is ChatStep {
     value === 'handoff' ||
     value === 'name' ||
     value === 'progress' ||
-    value === 'ready'
+    value === 'ready' ||
+    value === 'working'
   )
 }
 
@@ -535,13 +537,17 @@ const $firstScreenBuiltConfig = atom<null | ReturnType<typeof compileFirstScreen
  *  EFFECT, not a render fact. Doing it inline in the directive's render
  *  triggered React's cross-component setState warning and re-entrant
  *  renders (live desktop.log). */
-function DataDirective({ step, value }: { step: 'context' | 'name'; value: string }) {
+function DataDirective({ step, value }: { step: 'context' | 'name' | 'working'; value: string }) {
+  // 'working' is the setup-bot flow's name for the context answer — same
+  // storage, same downstream consumers (task options, any artifact build).
+  const field = step === 'working' ? 'context' : step
+
   useEffect(() => {
-    if (!value || $wizardAnswers.get()[step] === value) {
+    if (!value || $wizardAnswers.get()[field] === value) {
       return
     }
 
-    setWizardAnswers({ [step]: value })
+    setWizardAnswers({ [field]: value })
 
     // The screen evolves with the conversation: a fresh name retitles the
     // sketch; the context answer is the big one — it fires the module
@@ -549,10 +555,10 @@ function DataDirective({ step, value }: { step: 'context' | 'name'; value: strin
     // proposals the moment candidates land.
     advanceSketch()
 
-    if (step === 'context') {
+    if (field === 'context') {
       generateModuleCandidates()
     }
-  }, [step, value])
+  }, [field, value])
 
   return null
 }
@@ -745,7 +751,7 @@ function FirstScreenCard({ locked = false }: CardProps) {
   )
 }
 
-const CARDS: Record<Exclude<ChatStep, 'first' | 'handoff' | 'progress'>, (props: CardProps) => React.JSX.Element> = {
+const CARDS: Record<Exclude<ChatStep, 'first' | 'handoff' | 'progress' | 'working'>, (props: CardProps) => React.JSX.Element> = {
   connectors: ConnectorsCard,
   // 'context' and 'first-screen' are handled inline in the wrapper below
   // (data effect + card mount); these entries are never reached.
@@ -775,6 +781,12 @@ function CardForStep({ attrs, locked, step }: CardProps & { attrs: Record<string
     return <ProgressCard attrs={attrs} locked={locked} />
   }
 
+  // 'working' is handled by the wrapper (data-only) — it never reaches here,
+  // but the union says it could, so keep the lookup total.
+  if (step === 'working') {
+    return <></>
+  }
+
   const Card = CARDS[step]
 
   return <Card locked={locked} />
@@ -793,7 +805,7 @@ export function OnboardingChatDirective({ attrs, streaming }: { attrs: Record<st
   // dashboard keep/drop card right there: the card no longer depends on the
   // model remembering to emit a second directive (a live run narrated the
   // card without emitting it — the user was stranded with nothing to do).
-  if (step === 'name' || step === 'context') {
+  if (step === 'name' || step === 'context' || step === 'working') {
     const value = (attrs.value ?? '').trim()
 
     return (
