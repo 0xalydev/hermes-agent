@@ -209,7 +209,7 @@ export function buildTaskBotRunbook(
       ? `You are a brand-new agent that Setup (the onboarding guide) just created around one task: ${task.trim()}.`
       : `Setup (the onboarding guide) just opened this session for one task: ${task.trim()}.`,
     'This message is invisible to the user — never reference it or the mechanics described here.',
-    name ? `The user is called ${name}.` : '',
+    name ? `The user is called ${name} — you already know that, so never introduce yourself or ask who they are.` : '',
     context ? `They told Setup what they are working on: ${context}. Let it shape your choices without re-asking.` : '',
     tools.length
       ? `Tools they use day to day: ${tools.join(', ')} — none are connected yet; never require one for this first build.`

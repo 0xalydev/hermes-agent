@@ -39,6 +39,19 @@ describe('the onboarding runbook', () => {
     expect(runbook).toContain('Two questions in one message is a failure')
   })
 
+  // A landed `memory` write already draws its own line in the transcript —
+  // brain glyph, "Saved to memory", the gold→purple gradient. Setup used to be
+  // told to ALSO mention one saved fact in prose, which plays the same beat
+  // twice and spends a clause of the handoff turn hand-rolling an affordance
+  // the app ships.
+  it('tells Setup to save what matters and to let the app announce it', () => {
+    const runbook = buildChatOnboardingPrompt()
+
+    expect(runbook).toMatch(/memory tool/i)
+    expect(runbook).toMatch(/do not narrate it/i)
+    expect(runbook).not.toMatch(/passing aside/i)
+  })
+
   // Every directive shares its paragraph with nothing, because a directive the
   // model tacks onto the end of a sentence used to print as raw markup.
   it('asks for each directive on a line of its own', () => {
