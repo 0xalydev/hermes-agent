@@ -51,6 +51,16 @@ const DIRECTIVE_RE = /^::([a-z][a-z0-9-]{0,63})(?:\{([^{}]{0,1024})\})?$/
 // `key="value"` pairs; single quotes accepted for model sloppiness.
 const ATTR_RE = /([a-z][\w-]{0,63})=(?:"([^"]*)"|'([^']*)')/gi
 
+function parseAttrs(body: string | undefined): Record<string, string> {
+  const attrs: Record<string, string> = {}
+
+  for (const pair of (body ?? '').matchAll(ATTR_RE)) {
+    attrs[pair[1].toLowerCase()] = pair[2] ?? pair[3] ?? ''
+  }
+
+  return attrs
+}
+
 /**
  * Parse a paragraph as a transcript directive. Returns null unless the ENTIRE
  * trimmed text is one directive — prose containing `::` stays prose.
@@ -70,15 +80,7 @@ export function parseTranscriptDirective(text: string): ParsedTranscriptDirectiv
     return null
   }
 
-  const attrs: Record<string, string> = {}
-
-  if (match[2]) {
-    for (const pair of match[2].matchAll(ATTR_RE)) {
-      attrs[pair[1].toLowerCase()] = pair[2] ?? pair[3] ?? ''
-    }
-  }
-
-  return { name: match[1], attrs, source: trimmed }
+  return { name: match[1], attrs: parseAttrs(match[2]), source: trimmed }
 }
 
 // A directive ANYWHERE in the paragraph (used by the list parser, which then
@@ -120,21 +122,74 @@ export function parseTranscriptDirectiveList(text: string): ParsedTranscriptDire
       return null
     }
 
-    const attrs: Record<string, string> = {}
-
-    if (match[2]) {
-      for (const pair of match[2].matchAll(ATTR_RE)) {
-        attrs[pair[1].toLowerCase()] = pair[2] ?? pair[3] ?? ''
-      }
-    }
-
-    out.push({ name: match[1], attrs, source: match[0] })
+    out.push({ name: match[1], attrs: parseAttrs(match[2]), source: match[0] })
     cursor = start + match[0].length
   }
 
   // Trailing prose after the last directive → not a directive paragraph.
   if (out.length < 2 || trimmed.slice(cursor).trim() !== '') {
     return null
+  }
+
+  return out
+}
+
+export type TranscriptParagraphSegment =
+  | { kind: 'prose'; text: string }
+  | { kind: 'directive'; directive: ParsedTranscriptDirective }
+
+// Same shape, but anywhere in a paragraph — anchored to a word boundary so
+// `std::vector` can never be read as a directive.
+const DIRECTIVE_EMBEDDED_RE = /(?<=^|\s)::([a-z][a-z0-9-]{0,63})(?:\{([^{}]{0,1024})\})?/g
+
+/**
+ * Split a paragraph into its prose runs and the directives embedded in them.
+ * Returns null when there is no directive in it at all.
+ *
+ * The strict parses above exist so prose can never be hijacked, and they are
+ * still what decides whether a paragraph IS a directive. This is the recovery
+ * path for the other half of the problem: a model that writes the directive at
+ * the end of the sentence instead of alone under it. The runbook asks for its
+ * own paragraph and the fast models we run onboarding on comply most of the
+ * time — but a miss used to print `::onboarding{step="look"}` at the user in
+ * raw text AND swallow the card, which on the colour step means the flow
+ * simply stops. A card rendered next to its sentence is the mild failure; the
+ * markup showing is not.
+ *
+ * Prose is never guessed at: a directive nobody registered stays exactly the
+ * text it was (the caller folds it back), so this widens what renders without
+ * widening what can be taken away from the reader.
+ */
+export function segmentTranscriptDirectives(text: string): TranscriptParagraphSegment[] | null {
+  if (!text.includes('::') || text.length > 4800) {
+    return null
+  }
+
+  const out: TranscriptParagraphSegment[] = []
+  let cursor = 0
+
+  DIRECTIVE_EMBEDDED_RE.lastIndex = 0
+
+  for (const match of text.matchAll(DIRECTIVE_EMBEDDED_RE)) {
+    const start = match.index ?? 0
+
+    if (start > cursor) {
+      out.push({ kind: 'prose', text: text.slice(cursor, start) })
+    }
+
+    out.push({
+      kind: 'directive',
+      directive: { name: match[1], attrs: parseAttrs(match[2]), source: match[0] }
+    })
+    cursor = start + match[0].length
+  }
+
+  if (out.length === 0) {
+    return null
+  }
+
+  if (cursor < text.length) {
+    out.push({ kind: 'prose', text: text.slice(cursor) })
   }
 
   return out

@@ -6,6 +6,7 @@ import { ContribBoundary } from '@/contrib/react/boundary'
 import {
   type ParsedTranscriptDirective,
   parseTranscriptDirectiveList,
+  segmentTranscriptDirectives,
   TRANSCRIPT_DIRECTIVE_AREA,
   type TranscriptDirectiveContribution
 } from '@/lib/transcript-directives'
@@ -100,12 +101,57 @@ export const TranscriptDirectiveLeaf: FC<{ text: string; streaming?: boolean }> 
   )
 }
 
-/** True when the paragraph text will resolve to at least one registered
- *  directive — callers that must decide `<p>` vs slot before rendering use
- *  this with the same registry snapshot the leaf reads. */
-export function useIsClaimedDirective(text: string | null): boolean {
-  const contributions = useContributions(TRANSCRIPT_DIRECTIVE_AREA)
-  const parsedList = text === null ? null : parseTranscriptDirectiveList(text)
+/** A paragraph resolved against the registry: the prose to keep as prose, and
+ *  the claimed directives to render as cards, in the order they were written. */
+export type ResolvedParagraphSegment = { kind: 'prose'; text: string } | { kind: 'directive'; source: string }
 
-  return parsedList !== null && parsedList.some(parsed => claimFor(contributions, parsed.name) !== undefined)
+/**
+ * How a paragraph should render. Null means "as the plain `<p>` it always
+ * was" — no directive in it, or none that anyone registered.
+ *
+ * A directive nobody claimed is folded back into the prose around it, which is
+ * what keeps this from taking text away from the reader: the only thing that
+ * can be lifted out of a sentence is markup a plugin is standing by to draw.
+ */
+export function useResolvedParagraph(text: string | null): ResolvedParagraphSegment[] | null {
+  const contributions = useContributions(TRANSCRIPT_DIRECTIVE_AREA)
+
+  return useMemo(() => {
+    const segments = text === null ? null : segmentTranscriptDirectives(text)
+
+    if (!segments) {
+      return null
+    }
+
+    const out: ResolvedParagraphSegment[] = []
+    let claimed = false
+
+    for (const segment of segments) {
+      const isCard = segment.kind === 'directive' && claimFor(contributions, segment.directive.name) !== undefined
+
+      if (isCard) {
+        claimed = true
+        out.push({ kind: 'directive', source: segment.directive.source })
+
+        continue
+      }
+
+      // Prose, or an unclaimed directive that is only ever text. Merge into the
+      // run before it so a fold never splits one sentence across two <p>s.
+      const raw = segment.kind === 'prose' ? segment.text : segment.directive.source
+      const previous = out.at(-1)
+
+      if (previous?.kind === 'prose') {
+        previous.text += raw
+      } else {
+        out.push({ kind: 'prose', text: raw })
+      }
+    }
+
+    if (!claimed) {
+      return null
+    }
+
+    return out.filter(segment => segment.kind === 'directive' || segment.text.trim() !== '')
+  }, [contributions, text])
 }

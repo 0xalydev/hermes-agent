@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { registry } from '@/contrib/registry'
 import { TRANSCRIPT_DIRECTIVE_AREA, type TranscriptDirectiveContribution } from '@/lib/transcript-directives'
 
-import { paragraphPlainText, TranscriptDirectiveLeaf } from './transcript-directive'
+import { paragraphPlainText, TranscriptDirectiveLeaf, useResolvedParagraph } from './transcript-directive'
 
 describe('paragraphPlainText', () => {
   it('passes through a plain string', () => {
@@ -60,6 +60,64 @@ describe('TranscriptDirectiveLeaf', () => {
     const { container } = render(<TranscriptDirectiveLeaf text="just some text" />)
 
     expect(container.firstChild).toBeNull()
+  })
+
+  describe('useResolvedParagraph', () => {
+    const resolve = (text: string) => {
+      let out: ReturnType<typeof useResolvedParagraph> = null
+
+      function Probe() {
+        out = useResolvedParagraph(text)
+
+        return null
+      }
+
+      render(<Probe />)
+
+      return out
+    }
+
+    it('splits a sentence the model ended with a directive', () => {
+      const dispose = contribution()
+
+      try {
+        expect(resolve('Pick a color. ::demo{label="hi"}')).toEqual([
+          { kind: 'prose', text: 'Pick a color. ' },
+          { kind: 'directive', source: '::demo{label="hi"}' }
+        ])
+      } finally {
+        dispose()
+      }
+    })
+
+    it('leaves a whole-paragraph directive as the card alone', () => {
+      const dispose = contribution()
+
+      try {
+        expect(resolve('::demo{label="hi"}')).toEqual([{ kind: 'directive', source: '::demo{label="hi"}' }])
+      } finally {
+        dispose()
+      }
+    })
+
+    // The guarantee that makes lifting markup out of prose safe: only a name a
+    // plugin is standing by to draw can be taken out of the reader's sentence.
+    it('keeps an unclaimed directive as the text it always was', () => {
+      expect(resolve('Pick a color. ::nobody-home{label="hi"}')).toBeNull()
+    })
+
+    it('folds an unclaimed directive into the prose beside a claimed one', () => {
+      const dispose = contribution()
+
+      try {
+        expect(resolve('::nobody-home say hi ::demo{label="hi"}')).toEqual([
+          { kind: 'prose', text: '::nobody-home say hi ' },
+          { kind: 'directive', source: '::demo{label="hi"}' }
+        ])
+      } finally {
+        dispose()
+      }
+    })
   })
 
   it('does not remount the widget when streaming settles', () => {

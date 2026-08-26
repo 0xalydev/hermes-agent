@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseTranscriptDirective, parseTranscriptDirectiveList } from './transcript-directives'
+import {
+  parseTranscriptDirective,
+  parseTranscriptDirectiveList,
+  segmentTranscriptDirectives
+} from './transcript-directives'
 
 describe('parseTranscriptDirective', () => {
   it('parses a bare directive with no attributes', () => {
@@ -73,6 +77,32 @@ describe('parseTranscriptDirective', () => {
       expect(parseTranscriptDirectiveList('::onboarding{step="focus"} pick one ::onboarding{step="look"}')).toBeNull()
       expect(parseTranscriptDirectiveList('see ::onboarding{step="focus"}')).toBeNull()
       expect(parseTranscriptDirectiveList('::onboarding{step="focus"} trailing words')).toBeNull()
+    })
+  })
+
+  describe('segmentTranscriptDirectives', () => {
+    it('recovers a directive the model tacked onto the end of a sentence', () => {
+      const segments = segmentTranscriptDirectives('Pick a color you like. ::onboarding{step="look"}')
+
+      expect(segments?.map(s => (s.kind === 'prose' ? s.text.trim() : s.directive.attrs.step))).toEqual([
+        'Pick a color you like.',
+        'look'
+      ])
+    })
+
+    it('keeps the order of prose and directives, wherever they fall', () => {
+      const segments = segmentTranscriptDirectives('::onboarding{step="name" value="bk"} Good to meet you.')
+
+      expect(segments?.map(s => s.kind)).toEqual(['directive', 'prose'])
+    })
+
+    it('leaves paragraphs with no directive alone', () => {
+      expect(segmentTranscriptDirectives('just some text')).toBeNull()
+      expect(segmentTranscriptDirectives('a ratio of 3::1')).toBeNull()
+    })
+
+    it('never reads a scope-resolution operator as a directive', () => {
+      expect(segmentTranscriptDirectives('call std::vector::push_back here')).toBeNull()
     })
   })
 

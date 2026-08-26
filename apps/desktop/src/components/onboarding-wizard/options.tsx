@@ -5,6 +5,7 @@
  * transcript cards), so the two paths always offer the same choices.
  */
 
+import { Tip } from '@/components/ui/tooltip'
 import { selectableClass } from '@/components/wizard-shell'
 import { cn } from '@/lib/utils'
 
@@ -57,22 +58,23 @@ export function AccentSwatch({
   onPick: () => void
 }) {
   return (
-    <button
-      aria-label={name}
-      aria-pressed={active}
-      className={cn(
-        // The hairline keeps the mono swatch visible on its own pole.
-        'size-9 rounded-full border border-foreground/15 transition-transform duration-150',
-        !active && 'hover:scale-105'
-      )}
-      onClick={onPick}
-      style={{
-        background: hex,
-        boxShadow: active ? `0 0 0 2px var(--dt-background), 0 0 0 4px ${hex}` : undefined
-      }}
-      title={name}
-      type="button"
-    />
+    <Tip label={name}>
+      <button
+        aria-label={name}
+        aria-pressed={active}
+        className={cn(
+          // The hairline keeps the mono swatch visible on its own pole.
+          'size-9 rounded-full border border-foreground/15 transition-transform duration-150',
+          !active && 'hover:scale-105'
+        )}
+        onClick={onPick}
+        style={{
+          background: hex,
+          boxShadow: active ? `0 0 0 2px var(--dt-background), 0 0 0 4px ${hex}` : undefined
+        }}
+        type="button"
+      />
+    </Tip>
   )
 }
 
