@@ -25,6 +25,7 @@ import {
   defaultHandoffSurface,
   type HandoffSurface,
   hasCompletedSetupHandoff,
+  parseHandoffPlan,
   parseHandoffSurface,
   requestSetupHandoff,
   taskBotTitle
@@ -460,6 +461,7 @@ function HandoffCard({ attrs, locked = false }: CardProps & { attrs: Record<stri
     // same rule Setup was given — answers instead.
     const suggested = parseHandoffSurface(attrs.surface) ?? defaultHandoffSurface(answers.layout)
     const order: HandoffSurface[] = suggested === 'session' ? ['session', 'bot'] : ['bot', 'session']
+    const plan = parseHandoffPlan(attrs.plan)
 
     return (
       <div className="my-3 grid max-w-md gap-2" data-onboarding-card>
@@ -470,7 +472,7 @@ function HandoffCard({ attrs, locked = false }: CardProps & { attrs: Record<stri
               key={surface}
               label={HANDOFF_SURFACE_LABELS[surface]}
               on={false}
-              onToggle={() => void requestSetupHandoff(task, brief, surface)}
+              onToggle={() => void requestSetupHandoff(task, brief, surface, plan)}
               variant="pill"
             />
           ))}

@@ -61,6 +61,7 @@ import { $activeConnectionId } from '@/store/connections'
 import { $cronReviewRequest, setCronFocusJobId } from '@/store/cron'
 import { requestGatewayForProfile } from '@/store/gateway'
 import { $pinnedSessionIds, pinSession, restoreWorktree, unpinSession } from '@/store/layout'
+import { loadMachineProfile } from '@/store/machine'
 import {
   $wizardAnswers,
   buildChatOnboardingSeedMessages,
@@ -635,6 +636,12 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         startChatOnboardingSolo()
       }
       void (async () => {
+        // Ask the host what it is BEFORE composing the runbook: a machine that
+        // is barely out of the box changes what the flow leads with.
+        if (kind === 'guide') {
+          await loadMachineProfile()
+        }
+
         const seedMessages = kind === 'guide' ? buildChatOnboardingSeedMessages(pickOnboardingGreeting()) : undefined
         let asSetupBot = kind === 'guide' ? await ensureSetupBotProfile(requestGateway) : false
 
@@ -788,7 +795,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
       return
     }
 
-    const { brief, surface, task } = setupHandoff
+    const { brief, plan, surface, task } = setupHandoff
 
     $setupHandoff.set({ ...setupHandoff, phase: 'minting' })
 
@@ -819,7 +826,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         let botName: string | undefined
 
         if (surface === 'bot') {
-          botName = await mintTaskBotProfile(requestGateway, task, answers)
+          botName = await mintTaskBotProfile(requestGateway, task, answers, plan)
           // Same selectProfile-style swap as the kickoff: the task bot's chat
           // is created on (and every later ambient RPC lands on) its backend.
           $newChatProfile.set(botName)
@@ -834,7 +841,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
 
         const runtimeId = await createBackendSessionForSend(
           brief,
-          buildTaskBotSeedMessages(task, answers, surface),
+          buildTaskBotSeedMessages(task, answers, surface, plan),
           // A bot's chat is its hidden canonical registry row; a session is an
           // ordinary visible row the user finds by the task's name.
           surface === 'bot' ? { hidden: true, title: 'Bot Chat' } : { title: botTitle }
@@ -893,12 +900,12 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         })
 
         markSetupHandoffDone()
-        $setupHandoff.set({ botName, botTitle, brief, phase: 'done', surface, task })
+        $setupHandoff.set({ botName, botTitle, brief, phase: 'done', plan, surface, task })
         whisperToSetup(buildHandoffCompleteNote(task, botTitle, surface))
       } catch {
         // Undo the half-swap so the user's chat context stays with the guide.
         $newChatProfile.set(previousNewChatProfile)
-        $setupHandoff.set({ brief, phase: 'error', surface, task })
+        $setupHandoff.set({ brief, phase: 'error', plan, surface, task })
         whisperToSetup(buildHandoffFailedNote(task))
       }
     })()

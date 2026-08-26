@@ -44,10 +44,21 @@ export type SetupHandoffPhase = 'done' | 'error' | 'minting' | 'pending'
  *  one from the conversation; the user picks on the handoff card. */
 export type HandoffSurface = 'bot' | 'session'
 
+/** What KIND of first job this is. 'machine-setup' is the one shape we script
+ *  ourselves: the work is known (audit the box, then install), the user can't
+ *  brief it, and the agent needs permission discipline the moment it starts
+ *  touching the system. Everything else is 'build' — the user's own idea. */
+export type HandoffPlan = 'build' | 'machine-setup'
+
+export function parseHandoffPlan(raw: string | undefined): HandoffPlan {
+  return (raw ?? '').trim().toLowerCase() === 'machine-setup' ? 'machine-setup' : 'build'
+}
+
 export interface SetupHandoffState {
   task: string
   brief: string
   phase: SetupHandoffPhase
+  plan: HandoffPlan
   surface: HandoffSurface
   /** Set once the task bot exists (bot surface only). */
   botName?: string
@@ -88,12 +99,17 @@ export const $setupBotSession = atom<null | {
 /** Raise the handoff request (once per task — re-parses and re-mounts of the
  *  directive are no-ops, and a relaunch after a completed handoff stays
  *  quiet thanks to the storage latch). */
-export function requestSetupHandoff(task: string, brief: string, surface: HandoffSurface): boolean {
+export function requestSetupHandoff(
+  task: string,
+  brief: string,
+  surface: HandoffSurface,
+  plan: HandoffPlan = 'build'
+): boolean {
   if ($setupHandoff.get() !== null || readKey(HANDOFF_DONE_KEY) === '1') {
     return false
   }
 
-  $setupHandoff.set({ brief, phase: 'pending', surface, task })
+  $setupHandoff.set({ brief, phase: 'pending', plan, surface, task })
 
   return true
 }
@@ -151,7 +167,7 @@ export function composeSetupBotSoul(): string {
 }
 
 /** SOUL.md for a freshly minted task bot. */
-export function composeTaskBotSoul(task: string, answers: WizardAnswers): string {
+export function composeTaskBotSoul(task: string, answers: WizardAnswers, plan: HandoffPlan = 'build'): string {
   const name = (answers.name ?? '').trim()
   const context = (answers.context ?? '').trim()
   const tools = (answers.connectors ?? []).filter(Boolean)
@@ -165,14 +181,24 @@ export function composeTaskBotSoul(task: string, answers: WizardAnswers): string
     '',
     '- Own this task end to end: build it, improve it, keep it running.',
     '- Be direct and brief; show your work as you go.',
-    '- Ask before touching anything outside your task.'
+    ...(plan === 'machine-setup'
+      ? [
+          "- This machine is your job for good: you know what is installed on it and why. When they hit something missing later, you are the one who fixes it.",
+          '- Look before you install, propose before you change, and never touch what they did not agree to.'
+        ]
+      : ['- Ask before touching anything outside your task.'])
   ].join('\n')
 }
 
 /** The hidden runbook seeded into the task bot's chat — the work-side half of
  *  the old single-chat script: no-auth first build, the permissions note, and
  *  the live progress cards. */
-export function buildTaskBotRunbook(task: string, answers: WizardAnswers, surface: HandoffSurface): string {
+export function buildTaskBotRunbook(
+  task: string,
+  answers: WizardAnswers,
+  surface: HandoffSurface,
+  plan: HandoffPlan = 'build'
+): string {
   const name = (answers.name ?? '').trim()
   const context = (answers.context ?? '').trim()
   const tools = (answers.connectors ?? []).filter(Boolean)
@@ -189,7 +215,7 @@ export function buildTaskBotRunbook(task: string, answers: WizardAnswers, surfac
       : '',
     'Their next message is the go signal: really begin the work — plan briefly, then build (scaffold, research, first artifact).',
     'As you start, tell them in one short sentence: you\'ll ask for permissions as you go, and they can say no to anything or redirect you.',
-    'CRITICAL: this first build must need NO external account or OAuth (no Gmail, no Slack, no Google sign-in) — connectors get wired later, on their request. Everything else is fair game and the more visible the better: web research with the browser shown to the user as you work, scripts, computer use, a small app, a file-based tracker, a scheduled reminder, a generated page. If the idea needs an account, build the no-auth core first and say the connection is a later step.',
+    ...(plan === 'machine-setup' ? MACHINE_SETUP_RUNBOOK : [NO_AUTH_RULE]),
     'While the work runs, place ::onboarding{step="progress" title="what you\'re doing"} as its own paragraph at the start of each status turn — the card shows the build breathing live. Keep the titles short and present-tense ("Scaffolding the project", "Wiring the reminder"). Emit each exactly like that, alone on its own line.',
     'When the first pass of the build is DONE: end that turn with ::ask{question="Does this match what you wanted?" options="Looks right|Change something|Take it further"} alone as its own paragraph, emitted EXACTLY as written. Act on their pick immediately. One unreviewed first output is how a build reads as broken; the ask is how it reads as a collaboration.',
     'Keep every turn short. No headers, no bullet lists, no emoji.'
@@ -198,15 +224,35 @@ export function buildTaskBotRunbook(task: string, answers: WizardAnswers, surfac
     .join(' ')
 }
 
+const NO_AUTH_RULE =
+  'CRITICAL: this first build must need NO external account or OAuth (no Gmail, no Slack, no Google sign-in) — connectors get wired later, on their request. Everything else is fair game and the more visible the better: web research with the browser shown to the user as you work, scripts, computer use, a small app, a file-based tracker, a scheduled reminder, a generated page. If the idea needs an account, build the no-auth core first and say the connection is a later step.'
+
+/** The one first job we script end to end. Setting up a machine is the task a
+ *  brand-new user most wants and can least brief, so the agent does the
+ *  briefing: look first, propose, then install with consent. Audit-before-plan
+ *  is the load-bearing part — a plan invented before looking is how an agent
+ *  ends up installing a second copy of something, or "fixing" drivers that
+ *  were already fine. */
+const MACHINE_SETUP_RUNBOOK = [
+  'THIS IS A MACHINE SETUP JOB: get this computer genuinely ready to use, end to end, with the terminal. It is the one first task that does not need an account anywhere — never send them to a sign-in to complete it.',
+  'START BY LOOKING, NOT PLANNING. Before proposing anything, use the terminal to find out what is actually here: OS name and version, architecture, pending system updates, free disk, which package manager exists (Homebrew / winget / apt / dnf), and which everyday things are already installed (a browser, an editor, git, python, node, docker, and whatever tools they told Setup they use). On an NVIDIA machine also check the GPU and driver (nvidia-smi) and whether a container runtime and CUDA toolchain are present. Report what you found in a few short lines — plainly, no tables.',
+  'THEN PROPOSE, THEN ASK. Turn the gaps into a short numbered plan, cheapest and most obviously useful first: system updates, a package manager if missing, their everyday tools, sane defaults, and only then anything exotic. End that turn with ::ask{question="Want me to run this?" options="Go ahead|Change the list|Just the essentials"} alone as its own paragraph, emitted EXACTLY as written.',
+  'THEN WORK IT ONE STEP AT A TIME, saying in one short line what each step is for before you run it. Prefer the official package manager over downloading installers. Never install something they did not agree to, never overwrite existing config without asking first, never disable security settings, and stop and ask the moment anything looks destructive or wants a password you were not given.',
+  'Hardware and drivers: on Windows, check for missing/unknown devices and vendor GPU drivers, and say plainly when the OS already has it handled. On macOS, system updates and the App Store cover drivers — say so instead of inventing work. On Linux, check the kernel/driver pairing for the GPU before touching it.',
+  'Anything that genuinely needs their sign-in, a licence key, or a payment: do not attempt it. Collect those into a short "yours to do" list for the end.',
+  'FINISH with a few lines: what changed, what you skipped and why, and what is left for them. If a reboot is needed, say so plainly.'
+]
+
 /** Seed rows for the task bot's session.create — just the hidden runbook; the
  *  visible go-signal (the task brief) is submitted as a real turn right after,
  *  which is what starts the build. */
 export function buildTaskBotSeedMessages(
   task: string,
   answers: WizardAnswers,
-  surface: HandoffSurface
+  surface: HandoffSurface,
+  plan: HandoffPlan = 'build'
 ): { content: string; display_kind?: 'hidden'; role: 'assistant' | 'user' }[] {
-  return [{ content: buildTaskBotRunbook(task, answers, surface), display_kind: 'hidden', role: 'user' }]
+  return [{ content: buildTaskBotRunbook(task, answers, surface, plan), display_kind: 'hidden', role: 'user' }]
 }
 
 /** The hidden note whispered into the Setup chat once the task bot is live —
@@ -321,7 +367,8 @@ export async function ensureSetupBotProfile(request: GatewayRequest): Promise<bo
 export async function mintTaskBotProfile(
   request: GatewayRequest,
   task: string,
-  answers: WizardAnswers
+  answers: WizardAnswers,
+  plan: HandoffPlan = 'build'
 ): Promise<string> {
   const base = taskBotSlug(task)
 
@@ -333,7 +380,7 @@ export async function mintTaskBotProfile(
         description: task.trim(),
         name,
         share_auth: true,
-        soul: composeTaskBotSoul(task, answers)
+        soul: composeTaskBotSoul(task, answers, plan)
       })
 
       return name
