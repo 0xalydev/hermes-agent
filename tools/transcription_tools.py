@@ -1174,10 +1174,26 @@ def _get_provider(stt_config: dict) -> str:
     except Exception:  # noqa: BLE001 - availability probing must never break STT
         logger.debug("managed STT availability probe failed", exc_info=True)
     if _managed_stt_ready and _HAS_OPENAI and _has_openai_audio_backend():
-        logger.info(
-            "No local STT installed; using the managed Nous Tool Gateway "
-            "(skipping the on-host faster-whisper install)"
-        )
+        # Resolve honestly: with no stored stt selection,
+        # _resolve_openai_audio_client_config's legacy ladder prefers a DIRECT
+        # OPENAI_API_KEY over the gateway, so "openai" here does not always
+        # mean "managed". Suppressing the install is correct either way; only
+        # claim the gateway when it is what will actually serve the request.
+        _direct_key = ""
+        try:
+            _direct_key = resolve_openai_audio_api_key() or ""
+        except Exception:  # noqa: BLE001 - never let a credential probe break STT
+            logger.debug("direct openai-audio key probe failed", exc_info=True)
+        if _direct_key:
+            logger.info(
+                "No local STT installed; using the configured OpenAI audio "
+                "credentials (skipping the on-host faster-whisper install)"
+            )
+        else:
+            logger.info(
+                "No local STT installed; using the managed Nous Tool Gateway "
+                "(skipping the on-host faster-whisper install)"
+            )
         return "openai"
     # Try lazy-install before falling through to cloud providers
     if _try_lazy_install_stt():

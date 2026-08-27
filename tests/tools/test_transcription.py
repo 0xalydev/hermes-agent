@@ -146,6 +146,83 @@ class TestAutodetectPrefersManagedGatewayOverInstallingLocal:
         assert installs == [True], "unentitled boxes must still be able to install"
         assert resolved == "local"
 
+    def test_managed_branch_does_not_claim_the_gateway_when_a_direct_key_wins(
+        self, monkeypatch
+    ):
+        """Don't log "using the managed gateway" when the request won't go there.
+
+        _resolve_openai_audio_client_config's legacy ladder (no stored stt
+        selection) prefers a DIRECT OPENAI_API_KEY over the managed gateway.
+        So on an entitled box that also has a direct key, resolving to
+        "openai" is still correct — but it is NOT a managed-gateway decision,
+        and the branch must not announce one. Suppressing the install is the
+        part that matters, and it must still hold.
+        """
+        import logging
+
+        installs: list[bool] = []
+
+        def _fake_install():
+            installs.append(True)
+            return True
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", False), patch(
+            "tools.transcription_tools._has_local_command", return_value=False
+        ), patch(
+            "tools.transcription_tools._try_lazy_install_stt", _fake_install
+        ), patch(
+            "tools.transcription_tools._HAS_OPENAI", True
+        ), patch(
+            "tools.transcription_tools._has_openai_audio_backend", return_value=True
+        ), patch(
+            "tools.transcription_tools.resolve_openai_audio_api_key",
+            return_value="sk-user-direct",
+        ), patch(
+            "tools.managed_tool_gateway.is_managed_tool_gateway_ready",
+            return_value=True,
+        ), patch(
+            "tools.tool_backend_helpers.read_selection", return_value=None
+        ):
+            from tools.transcription_tools import _get_provider
+
+            with self._capture_logs() as records:
+                resolved = _get_provider({"enabled": True})
+
+        assert resolved == "openai"
+        assert installs == [], "the install must still be suppressed"
+        managed_claims = [
+            r for r in records if "managed Nous Tool Gateway" in r.getMessage()
+        ]
+        assert not managed_claims, (
+            "logged a managed-gateway claim while a direct key will actually "
+            f"serve the request: {[r.getMessage() for r in managed_claims]}"
+        )
+
+    def _capture_logs(self):
+        import contextlib
+        import logging
+
+        @contextlib.contextmanager
+        def _cap():
+            records: list[logging.LogRecord] = []
+
+            class _H(logging.Handler):
+                def emit(self, record):
+                    records.append(record)
+
+            logger = logging.getLogger("tools.transcription_tools")
+            h = _H()
+            logger.addHandler(h)
+            prev = logger.level
+            logger.setLevel(logging.INFO)
+            try:
+                yield records
+            finally:
+                logger.removeHandler(h)
+                logger.setLevel(prev)
+
+        return _cap()
+
     def test_local_command_still_beats_the_gateway(self, monkeypatch):
         """A user-provided HERMES_LOCAL_STT_COMMAND is an explicit local
         investment — it is already installed, so it wins like local does."""
