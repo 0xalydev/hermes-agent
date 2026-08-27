@@ -7689,6 +7689,31 @@ class TelegramAdapter(BasePlatformAdapter):
             )
         return error
 
+    @staticmethod
+    def _sniff_raster_format(image_path: str) -> Optional[str]:
+        """Identify convertible raster formats by magic bytes.
+
+        Replacement for stdlib ``imghdr`` (removed in Python 3.13). Returns
+        one of ``png``/``gif``/``webp``/``bmp``/``tiff`` or None.
+        """
+        try:
+            with open(image_path, "rb") as fh:
+                head = fh.read(16)
+        except OSError:
+            return None
+        if head.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "png"
+        if head.startswith((b"GIF87a", b"GIF89a")):
+            # GIFs are excluded: converting flattens animations to one frame.
+            return None
+        if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+            return "webp"
+        if head.startswith(b"BM"):
+            return "bmp"
+        if head.startswith((b"II*\x00", b"MM\x00*")):
+            return "tiff"
+        return None
+
     def _compress_image_to_jpeg(self, image_path: str) -> Optional[str]:
         """Pre-compress a large image to progressive JPEG before upload.
 
@@ -7701,9 +7726,7 @@ class TelegramAdapter(BasePlatformAdapter):
         used as-is (already small / already JPEG / Pillow not available). The
         caller is responsible for cleaning up the returned temp file.
         """
-        import shutil
         import tempfile
-        import imghdr
 
         try:
             file_size = os.path.getsize(image_path)
@@ -7720,8 +7743,10 @@ class TelegramAdapter(BasePlatformAdapter):
         if file_size < self._IMG_COMPRESS_THRESHOLD_BYTES:
             return None
 
-        # Only convert raster image formats (png, gif, webp, bmp, tiff)
-        if imghdr.what(image_path) not in ("png", "gif", "webp", "bmp", "tiff"):
+        # Only convert raster image formats (png, gif, webp, bmp, tiff).
+        # Magic-byte sniff instead of the stdlib imghdr module, which was
+        # removed in Python 3.13.
+        if self._sniff_raster_format(image_path) is None:
             return None
 
         try:
@@ -7733,16 +7758,18 @@ class TelegramAdapter(BasePlatformAdapter):
 
         try:
             img = Image.open(image_path)
-            if len(img.getbands()) == 4:
-                img = img.convert("RGB")
-            elif img.mode in ("RGBA", "LA", "P"):
-                # Build white background for alpha-blended images
+            if img.mode in ("RGBA", "LA", "P"):
+                # Alpha-capable modes: composite onto a white background so
+                # transparency doesn't render as black in the JPEG.
                 background = Image.new("RGB", img.size, (255, 255, 255))
                 if img.mode == "P":
                     img = img.convert("RGBA")
-                background.paste(img, mask=img.split()[-1])
+                if img.mode in ("RGBA", "LA"):
+                    background.paste(img, mask=img.split()[-1])
+                else:
+                    background.paste(img)
                 img = background
-            elif img.mode not in ("RGB",):
+            elif img.mode != "RGB":
                 img = img.convert("RGB")
 
             max_w, max_h = img.size
@@ -7753,11 +7780,9 @@ class TelegramAdapter(BasePlatformAdapter):
 
             fd, tmp = tempfile.mkstemp(
                 suffix=".jpg",
-                dir=os.path.join(DEFAULT_OUTPUT_DIR, "tmp"),
                 prefix="tg_compress_",
             )
             os.close(fd)
-            os.makedirs(os.path.dirname(tmp), exist_ok=True)
 
             img.save(
                 tmp,
@@ -8024,6 +8049,7 @@ class TelegramAdapter(BasePlatformAdapter):
 
             media: List[Any] = []
             opened_files: List[Any] = []
+            temp_paths: List[str] = []
             try:
                 for image_url, alt_text in chunk:
                     caption = alt_text[:1024] if alt_text else None
@@ -8039,7 +8065,10 @@ class TelegramAdapter(BasePlatformAdapter):
                         # upload stays under media_write_timeout.
                         _img_path = local_path
                         try:
-                            _img_path = self._compress_image_to_jpeg(local_path)
+                            _compressed = self._compress_image_to_jpeg(local_path)
+                            if _compressed:
+                                _img_path = _compressed
+                                temp_paths.append(_compressed)
                         except Exception as _ce:
                             logger.warning(
                                 "[%s] media-group compression skipped: %s",
@@ -8105,6 +8134,11 @@ class TelegramAdapter(BasePlatformAdapter):
                         fh.close()
                     except Exception:
                         pass
+                for _tmp in temp_paths:
+                    try:
+                        os.remove(_tmp)
+                    except OSError:
+                        pass
 
     async def send_image_file(
         self,
@@ -8132,85 +8166,94 @@ class TelegramAdapter(BasePlatformAdapter):
         actual_path = use_path or image_path
 
         try:
-            if not os.path.exists(actual_path):
-                return SendResult(success=False, error=self._missing_media_path_error("Image", actual_path))
-
-            _thread = self._metadata_thread_id(metadata)
-            reply_to_id = self._reply_to_message_id_for_send(reply_to, metadata, reply_to_mode=self._reply_to_mode)
-            thread_kwargs = self._thread_kwargs_for_send(
-                chat_id,
-                _thread,
-                metadata,
-                reply_to_message_id=reply_to_id,
-                reply_to_mode=self._reply_to_mode
-            )
-            with open(actual_path, "rb") as image_file:
-                msg = await self._send_with_dm_topic_reply_anchor_retry(
-                    self._bot.send_photo,
-                    {
-                        "chat_id": normalize_telegram_chat_id(chat_id),
-                        "photo": image_file,
-                        "caption": caption[:1024] if caption else None,
-                        "reply_to_message_id": reply_to_id,
-                        "read_timeout": _MEDIA_SEND_READ_TIMEOUT,
-                        **thread_kwargs,
-                        **self._notification_kwargs(metadata),
-                    },
-                    metadata,
-                    reply_to_id,
-                    "photo",
-                    reset_media=lambda: image_file.seek(0),
-                )
-            return SendResult(success=True, message_id=str(msg.message_id))
-        except Exception as e:
-            error_str = str(e)
-            # Dimension-related errors are the expected case for valid image
-            # files that Telegram just refuses as photos (screenshots, extreme
-            # aspect ratios). Log at INFO because the document fallback is
-            # the correct path. Any other send_photo failure also falls back
-            # to document (rate limits, corrupt file markers, format edge
-            # cases), but at WARNING because it's unexpected and worth
-            # surfacing in logs.
-            is_dim_error = (
-                "Photo_invalid_dimensions" in error_str
-                or "PHOTO_INVALID_DIMENSIONS" in error_str
-            )
-            if is_dim_error:
-                logger.info(
-                    "[%s] Image dimensions exceed Telegram photo limits, "
-                    "sending as document: %s",
-                    self.name,
-                    actual_path,
-                )
-            else:
-                logger.warning(
-                    "[%s] Failed to send Telegram local image as photo, "
-                    "trying document fallback: %s",
-                    self.name,
-                    _redact_telegram_error_text(e),
-                    exc_info=True,
-                )
-            # Fallback to sending as document (file) — no dimension limit,
-            # only 50MB size limit. The already-compressed path is reused so
-            # the upload stays under the timeout even in document mode.
             try:
-                return await self.send_document(
-                    chat_id=chat_id,
-                    file_path=actual_path,
-                    caption=caption,
-                    file_name=os.path.basename(actual_path),
-                    reply_to=reply_to,
-                    metadata=metadata,
+                if not os.path.exists(actual_path):
+                    return SendResult(success=False, error=self._missing_media_path_error("Image", actual_path))
+
+                _thread = self._metadata_thread_id(metadata)
+                reply_to_id = self._reply_to_message_id_for_send(reply_to, metadata, reply_to_mode=self._reply_to_mode)
+                thread_kwargs = self._thread_kwargs_for_send(
+                    chat_id,
+                    _thread,
+                    metadata,
+                    reply_to_message_id=reply_to_id,
+                    reply_to_mode=self._reply_to_mode
                 )
-            except Exception as doc_err:
-                logger.error(
-                    "[%s] Failed to send Telegram local image as document, "
-                    "falling back to base adapter: %s",
-                    self.name,
-                    doc_err,
-                    exc_info=True,
+                with open(actual_path, "rb") as image_file:
+                    msg = await self._send_with_dm_topic_reply_anchor_retry(
+                        self._bot.send_photo,
+                        {
+                            "chat_id": normalize_telegram_chat_id(chat_id),
+                            "photo": image_file,
+                            "caption": caption[:1024] if caption else None,
+                            "reply_to_message_id": reply_to_id,
+                            "read_timeout": _MEDIA_SEND_READ_TIMEOUT,
+                            **thread_kwargs,
+                            **self._notification_kwargs(metadata),
+                        },
+                        metadata,
+                        reply_to_id,
+                        "photo",
+                        reset_media=lambda: image_file.seek(0),
+                    )
+                return SendResult(success=True, message_id=str(msg.message_id))
+            except Exception as e:
+                error_str = str(e)
+                # Dimension-related errors are the expected case for valid image
+                # files that Telegram just refuses as photos (screenshots, extreme
+                # aspect ratios). Log at INFO because the document fallback is
+                # the correct path. Any other send_photo failure also falls back
+                # to document (rate limits, corrupt file markers, format edge
+                # cases), but at WARNING because it's unexpected and worth
+                # surfacing in logs.
+                is_dim_error = (
+                    "Photo_invalid_dimensions" in error_str
+                    or "PHOTO_INVALID_DIMENSIONS" in error_str
                 )
-                return await super().send_image_file(chat_id, image_path, caption, reply_to, metadata=metadata)
+                if is_dim_error:
+                    logger.info(
+                        "[%s] Image dimensions exceed Telegram photo limits, "
+                        "sending as document: %s",
+                        self.name,
+                        actual_path,
+                    )
+                else:
+                    logger.warning(
+                        "[%s] Failed to send Telegram local image as photo, "
+                        "trying document fallback: %s",
+                        self.name,
+                        _redact_telegram_error_text(e),
+                        exc_info=True,
+                    )
+                # Fallback to sending as document (file) — no dimension limit,
+                # only 50MB size limit. The already-compressed path is reused so
+                # the upload stays under the timeout even in document mode.
+                try:
+                    return await self.send_document(
+                        chat_id=chat_id,
+                        file_path=actual_path,
+                        caption=caption,
+                        file_name=os.path.basename(actual_path),
+                        reply_to=reply_to,
+                        metadata=metadata,
+                    )
+                except Exception as doc_err:
+                    logger.error(
+                        "[%s] Failed to send Telegram local image as document, "
+                        "falling back to base adapter: %s",
+                        self.name,
+                        doc_err,
+                        exc_info=True,
+                    )
+                    return await super().send_image_file(chat_id, image_path, caption, reply_to, metadata=metadata)
+        finally:
+            # _compress_image_to_jpeg hands ownership of the temp JPEG to
+            # the caller; delete it once the send (or fallback) finished.
+            if use_path:
+                try:
+                    os.remove(use_path)
+                except OSError:
+                    pass
 
     async def send_document(
         self,
