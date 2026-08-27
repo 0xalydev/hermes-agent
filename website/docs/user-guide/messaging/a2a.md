@@ -64,6 +64,30 @@ a2a_agents:
 
 Then just ask: *"Ask the researcher agent to summarize today's arXiv postings."* Direct URLs work too — `a2a_call` accepts any A2A endpoint.
 
+### Calling hosted Hermes instances (`transport: hermes-gateway`)
+
+A peer that is itself a Hermes instance with a dashboard (Hermes Cloud, or anything running `hermes dashboard`) doesn't need to run the A2A listener — it already exposes an authenticated conversation API. Declare the peer with the `hermes-gateway` transport:
+
+```yaml
+a2a_agents:
+  team-monitor:
+    url: "https://my-instance.example.com"
+    transport: hermes-gateway   # default is "a2a"
+    timeout: 420                # heavy queries (DB scans) can run minutes
+    capabilities: [analytics]
+```
+
+Sign in once — a browser opens for the gateway's own login (RFC 8252 loopback + PKCE, the same flow the desktop app uses):
+
+```bash
+hermes a2a login team-monitor
+hermes a2a status              # list stored credentials (no secrets shown)
+```
+
+After that the same tools work unchanged and unattended over either transport. Access tokens refresh automatically; credentials live in `~/.hermes/credentials/a2a-gateway-tokens.json` (0600), independent of the desktop app's own connections.
+
+Worth knowing: the credential acts as the user who signed in, with that user's permissions on the peer; each call lands as a durable, honestly titled session in the peer's history; `context_id` is the peer's session id, and passing it back continues that session. Revoke on the peer's auth provider side — deleting the local file only stops this client.
+
 ## Inbound: being callable
 
 With the platform enabled, Hermes serves:
