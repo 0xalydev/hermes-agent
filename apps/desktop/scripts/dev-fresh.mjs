@@ -6,6 +6,7 @@
  *   npm run dev:mock              the same flow, scripted — no model, no venv
  *   ... -- --new                  ...as if this machine were unboxed today
  *   ... -- --spark                ...as if it were an RTX Spark, unboxed today
+ *   ... -- --movie                cinematic first, then the guided chat
  *
  * Onboarding happens once per install and writes as it goes — profiles
  * (`hermes-setup`, then the task bot), Electron latches, connection state. So
@@ -176,6 +177,7 @@ const PRETEND = {
 async function main() {
   const keep = process.argv.includes('--keep')
   const mock = process.argv.includes('--mock')
+  const movie = process.argv.includes('--movie')
   const pretend = Object.keys(PRETEND).find(name => process.argv.includes(`--${name}`))
 
   await assertPortFree(RENDERER_PORT)
@@ -188,7 +190,11 @@ async function main() {
     console.log(`  machine: ${pretend === 'spark' ? 'an RTX Spark' : 'this one'}, unboxed today`)
   }
   console.log('')
-  console.log('  Watch for: cinematic → guided chat → name, color, connectors,')
+  console.log(
+    movie
+      ? '  Watch for: cinematic → guided chat → name, color, connectors,'
+      : '  Watch for: guided chat → name, color, connectors,'
+  )
   console.log('  layout → the fork → the handoff card asking bot vs session.')
   console.log('  Elite layout leads with session, Basic with bot.')
   console.log('')
@@ -197,7 +203,7 @@ async function main() {
     console.log('')
   }
 
-  const child = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev:chat'], {
+  const child = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', movie ? 'dev:full' : 'dev:chat'], {
     cwd: DESKTOP_ROOT,
     env: {
       ...process.env,

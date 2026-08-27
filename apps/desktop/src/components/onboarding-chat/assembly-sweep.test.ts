@@ -5,8 +5,6 @@ import { allPaneIds, findGroupOfPane, group, split } from '@/components/pane-she
 import {
   $dismissedPanes,
   $layoutTree,
-  $paneVisible,
-  adoptContributedPanes,
   bindToolPaneCollapse
 } from '@/components/pane-shell/tree/store'
 import { registry } from '@/contrib/registry'
@@ -52,37 +50,16 @@ beforeEach(() => {
 const basic = () => split('row', [group(['sessions']), group(['workspace'])])
 
 describe('onboarding assembly dismisses panes it never asked for', () => {
-  // The bots plugin registers Cronjobs the moment its roster becomes VISIBLE,
-  // and assembly fronts that roster — so the pane is a consequence of the
-  // assembly, not a precondition of it. A sweep that ran before the fronting
-  // saw a tree the pane could not be in yet, and Basic landed with an empty
-  // Cronjobs column beside the chat (twice).
-  it('drops a main pane that only registers once the bots roster is fronted', () => {
-    let cronjobs: (() => void) | null = null
-
-    // What the app root does (`watchContributedPanes`) — without it a late
-    // registration never reaches the tree and the test proves nothing.
-    const stopAdopting = registry.subscribe(adoptContributedPanes)
-
-    const stop = $paneVisible(BOTS_PANE).listen(visible => {
-      if (visible) {
-        cronjobs ??= registerPane('hermes-bots:routines', {
-          dock: { enforce: true, pane: 'workspace', pos: 'right' },
-          placement: 'main',
-          width: '250px'
-        })
-      }
+  it('drops a main pane the layout never declared', () => {
+    registerPane('hermes-bots:routines', {
+      dock: { enforce: true, pane: 'workspace', pos: 'right' },
+      placement: 'main',
+      width: '250px'
     })
 
-    try {
-      assembleChatOnboarding('basic', basic())
+    assembleChatOnboarding('basic', basic())
 
-      expect(cronjobs, 'the roster never fronted, so this asserts nothing').not.toBeNull()
-      expect(allPaneIds($layoutTree.get()!)).not.toContain('hermes-bots:routines')
-    } finally {
-      stop()
-      stopAdopting()
-    }
+    expect(allPaneIds($layoutTree.get()!)).not.toContain('hermes-bots:routines')
   })
 
   it('keeps what the layout does declare', () => {
@@ -92,6 +69,15 @@ describe('onboarding assembly dismisses panes it never asked for', () => {
 
     expect(placed).toContain('workspace')
     expect(placed).toContain('sessions')
+  })
+
+  // A layout pick is about the window around the chat they are already in.
+  // Fronting Bots (or Sessions) here yanked the active tab off the conversation.
+  it('leaves the conversation as the active pane', () => {
+    assembleChatOnboarding('basic', basic())
+
+    expect(findGroupOfPane($layoutTree.get()!, 'workspace')?.active).toBe('workspace')
+    expect(findGroupOfPane($layoutTree.get()!, BOTS_PANE)?.active).not.toBe(BOTS_PANE)
   })
 })
 
@@ -134,24 +120,12 @@ describe('picking a different layout replaces the previous one', () => {
     expect(allPaneIds($layoutTree.get()!)).not.toContain('terminal')
   })
 
-  // A pick is a request for the layout as a whole, tab included. Fronting
-  // only on the first pick rebuilt Basic's panes on the way back but left the
-  // sidebar showing whatever Elite had.
-  it('fronts the roster again on the way back', () => {
+  it('stays on the conversation after every pick', () => {
     assembleChatOnboarding('basic', basic())
     assembleChatOnboarding('terminal-deck', elite())
     assembleChatOnboarding('basic', basic())
 
-    expect(findGroupOfPane($layoutTree.get()!, BOTS_PANE)?.active).toBe(BOTS_PANE)
-  })
-
-  // The sidebar's face follows the same rule that decides where the first
-  // build lands: Elite is heading for a session, Basic for a bot.
-  it('opens Elite on Sessions and Basic on the roster', () => {
-    assembleChatOnboarding('terminal-deck', elite())
-    expect(findGroupOfPane($layoutTree.get()!, 'sessions')?.active).toBe('sessions')
-
-    assembleChatOnboarding('basic', basic())
-    expect(findGroupOfPane($layoutTree.get()!, BOTS_PANE)?.active).toBe(BOTS_PANE)
+    expect(findGroupOfPane($layoutTree.get()!, 'workspace')?.active).toBe('workspace')
+    expect(findGroupOfPane($layoutTree.get()!, BOTS_PANE)?.active).not.toBe(BOTS_PANE)
   })
 })

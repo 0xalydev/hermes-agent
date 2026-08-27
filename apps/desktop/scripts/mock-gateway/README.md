@@ -17,6 +17,7 @@ are iterating on.
 npm run dev:mock                 # from apps/desktop
 npm run dev:mock -- --new        # ...as if this machine were unboxed today
 npm run dev:mock -- --spark      # ...as if it were an RTX Spark, unboxed today
+npm run dev:mock -- --new --movie  # ...plus the cinematic intro
 ```
 
 That is `dev:fresh --mock`: the same throwaway sandbox (its own `HOME`,

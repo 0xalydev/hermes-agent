@@ -196,9 +196,8 @@ lose to the UNIQUE index and fall to the auto-titler.
 The first-run frame: floating panes (user/plugin panels) stay hidden while
 solo AND while the active session is any onboarding thread (Setup's chat,
 then a bot-surface first build); the composer's git strip is dropped on those
-threads too. At assembly the sidebar fronts the BOTS tab — the Sessions list
-is empty at that moment (Setup's chat is a hidden bot canonical), so the
-roster is the first face of the nav.
+threads too. A layout pick assembles the window around the conversation and
+leaves them in it — it does not jump the sidebar to Bots or Sessions.
 
 ## The surface fork
 
@@ -256,7 +255,8 @@ the list, it just doesn't lead without a reason.
 Neither case is reachable from the machine you develop on, so the dev runner
 can answer the probe for you: `npm run dev:fresh -- --new` overlays your own
 host with an age of zero (a brand-new version of this Mac, this PC), and
-`-- --spark` answers as an RTX Spark unboxed today. They overlay rather than
+`-- --spark` answers as an RTX Spark unboxed today. Add `-- --movie` to play
+the cinematic first. They overlay rather than
 replace so `--new` stays your platform — the point of it is rehearsing "Help me
 set up this Mac", which a wholesale fake payload can't give you. Your unmodified
 host is the lived-in case.
