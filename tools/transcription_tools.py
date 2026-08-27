@@ -1153,6 +1153,32 @@ def _get_provider(stt_config: dict) -> str:
         return "local"
     if _has_local_command():
         return "local_command"
+    # No local backend is PRESENT. Before provisioning one, check whether a
+    # managed Nous Tool Gateway is available — on a hosted instance it always
+    # is, and installing on-host STT there is actively harmful: faster-whisper
+    # pulls a model onto a small instance volume (145 MB for `base`), burns CPU
+    # on a shared VM, and adds a cold-start download to the first voice note.
+    # Live failure this prevents (staging 2026-08-26): the model download hit
+    # `No space left on device` on a 98%-full volume, so every relayed voice
+    # note silently degraded to "transcribe it yourself".
+    #
+    # Deliberately narrow: this only suppresses the INSTALL. A user who ALREADY
+    # has faster-whisper or a local STT command keeps it (both branches above
+    # return first) — free, private and offline beats a metered gateway call,
+    # and we don't move an entitled self-hosted user's STT without them asking.
+    _managed_stt_ready = False
+    try:
+        from tools.managed_tool_gateway import is_managed_tool_gateway_ready
+
+        _managed_stt_ready = is_managed_tool_gateway_ready("openai-audio")
+    except Exception:  # noqa: BLE001 - availability probing must never break STT
+        logger.debug("managed STT availability probe failed", exc_info=True)
+    if _managed_stt_ready and _HAS_OPENAI and _has_openai_audio_backend():
+        logger.info(
+            "No local STT installed; using the managed Nous Tool Gateway "
+            "(skipping the on-host faster-whisper install)"
+        )
+        return "openai"
     # Try lazy-install before falling through to cloud providers
     if _try_lazy_install_stt():
         return "local"

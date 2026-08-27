@@ -54,6 +54,110 @@ class TestGetProvider:
         assert _get_provider({"enabled": False, "provider": "openai"}) == "none"
 
 
+class TestAutodetectPrefersManagedGatewayOverInstallingLocal:
+    """Autodetect must never PROVISION on-host STT when the managed Nous Tool
+    Gateway is available.
+
+    Hermes Cloud instances ship no faster-whisper and set no stt.provider, so
+    autodetect used to hit ``_try_lazy_install_stt()`` and download a model
+    onto a small instance volume. Live failure (staging 2026-08-26,
+    hermes-agent-stg-test-6698): faster-whisper's 145 MB Systran model could
+    not be fetched onto a 98%-full disk, so every voice note fell back to a
+    "transcribe it yourself" note and the agent hand-rolled a pipeline.
+
+    The narrow contract deliberately does NOT take local away from anyone who
+    already has it: an entitled self-hosted user with faster-whisper installed
+    keeps their free, private, local model. Only the INSTALL is suppressed,
+    and only when a managed backend is actually ready.
+    """
+
+    def _autodetect(self, monkeypatch):
+        """Autodetect config: no explicit provider anywhere."""
+        monkeypatch.setattr(
+            "tools.tool_backend_helpers.read_selection", lambda _k: None
+        )
+        from tools.transcription_tools import _get_provider
+
+        return lambda: _get_provider({"enabled": True})
+
+    def test_no_local_installed_and_gateway_ready_uses_managed_not_install(
+        self, monkeypatch
+    ):
+        """The Hermes Cloud shape: nothing local, gateway entitled."""
+        installs: list[bool] = []
+
+        def _fake_install():
+            installs.append(True)
+            return True
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", False), patch(
+            "tools.transcription_tools._has_local_command", return_value=False
+        ), patch(
+            "tools.transcription_tools._try_lazy_install_stt", _fake_install
+        ), patch(
+            "tools.transcription_tools._HAS_OPENAI", True
+        ), patch(
+            "tools.transcription_tools._has_openai_audio_backend", return_value=True
+        ), patch(
+            "tools.managed_tool_gateway.is_managed_tool_gateway_ready",
+            return_value=True,
+        ):
+            resolved = self._autodetect(monkeypatch)()
+
+        assert resolved == "openai", (
+            "an entitled instance with no local STT must use the managed gateway"
+        )
+        assert installs == [], (
+            "must NOT lazy-install faster-whisper when the managed gateway is ready"
+        )
+
+    def test_installed_local_still_wins_for_entitled_self_hosted_users(
+        self, monkeypatch
+    ):
+        """Don't take local away from someone who already has it — free,
+        private and offline beats a metered gateway call."""
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), patch(
+            "tools.transcription_tools._has_openai_audio_backend", return_value=True
+        ), patch(
+            "tools.managed_tool_gateway.is_managed_tool_gateway_ready",
+            return_value=True,
+        ):
+            assert self._autodetect(monkeypatch)() == "local"
+
+    def test_no_gateway_still_lazy_installs_local(self, monkeypatch):
+        """Unentitled/self-hosted with no local backend keeps today's
+        behaviour exactly — the install is the only way they get STT."""
+        installs: list[bool] = []
+
+        def _fake_install():
+            installs.append(True)
+            return True
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", False), patch(
+            "tools.transcription_tools._has_local_command", return_value=False
+        ), patch(
+            "tools.transcription_tools._try_lazy_install_stt", _fake_install
+        ), patch(
+            "tools.managed_tool_gateway.is_managed_tool_gateway_ready",
+            return_value=False,
+        ):
+            resolved = self._autodetect(monkeypatch)()
+
+        assert installs == [True], "unentitled boxes must still be able to install"
+        assert resolved == "local"
+
+    def test_local_command_still_beats_the_gateway(self, monkeypatch):
+        """A user-provided HERMES_LOCAL_STT_COMMAND is an explicit local
+        investment — it is already installed, so it wins like local does."""
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", False), patch(
+            "tools.transcription_tools._has_local_command", return_value=True
+        ), patch(
+            "tools.managed_tool_gateway.is_managed_tool_gateway_ready",
+            return_value=True,
+        ):
+            assert self._autodetect(monkeypatch)() == "local_command"
+
+
 # ---------------------------------------------------------------------------
 # File validation
 # ---------------------------------------------------------------------------
