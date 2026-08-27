@@ -4136,6 +4136,7 @@ class DiscordAdapter(BasePlatformAdapter):
 
             files: List[Any] = []
             captions: List[str] = []
+            skip_notices: List[str] = []
             aiohttp_session = None
             try:
                 for image_url, alt_text in chunk:
@@ -4145,6 +4146,33 @@ class DiscordAdapter(BasePlatformAdapter):
                         local_path = _unquote(image_url[7:])
                         if not os.path.exists(local_path):
                             logger.warning("[%s] Skipping missing image: %s", self.name, local_path)
+                            continue
+                        # Same preflight as _send_file_attachment (#50846):
+                        # an oversized local image would 413 the whole chunk
+                        # and drop its siblings into the fallback path.
+                        try:
+                            _img_size = os.path.getsize(local_path)
+                        except OSError as stat_err:
+                            logger.warning(
+                                "[%s] Skipping unreadable image %s: %s",
+                                self.name, local_path, stat_err,
+                            )
+                            continue
+                        _img_limit = self._discord_upload_limit_bytes(channel)
+                        if _img_size > _img_limit:
+                            logger.warning(
+                                "[%s] Skipping oversized image in batch: %s is "
+                                "%.1f MB (limit %.0f MB)",
+                                self.name,
+                                os.path.basename(local_path),
+                                _img_size / (1024 * 1024),
+                                _img_limit / (1024 * 1024),
+                            )
+                            skip_notices.append(
+                                f"⚠️ Skipped `{os.path.basename(local_path)}` — "
+                                f"{_img_size / (1024 * 1024):.1f} MB exceeds Discord's "
+                                f"{_img_limit / (1024 * 1024):.0f} MB upload limit."
+                            )
                             continue
                         files.append(_discord_mod.File(local_path, filename=os.path.basename(local_path)))
                     else:
@@ -4185,10 +4213,22 @@ class DiscordAdapter(BasePlatformAdapter):
                             continue
 
                 if not files:
+                    # Everything in this chunk was skipped. Still surface any
+                    # oversized-file notices so the drop is not silent.
+                    if skip_notices and not self._is_forum_parent(channel):
+                        try:
+                            await channel.send(content="\n".join(skip_notices))
+                        except Exception:
+                            logger.debug(
+                                "[%s] Failed to send oversized-image notices",
+                                self.name, exc_info=True,
+                            )
                     continue
 
                 # Use the first caption if any (Discord only has one message body for the group)
                 content = captions[0] if captions else None
+                if skip_notices:
+                    content = "\n".join(([content] if content else []) + skip_notices)
                 logger.info(
                     "[%s] Sending %d image(s) as single Discord message (chunk %d/%d)",
                     self.name, len(files), chunk_idx + 1, len(chunks),
