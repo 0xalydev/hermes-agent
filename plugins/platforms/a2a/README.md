@@ -40,6 +40,42 @@ The agent gets five tools:
 - `a2a_orchestrate(capability, message, mode?)` — fan-out a task to every
   peer advertising a capability (`all` / `first` / `best`).
 
+### Calling hosted Hermes instances (`transport: hermes-gateway`)
+
+A peer that is itself a Hermes instance with a dashboard (Hermes Cloud, or
+anything running `hermes dashboard`) doesn't need to run the A2A listener —
+it already exposes an authenticated conversation API. Point a peer at it with
+the `hermes-gateway` transport:
+
+```yaml
+a2a_agents:
+  team-monitor:
+    url: "https://my-instance.example.com"
+    transport: hermes-gateway
+    timeout: 420          # heavy queries (DB scans) can run minutes
+    capabilities: [analytics]
+```
+
+Then sign in once (browser opens; RFC 8252 loopback + PKCE — the same flow
+the desktop app uses):
+
+```bash
+hermes a2a login team-monitor
+hermes a2a status          # list stored credentials (no secrets shown)
+```
+
+After that, `a2a_call` / `a2a_orchestrate` / `a2a_history` work unchanged and
+unattended — access tokens refresh automatically (rotated refresh tokens are
+persisted). Tokens live in `~/.hermes/credentials/a2a-gateway-tokens.json`
+(0600), a separate token family from the desktop app's connections, so UI
+actions there can't break agent access.
+
+Semantics worth knowing: the credential acts as the user who signed in, with
+that user's permissions on the peer; each call lands as a durable, honestly
+titled session in the peer's own history; `context_id` is the peer's session
+id, and passing it back continues that session. Revocation is on the peer's
+auth provider side (deleting the local file just stops this client).
+
 ## Inbound — be callable
 
 When the `a2a` platform is enabled, Hermes serves a v1.0 Agent Card at

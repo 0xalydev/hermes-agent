@@ -104,7 +104,26 @@ def register(ctx) -> None:
     except Exception:
         logger.warning("A2A: failed to register client tools", exc_info=True)
 
-    # 2) Inbound platform adapter.
+    # 2) CLI: `hermes a2a login <peer>` / `hermes a2a status` — auth for peers
+    #    using the hermes-gateway transport (hosted Hermes instances).
+    try:
+        from .gateway_transport import handle_cli, setup_cli
+        ctx.register_cli_command(
+            name="a2a",
+            help="A2A peer auth (hermes-gateway transport): login, status",
+            setup_fn=setup_cli,
+            handler_fn=handle_cli,
+            description=(
+                "Manage credentials for a2a_agents peers with transport: "
+                "hermes-gateway. 'login' runs a one-time browser sign-in "
+                "against the peer's dashboard; 'status' lists stored "
+                "credentials without revealing them."
+            ),
+        )
+    except Exception:
+        logger.warning("A2A: failed to register CLI command", exc_info=True)
+
+    # 3) Inbound platform adapter.
     try:
         from .adapter import A2AAdapter
         ctx.register_platform(

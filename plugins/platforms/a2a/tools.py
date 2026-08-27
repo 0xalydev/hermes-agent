@@ -30,7 +30,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional, TypedDict
 
-from . import protocol, security
+from . import gateway_transport, protocol, security
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def _load_config() -> dict:
 def _resolve_peer(agent: str) -> Optional[dict]:
     """Resolve a peer name to {url, auth, timeout, capabilities}, or treat ``agent`` as a URL."""
     if agent.startswith("http://") or agent.startswith("https://"):
-        return {"url": agent, "auth": {}, "timeout": _DEFAULT_TIMEOUT, "capabilities": []}
+        return {"url": agent, "auth": {}, "timeout": _DEFAULT_TIMEOUT, "capabilities": [], "transport": "a2a"}
     cfg = _load_config()
     peers = cfg.get("a2a_agents") or {}
     entry = peers.get(agent)
@@ -65,6 +65,7 @@ def _resolve_peer(agent: str) -> Optional[dict]:
         "timeout": int(entry.get("timeout", _DEFAULT_TIMEOUT)),
         "capabilities": entry.get("capabilities", []) or [],
         "tenant": entry.get("tenant", ""),
+        "transport": str(entry.get("transport", "a2a") or "a2a").strip().lower(),
     }
 
 
@@ -146,12 +147,53 @@ def _short_state(state: str) -> str:
     return state.replace("TASK_STATE_", "").replace("_", "-").lower() if state else ""
 
 
+def _send_gateway_task(agent_label: str, peer: dict, message: str, context_id: str) -> tuple[str, str, str]:
+    """hermes-gateway transport leg of _send_task.
+
+    Mirrors the A2A leg's contract and side effects: outbound redaction,
+    audit log, conversation persistence, metrics. The peer's gateway session
+    id serves as the context id. Auth errors surface as ValueError with a
+    hint at ``hermes a2a login`` instead of an HTTP-shaped error, since the
+    fix is a local login rather than a config token.
+    """
+    safe_message = security.redact_outbound(message)
+    task_id = protocol.new_task_id()
+    ctx = context_id or ""
+
+    security.audit("outbound", agent_label, task_id, safe_message)
+    protocol.metrics.outbound_total += 1
+
+    try:
+        reply, session_id, state = gateway_transport.send_gateway_task(
+            agent_label,
+            peer,
+            safe_message,
+            session_title=f"A2A call from peer config '{agent_label}'",
+            resume_session_id=ctx,
+        )
+    except gateway_transport.CredentialError as e:
+        raise ValueError(f"Peer '{agent_label}': {e}") from e
+
+    reply_ctx = session_id or ctx
+    protocol.persist_message(reply_ctx, "user", safe_message, task_id)
+    protocol.persist_message(reply_ctx, "agent", reply, task_id)
+    protocol.metrics.inbound_total += 1
+    return reply, reply_ctx, state
+
+
 def _send_task(agent_label: str, peer: dict, message: str, context_id: str) -> tuple[str, str, str]:
     """Send one message/send to a peer. Returns (reply_text, context_id, state).
 
     Raises urllib errors / ValueError for the caller to format. Handles
     outbound redaction, audit, persistence, and metrics.
+
+    Peers with ``transport: hermes-gateway`` are hosted Hermes instances
+    reached over their dashboard conversation API instead of the A2A wire —
+    same redaction/audit/persistence treatment, different transport.
     """
+    if str(peer.get("transport") or "a2a") == gateway_transport.TRANSPORT_NAME:
+        return _send_gateway_task(agent_label, peer, message, context_id)
+
     base_url = peer.get("url", "")
     headers = _auth_header(peer.get("auth", {}) or {})
     timeout = int(peer.get("timeout", _DEFAULT_TIMEOUT))
