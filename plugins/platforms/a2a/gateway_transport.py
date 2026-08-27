@@ -102,7 +102,7 @@ def _store_path() -> Path:
 
 def _load_store() -> dict:
     try:
-        return json.loads(_store_path().read_text())
+        return json.loads(_store_path().read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
@@ -112,7 +112,7 @@ def _save_store(store: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(store, fh, indent=1)
     os.replace(tmp, path)
     try:
