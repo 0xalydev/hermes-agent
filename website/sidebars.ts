@@ -379,6 +379,7 @@ const sidebars: SidebarsConfig = {
                   key: 'skills-optional-creative',
                   collapsed: true,
                   items: [
+                    'user-guide/skills/optional/creative/creative-ai-presenter-video',
                     'user-guide/skills/optional/creative/creative-audiocraft-audio-generation',
                     'user-guide/skills/optional/creative/creative-baoyu-article-illustrator',
                     'user-guide/skills/optional/creative/creative-baoyu-comic',
