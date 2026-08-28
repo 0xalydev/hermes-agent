@@ -174,10 +174,10 @@ async function main() {
   await page.waitForTimeout(800)
   const items = await page.getByRole('menuitem').allTextContents()
   log(`context menu: ${items.join(', ')}`)
-  const delIdx = items.findIndex(s => /delete/i.test(s))
-  if (delIdx < 0) await fail(page, 'ctx-menu', 'no Delete item in roster context menu')
-  for (let i = 0; i <= delIdx; i++) await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('Enter')
+  if (!items.some(s => /delete/i.test(s))) await fail(page, 'ctx-menu', 'no Delete item in roster context menu')
+  // Playwright clicks are trusted input events - they work on Radix menu
+  // items (keyboard nav overshoots: Radix auto-focuses the first item).
+  await page.getByRole('menuitem', { name: /delete/i }).click()
   await page.waitForTimeout(1000)
   const confirm = page.locator('[role=dialog] button, [role=alertdialog] button').filter({ hasText: /delete|remove|confirm/i }).first()
   if (await confirm.isVisible().catch(() => false)) await confirm.click()
