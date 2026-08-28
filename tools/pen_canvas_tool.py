@@ -8,9 +8,9 @@ uses — so it works wherever the CLIENT is, remote backends included.
 tui_gateway emits ``pen.tool.request``, the renderer runs the operation
 against the live canvas and answers with ``pen.tool.respond``.
 
-Host actions (``open`` / ``close``) own the pane. Every other action name is
-forwarded to the editor's live MCP tools — discovered at connect, never
-hardcoded here.
+Host actions (``open`` / ``close`` / ``schema``) own the pane and the live
+tool list. ``open`` and ``schema`` send ``get-mcp-schema`` so the agent
+sees Pencil's current tools. Everything else is ``mcp-tool-call``.
 
 Lives in the ``desktop_ui`` toolset, which the GUI gateway enables only for
 desktop-sourced sessions.
@@ -125,11 +125,12 @@ PEN_CANVAS_SCHEMA = {
         "'open' opens a tab (args: {name?: 2-4 word title from the brief, "
         "path?: absolute .pen file} — ALWAYS pass name when creating). "
         "'close' puts the canvas away (file stays in the library). "
-        "Any other action is a live editor tool, forwarded verbatim; names "
-        "come from the editor, not from Hermes. Typical starting point: "
-        "get_app_state with include_schema true, then execute snippets. "
-        "Workflow: open → learn tools/state from the editor → edit in small "
-        "steps. If no Canvas tab is open, call open first."
+        "'schema' re-fetches the editor's live MCP tool list (get-mcp-schema) "
+        "— call it when tools look stale; Pencil changes them. "
+        "open already returns that list. Any other action is an editor tool "
+        "from that list, forwarded verbatim. Workflow: open → use the "
+        "returned tools → edit in small steps. If no Canvas tab is open, "
+        "call open first."
     ),
     "parameters": {
         "type": "object",
@@ -137,8 +138,9 @@ PEN_CANVAS_SCHEMA = {
             "action": {
                 "type": "string",
                 "description": (
-                    "'open' or 'close' for the pane; any other string is an "
-                    "editor MCP tool name."
+                    "'open' or 'close' for the pane, 'schema' for the live "
+                    "MCP tool list; any other string is an editor tool name "
+                    "from that list."
                 ),
             },
             "args": {

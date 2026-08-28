@@ -189,9 +189,28 @@ export function handleDesktopBridgeEvent(ctx: GatewayEventContext): boolean {
                 path: typeof args.path === 'string' ? args.path : undefined
               },
               sessionId
-            ).then(doc =>
-              doc ? { success: true, result: { docId: doc.docId, fileURI: doc.fileURI || null } } : null
-            )
+            ).then(async doc => {
+              if (!doc) {
+                return null
+              }
+
+              const schema = await runPenTool('schema')
+              const payload = schema.success ? schema.result : undefined
+              const tools =
+                payload && typeof payload === 'object' && 'tools' in payload
+                  ? (payload as { tools: unknown }).tools
+                  : payload
+
+              return {
+                success: true,
+                result: {
+                  docId: doc.docId,
+                  fileURI: doc.fileURI || null,
+                  tools,
+                  schemaError: schema.success ? undefined : schema.error
+                }
+              }
+            })
           : action === 'close'
             ? (window.hermesDesktop?.pen?.close() ?? Promise.resolve()).then(() => ({
                 success: true,

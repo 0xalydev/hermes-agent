@@ -9,7 +9,7 @@
 //     storage-load / storage-write / storage-{read,write,has}-asset, backed
 //     by the document's .pen file + an assets/ folder beside it.
 //   - embedder → editor requests are the MCP surface: get-mcp-schema (live
-//     tool list, never hardcoded) and mcp-tool-call (pen_canvas proxies here).
+//     tool list, fetched on open / action=schema) and mcp-tool-call.
 //
 // One canvas at a time, so one live bridge.
 
@@ -18,11 +18,15 @@ import path from 'node:path'
 
 import { liveDocument, penDocumentFilePath } from './documents'
 import { isPenWebUrl, penEmbedDropped, restorePenEmbedUrl } from './embed-url'
+import { isPenSchemaAction } from './mcp'
 import type { PenDocument } from './state'
 import { documents, events, log } from './state'
 
 const CONNECT_RETRY_MS = 500
 const REQUEST_TIMEOUT_MS = 120_000
+const READY_WAIT_MS = 30_000
+const SCHEMA_RETRY_MS = 400
+const SCHEMA_TRIES = 5
 
 interface PendingRequest {
   resolve: (value: unknown) => void
@@ -295,6 +299,22 @@ export function rebindPenWebGuest(theme: 'dark' | 'light'): void {
   bindPenWebGuest(guest, theme)
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function waitForPenReady(timeoutMs = READY_WAIT_MS): Promise<void> {
+  const start = Date.now()
+
+  while (!bridge?.ready) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('the pen canvas is not connected yet')
+    }
+
+    await sleep(100)
+  }
+}
+
 function bridgeRequest(method: string, payload?: unknown): Promise<unknown> {
   if (!bridge || !bridge.ready) {
     return Promise.reject(new Error('the pen canvas is not connected yet'))
@@ -314,6 +334,27 @@ function bridgeRequest(method: string, payload?: unknown): Promise<unknown> {
   })
 }
 
+/** Live tool list from the editor. Pencil changes this; never cache it. */
+async function getPenMcpSchema(): Promise<unknown> {
+  await waitForPenReady()
+
+  let lastError: unknown
+
+  for (let attempt = 0; attempt < SCHEMA_TRIES; attempt++) {
+    try {
+      return await bridgeRequest('get-mcp-schema')
+    } catch (error) {
+      lastError = error
+
+      if (attempt < SCHEMA_TRIES - 1) {
+        await sleep(SCHEMA_RETRY_MS)
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
 interface McpToolResult {
   content?: Array<{ type: string; text?: string; data?: string; mimeType?: string }>
   isError?: boolean
@@ -325,12 +366,16 @@ export interface PenToolResult {
   error?: string
 }
 
-/** Run one canvas tool through `mcp-tool-call`. */
+/** Run one canvas tool. `schema` fetches the live list via `get-mcp-schema`. */
 export async function runPenTool(
   name: string,
   args: Record<string, unknown>
 ): Promise<PenToolResult> {
   try {
+    if (isPenSchemaAction(name)) {
+      return { success: true, result: await getPenMcpSchema() }
+    }
+
     const result = (await bridgeRequest('mcp-tool-call', { name, arguments: args })) as McpToolResult
     const content = result?.content ?? []
 
