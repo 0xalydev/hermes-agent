@@ -73,13 +73,35 @@ async function main() {
   })
   await shot(page, 'shell-booted')
 
-  // Dismiss onboarding overlay if present (no-op otherwise)
-  const later = page.getByRole('button', { name: /choose a provider later|skip/i }).first()
-  if (await later.isVisible().catch(() => false)) {
-    await later.click()
-    log('dismissed onboarding')
-    await page.waitForTimeout(1000)
+  // Onboarding overlay: the boot progress card ("Starting Hermes...") morphs
+  // into the provider picker once the backend is ready. The dismiss click is
+  // LOAD-BEARING (covers the whole shell incl. the BOTS tab) - wait for
+  // either the "later" button to appear or the overlay to vanish, up to 5 min.
+  const overlayGone = async () => {
+    const t = await page.evaluate(() => document.body.innerText)
+    return !/Let's get you setup with Hermes Agent|Starting Hermes/i.test(t)
   }
+  for (let i = 0; i < 60; i++) {
+    if (await overlayGone()) break
+    const later = page.getByRole('button', { name: /choose a provider later|skip/i }).first()
+    if (await later.isVisible().catch(() => false)) {
+      await later.click().catch(() => {})
+      log('dismissed onboarding')
+      await page.waitForTimeout(1500)
+      break
+    }
+    await page.waitForTimeout(5000)
+  }
+  if (!(await overlayGone())) {
+    // Non-button variants: try any visible dismiss/close affordance once
+    const anyDismiss = page.getByRole('button', { name: /later|skip|close|not now/i }).first()
+    if (await anyDismiss.isVisible().catch(() => false)) await anyDismiss.click().catch(() => {})
+    await page.waitForTimeout(2000)
+  }
+  if (!(await overlayGone())) {
+    await fail(page, 'onboarding', 'onboarding/boot overlay never cleared and no dismiss button appeared')
+  }
+  await shot(page, 'onboarding-cleared')
 
   // 2. BOTS tab -> roster renders (THE Windows-specific assert: #92843 / #93262)
   await page.getByRole('tab', { name: /bots/i }).first().click()
