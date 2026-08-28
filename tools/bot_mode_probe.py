@@ -45,39 +45,58 @@ _lock = threading.Lock()
 _cached: dict[str, str] = {}
 
 
-def bot_chat_session_title(agent: Any) -> str:
-    """Return the title that owns *agent*'s Bot Mode identity.
+def is_bot_chat_session(agent: Any) -> bool:
+    """Return whether *agent* belongs to the canonical Bot Chat lineage.
 
-    Compression rotates a conversation onto a new session row whose display
-    title can differ from the canonical root's ``Bot Chat`` title. Resolve
-    only the compression lineage back to its root so the protocol and
-    ``message_agent`` survive compaction without leaking into explicit
-    branches, delegate agents, or tool sessions. The title hint remains the
-    fallback for a newly created Bot Chat whose DB row does not exist yet.
-    Never raises.
+    The canonical title normally travels WITH the live tip: compression
+    carries the parent's title onto the continuation, and the UNIQUE(title)
+    conflict is resolved by transferring the title off the hidden ancestor
+    (``_set_session_title``'s compression-ancestor transfer). So in the
+    healthy case the tip itself is titled ``Bot Chat`` and this returns True
+    on the first lineage entry checked.
+
+    The degraded cases are why the WHOLE compression lineage is scanned
+    rather than just the live session (or just the root): the best-effort
+    title propagation on rotation can fail (it is wrapped in a swallow-all
+    ``except``), and pre-title-carry rotations renamed the tip — leaving the
+    canonical title stranded on a hidden ancestor while the live tip shows a
+    generated title. A Bot Chat in that state silently lost its protocol and
+    ``message_agent``. Scanning the lineage recovers it without leaking
+    capabilities into explicit branches, delegate agents, or tool sessions —
+    ``get_compression_lineage`` already excludes those by contract.
+
+    The title hint remains the fallback for a newly created Bot Chat whose
+    DB row does not exist yet. Never raises.
     """
-    hint = str(getattr(agent, "_session_title_hint", "") or "").strip()
     try:
         session_db = getattr(agent, "_session_db", None)
         session_id = getattr(agent, "session_id", None)
         if session_db and session_id:
-            title_session_id = session_id
+            lineage: list[str] = []
             get_lineage = getattr(session_db, "get_compression_lineage", None)
             if callable(get_lineage):
-                lineage = get_lineage(session_id)
-                if lineage:
-                    title_session_id = lineage[0]
-            title = session_db.get_session_title(title_session_id)
-            if title is not None:
-                return str(title).strip()
+                raw_lineage: Any = get_lineage(session_id)
+                if raw_lineage:
+                    lineage = [str(sid) for sid in raw_lineage]
+            if session_id not in lineage:
+                lineage.append(session_id)
+            for lineage_session_id in lineage:
+                title = session_db.get_session_title(lineage_session_id)
+                if str(title or "").strip() == BOT_CHAT_TITLE:
+                    return True
+            # A DB row exists but no lineage member holds the canonical
+            # title — trust the hint only when the live row is untitled
+            # (fresh session whose title write hasn't landed yet). A row
+            # that already carries a DIFFERENT title is authoritative.
+            live_title = str(
+                session_db.get_session_title(session_id) or ""
+            ).strip()
+            if live_title:
+                return False
     except Exception:
         pass
-    return hint
-
-
-def is_bot_chat_session(agent: Any) -> bool:
-    """Return whether *agent* belongs to the canonical Bot Chat lineage."""
-    return bot_chat_session_title(agent) == BOT_CHAT_TITLE
+    hint = str(getattr(agent, "_session_title_hint", "") or "").strip()
+    return hint == BOT_CHAT_TITLE
 
 
 def _hermes_root(home: Path) -> Path:

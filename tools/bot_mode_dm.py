@@ -131,10 +131,11 @@ def ensure_message_agent_tool(agent: Any) -> bool:
 
     Called once per turn from the conversation loop. Idempotent and
     deterministic for the life of a session: the gate (canonical Bot Chat
-    compression-root title on a Bot-Mode-managed install) is stable from the
-    session's first turn, so the tool list is byte-identical across turns —
-    prompt-cache safe. Every non-Bot-Chat session fails the gate on every turn
-    and never sees the schema. Never raises.
+    title anywhere in the session's compression lineage, on a
+    Bot-Mode-managed install) is stable from the session's first turn, so
+    the tool list is byte-identical across turns — prompt-cache safe. Every
+    non-Bot-Chat session fails the gate on every turn and never sees the
+    schema. Never raises.
     """
     try:
         if not getattr(agent, "_bot_mode_protocol", True):

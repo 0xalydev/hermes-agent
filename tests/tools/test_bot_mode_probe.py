@@ -49,7 +49,50 @@ class _Agent:
         self._session_title_hint = hint
 
 
-def test_bot_chat_identity_follows_compression_lineage_root(session_db):
+def test_bot_chat_identity_healthy_title_carried_to_tip(session_db):
+    """Mainline: rotation carries 'Bot Chat' onto the tip via the
+    compression-ancestor title transfer (root ends up NULL)."""
+    session_db.create_session("root", source="webui")
+    session_db.set_session_title("root", "Bot Chat")
+    session_db.end_session("root", "compression")
+    session_db.create_session("tip", source="webui", parent_session_id="root")
+    # Same write the rotation path performs; UNIQUE(title) conflict is
+    # resolved by transferring the title off the hidden ancestor.
+    session_db.set_session_title("tip", "Bot Chat")
+
+    assert session_db.get_session_title("root") is None
+    assert bot_mode_probe.is_bot_chat_session(_Agent(session_db, "tip")) is True
+
+
+def test_bot_chat_identity_through_real_compression_publish(session_db):
+    """Full rotation contract: publish_compression_child + the title carry
+    exactly as agent/conversation_compression.py performs them."""
+    session_db.create_session("root", source="webui")
+    session_db.set_session_title("root", "Bot Chat")
+    old_title = session_db.get_session_title("root")
+    session_db.publish_compression_child(
+        parent_session_id="root",
+        child_session_id="tip",
+        source="webui",
+        messages=[{"role": "user", "content": "compacted handoff"}],
+        require_compression_lease=False,
+    )
+    # The rotation path's best-effort title carry.
+    session_db.set_session_title("tip", old_title)
+
+    assert bot_mode_probe.is_bot_chat_session(_Agent(session_db, "tip")) is True
+    # And the degraded shape — the carry silently failing — must ALSO gate
+    # True: strip the tip's title back off and re-strand it on the ancestor.
+    session_db.set_session_title("tip", "")
+    session_db.set_session_title("root", "Bot Chat")
+    session_db.set_auto_title("tip", "Friendly greeting", source="llm")
+    assert bot_mode_probe.is_bot_chat_session(_Agent(session_db, "tip")) is True
+
+
+def test_bot_chat_identity_recovers_title_stranded_on_ancestor(session_db):
+    """Degraded: title propagation failed on rotation (or predates the
+    title-carry contract) — canonical title stays on the hidden ancestor
+    while the live tip carries a generated title."""
     session_db.create_session("root", source="webui")
     session_db.set_session_title("root", "Bot Chat")
     session_db.end_session("root", "compression")
@@ -72,6 +115,32 @@ def test_bot_chat_identity_does_not_follow_delegate_parent(session_db):
 
     assert (
         bot_mode_probe.is_bot_chat_session(_Agent(session_db, "delegate"))
+        is False
+    )
+
+
+def test_titled_row_beats_stale_bot_chat_hint(session_db):
+    """A live row already carrying a different title is authoritative —
+    a leftover 'Bot Chat' hint must not grant capabilities."""
+    session_db.create_session("plain", source="webui")
+    session_db.set_session_title("plain", "My research chat")
+
+    agent = _Agent(session_db, "plain", hint="Bot Chat")
+    assert bot_mode_probe.is_bot_chat_session(agent) is False
+
+
+def test_untitled_row_falls_back_to_hint(session_db):
+    """Fresh Bot Chat whose title write hasn't landed yet: hint decides."""
+    session_db.create_session("fresh", source="webui")
+
+    assert (
+        bot_mode_probe.is_bot_chat_session(
+            _Agent(session_db, "fresh", hint="Bot Chat")
+        )
+        is True
+    )
+    assert (
+        bot_mode_probe.is_bot_chat_session(_Agent(session_db, "fresh"))
         is False
     )
 
