@@ -67,14 +67,16 @@ jobs:
           HH="${RUNNER_TEMP}/hermes-home"
           mkdir -p "$HH/profiles" "$HH/logs"
           if [ -n "${OPENROUTER_API_KEY:-}" ]; then
-            printf 'model:\n  provider: openrouter\n  default: anthropic/claude-sonnet-4\n' > "$HH/config.yaml"
             printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" > "$HH/.env"
             echo "E2E_HAS_KEY=1" >> "$GITHUB_ENV"
           else
-            printf 'model:\n  provider: openrouter\n  default: anthropic/claude-sonnet-4\n' > "$HH/config.yaml"
-            : > "$HH/.env"
+            # Placeholder key: agent init only checks key PRESENCE for
+            # openrouter; a real key is needed only for the live-turn leg,
+            # which stays gated on E2E_HAS_KEY=1.
+            printf 'OPENROUTER_API_KEY=sk-or-v1-e2e-placeholder-not-a-real-key\n' > "$HH/.env"
             echo "E2E_HAS_KEY=0" >> "$GITHUB_ENV"
           fi
+          printf 'model:\n  provider: openrouter\n  default: anthropic/claude-sonnet-4\n' > "$HH/config.yaml"
           echo "HERMES_HOME=$HH" >> "$GITHUB_ENV"
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
