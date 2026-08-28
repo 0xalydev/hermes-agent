@@ -55,7 +55,10 @@ async function main() {
 
   const app = await _electron.launch({
     executablePath: electronPath,
-    args: [path.join(appsDesktop, 'dist', 'electron-main.mjs')],
+    // Launch by PACKAGE DIR (package.json "main"), not the bundled mjs file:
+    // passing dist/electron-main.mjs directly makes app.getAppPath() resolve
+    // to dist/, and the main process then looks for dist/dist/index.html.
+    args: [appsDesktop],
     cwd: appsDesktop,
     env: { ...process.env },
     timeout: 120000
