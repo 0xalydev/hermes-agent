@@ -182,12 +182,27 @@ async function main() {
   const confirm = page.locator('[role=dialog] button, [role=alertdialog] button').filter({ hasText: /delete|remove|confirm/i }).first()
   if (await confirm.isVisible().catch(() => false)) await confirm.click()
   await page.waitForTimeout(8000)
-  if (await page.getByRole('button', { name: /winsmoke/i }).first().isVisible().catch(() => false)) {
-    await fail(page, 'delete', 'winsmoke row still visible after delete')
+  // aria-hidden trap: while any dialog is open Radix hides background content
+  // from the accessibility tree, so getByRole() false-passes. Assert on raw
+  // DOM text + explicit dialog-error detection instead.
+  const state1 = await page.evaluate(() => {
+    const dlg = document.querySelector('[role=dialog],[role=alertdialog]')
+    return {
+      rosterHasBot: document.body.innerText.toLowerCase().includes('winsmoke'),
+      dialogOpen: !!dlg,
+      dialogText: dlg ? dlg.innerText.slice(0, 400) : ''
+    }
+  })
+  if (state1.dialogOpen && /error|cannot access|failed/i.test(state1.dialogText)) {
+    await fail(page, 'delete-error', `profile delete FAILED on Windows - dialog reports: ${state1.dialogText.replace(/\n/g, ' | ')}`)
+  }
+  if (state1.rosterHasBot) {
+    await fail(page, 'delete', 'winsmoke still present in roster text after delete confirm')
   }
   // no-resurrection window: > 4 roster poll cycles
   await page.waitForTimeout(22000)
-  if (await page.getByRole('button', { name: /winsmoke/i }).first().isVisible().catch(() => false)) {
+  const state2 = await page.evaluate(() => document.body.innerText.toLowerCase().includes('winsmoke'))
+  if (state2) {
     await fail(page, 'resurrect', 'deleted bot resurrected after poll cycles (stale-overlay class #94235)')
   }
   const bodyText = await page.evaluate(() => document.body.innerText)
