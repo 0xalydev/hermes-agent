@@ -47,7 +47,7 @@ _LOGIN_PARAMS = {
 }
 
 
-def test_add_then_list_is_metadata_only(home):
+def test_add_then_list_is_password_free(home):
     out = _result(srv._methods["vault.add"](1, dict(_LOGIN_PARAMS)))
     assert out["id"].startswith("vault_")
     # add's own envelope must not echo the secret back
@@ -61,9 +61,11 @@ def test_add_then_list_is_metadata_only(home):
     assert item["label"] == "Example login"
     assert item["origin"] == "https://example.com"
     assert item["created_at"]
+    # Identifier is agent-visible metadata (design: only the password is secret).
+    assert item["identifier"] == "user@example.com"
+    assert item["identifier_type"] == "email"
     dumped = json.dumps(listed)
     assert "s3cret-pw-9000" not in dumped
-    assert "user@example.com" not in dumped
     assert "password" not in dumped
 
 

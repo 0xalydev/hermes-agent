@@ -470,15 +470,15 @@ export const en: Translations = {
     vault: {
       title: 'Credential Vault',
       blurb:
-        'Encrypted local credentials the agent can use to sign into sites without ever seeing the values. Only labels and origins are shown to the model.',
+        'Encrypted local credentials the agent can use to sign into sites without ever seeing the password. Labels, origins, and login identifiers are visible; passwords never are.',
       count: n => `${n} saved`,
       loadFailed: 'Could not load vault items',
       empty: 'No saved credentials yet',
       emptyDesc:
-        'Add a login and the agent can sign into that site for you — it only ever receives an opaque handle, never the password.',
+        'Add a login and the agent can sign into that site for you — it types the username itself and fills the password from the vault without ever seeing it.',
       add: 'Add credential',
       addTitle: 'Add credential',
-      addDescription: 'Stored encrypted on this machine. The agent never sees the secret values.',
+      addDescription: 'Stored encrypted on this machine. The agent never sees the password.',
       added: 'Credential saved to the vault.',
       adding: 'Saving…',
       addConfirm: 'Save to vault',
@@ -493,6 +493,7 @@ export const en: Translations = {
       identifierTypeField: 'Identifier type',
       identifierTypes: { email: 'Email', phone: 'Phone', username: 'Username' },
       identifierField: 'Identifier',
+      identifierShown: identifier => identifier,
       passwordField: 'Password',
       loginFieldsRequired: 'Identifier and password are required.',
       cardNumberField: 'Card number',

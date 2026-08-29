@@ -432,6 +432,7 @@ export interface Translations {
       identifierTypeField: string
       identifierTypes: Record<'email' | 'phone' | 'username', string>
       identifierField: string
+      identifierShown: (identifier: string) => string
       passwordField: string
       loginFieldsRequired: string
       cardNumberField: string

@@ -4,8 +4,9 @@ The Desktop's Settings → Credential Vault panel manages the encrypted,
 model-blind vault (``agent/vault_store.py``) over the same localhost WS
 JSON-RPC channel every other Settings surface uses. Contracts:
 
-- ``vault.list``   → metadata only ({id, kind, label, origin, created_at});
-  secret values NEVER appear in any response.
+- ``vault.list``   → metadata only ({id, kind, label, origin, created_at,
+  and for logins identifier/identifier_type — identifiers are visible
+  metadata by design}); passwords NEVER appear in any response.
 - ``vault.add``    → validates via ``VaultStore.add_item``; the secret
   payload arrives over the local RPC channel, goes straight into the
   encrypted store, and is never logged. Error strings are defensively

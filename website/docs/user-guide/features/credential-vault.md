@@ -58,8 +58,9 @@ Item kinds: `login`, `payment`, and `address` are all stored (`payment` and
 
 Desktop users can manage the vault without a terminal: open
 **Settings → Credential Vault** (right next to the Browser section). The
-panel lists saved items — label, kind, origin, and creation date only;
-values are never displayed — and lets you add or delete credentials. The
+panel lists saved items — label, kind, login identifier, origin, and
+creation date; passwords are never displayed — and lets you add or delete
+credentials. The
 Add dialog adapts to the selected kind (login / payment card / address),
 masks secret fields, and submits them straight into the encrypted store
 over the local gateway connection.

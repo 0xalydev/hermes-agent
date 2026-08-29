@@ -34,7 +34,9 @@ const LOGIN_ITEM = {
   kind: 'login',
   label: 'GitHub work',
   origin: 'https://github.com',
-  created_at: '2026-08-01T12:00:00+00:00'
+  created_at: '2026-08-01T12:00:00+00:00',
+  identifier: 'me@example.com',
+  identifier_type: 'email'
 }
 
 beforeEach(() => {
@@ -57,12 +59,14 @@ describe('VaultSettings', () => {
     expect(requestGateway).toHaveBeenCalledWith('vault.list', {})
   })
 
-  it('lists items with label, kind badge, and origin — metadata only', async () => {
+  it('lists items with label, kind badge, identifier, and origin — never passwords', async () => {
     requestGateway.mockResolvedValue({ items: [LOGIN_ITEM] })
     renderVault()
 
     await waitFor(() => expect(screen.getByText('GitHub work')).toBeTruthy())
     expect(screen.getByText('Login')).toBeTruthy()
+    // Identifier is agent-visible metadata and now shows in the row.
+    expect(screen.getByText('me@example.com')).toBeTruthy()
     expect(screen.getByText('https://github.com')).toBeTruthy()
   })
 
@@ -113,8 +117,7 @@ describe('VaultSettings', () => {
         secret: {
           identifier_type: 'email',
           identifier: 'me@example.com',
-          password: 's3cret',
-          origin: 'https://github.com'
+          password: 's3cret'
         }
       })
     )

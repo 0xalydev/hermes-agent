@@ -40,6 +40,8 @@ interface VaultItem {
   label: string
   origin: null | string
   created_at: string
+  identifier?: null | string
+  identifier_type?: null | string
 }
 
 /** Add-dialog prefill from a deep link (`/settings?tab=vault&kind=…`). NEVER secrets. */
@@ -87,11 +89,12 @@ type VaultForm = typeof EMPTY_FORM
 
 function buildSecret(form: VaultForm): Record<string, string> {
   if (form.kind === 'login') {
+    // identifier_type/identifier are stored as agent-visible metadata by the
+    // vault store; only the password stays in the encrypted secret payload.
     return {
       identifier_type: form.identifierType,
       identifier: form.identifier.trim(),
-      password: form.password,
-      origin: form.origin.trim()
+      password: form.password
     }
   }
 
@@ -304,6 +307,7 @@ export function VaultSettings() {
           }
           description={
             <span className="flex flex-wrap items-center gap-2">
+              {item.identifier && <span className="truncate">{v.identifierShown(item.identifier)}</span>}
               {item.origin && <span className="truncate">{item.origin}</span>}
               <span>{v.createdOn(formatCreated(item.created_at))}</span>
             </span>
