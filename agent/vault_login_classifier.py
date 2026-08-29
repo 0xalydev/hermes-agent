@@ -2,8 +2,10 @@
 
 Python port (~170 LOC) of Merit-Systems/OpenInstinct's
 ``lib/manager/server/kernel-login-autofill.ts`` (MIT). Classifies visible
-input controls on a page into login-autofill tokens and selects at most one
-field per token, anchored to the form containing the best password field.
+input controls on a page into login-autofill tokens. The vault fill path
+uses the classification to select the single best current-password control
+(the identifier is agent-visible metadata and is typed by the agent
+itself via normal input tools).
 
 Scoring:
 - exact autocomplete-token match ................ 100
@@ -102,55 +104,31 @@ def classify_login_control(control: LoginControl) -> Optional[ClassifiedLoginCon
     return None
 
 
-def select_login_fills(
+def select_password_fill(
     classified: List[ClassifiedLoginControl],
-    claims: Dict[str, str],
+    password: str,
 ) -> List[Dict[str, Any]]:
-    """Select fills anchored to the form containing the best password field.
+    """Select the single best current-password control to fill.
 
-    ``claims`` maps autofill tokens (``username``/``email``/``tel``/
-    ``current-password``) to values. Only fields sharing the best password
-    field's form are considered; at most one field per token is filled.
-    Returns ``[{"index": int, "token": str, "value": str}, ...]``.
+    The vault fill path is password-only: the identifier is agent-visible
+    metadata and is typed by the agent via normal input tools. This picks
+    the highest-scoring ``current-password`` control (ties broken by DOM
+    order) and returns ``[{"index": int, "token": "current-password",
+    "value": password}]`` or ``[]`` when no password field exists.
     """
     passwords = [c for c in classified if c.token == "current-password"]
-    if not passwords:
+    if not passwords or not password:
         return []
     best_password = sorted(
         passwords, key=lambda c: (-c.score, c.control.index)
     )[0]
-
-    same_form = sorted(
-        (c for c in classified if c.control.form_index == best_password.control.form_index),
-        key=lambda c: (-c.score, c.control.index),
-    )
-
-    selected: List[Dict[str, Any]] = []
-    identifier = next(
-        (
-            c
-            for c in same_form
-            if c.token != "current-password"
-            and (c.token in claims or "username" in claims)
-        ),
-        None,
-    )
-    if identifier is not None:
-        value = claims.get(identifier.token, claims.get("username"))
-        if value is not None:
-            selected.append(
-                {"index": identifier.control.index, "token": identifier.token, "value": value}
-            )
-
-    if "current-password" in claims:
-        selected.append(
-            {
-                "index": best_password.control.index,
-                "token": "current-password",
-                "value": claims["current-password"],
-            }
-        )
-    return selected
+    return [
+        {
+            "index": best_password.control.index,
+            "token": "current-password",
+            "value": password,
+        }
+    ]
 
 
 # JS expression evaluated in the page to inspect candidate input controls.
@@ -188,14 +166,29 @@ LOGIN_CONTROL_INSPECTION_JS = """(() => {
 })()"""
 
 
-def build_fill_js(fills: List[Dict[str, Any]]) -> str:
+def build_fill_js(fills: List[Dict[str, Any]], expected_origin: str) -> str:
     """Build a JS expression that fills the selected inputs and reports
-    only a count. The returned expression never echoes the values back."""
+    only a count. The returned expression never echoes the values back.
+
+    ``expected_origin`` is asserted against ``window.location.origin``
+    synchronously inside the SAME evaluated script, immediately before any
+    write. If the page navigated between inspection and fill (TOCTOU), the
+    script writes nothing and returns
+    ``{"refused": "origin_changed", "found": <actual origin>}`` — proof
+    scope equals mutation scope (#88706). No marker attribute is set on
+    filled controls: filled fields must not be deterministically
+    addressable by later model-driven DOM reads.
+    """
     payload = json.dumps(
         [{"index": f["index"], "value": f["value"]} for f in fills]
     )
+    expected = json.dumps(expected_origin)
     return (
         "(() => {\n"
+        f"  const expectedOrigin = {expected};\n"
+        "  if (window.location.origin !== expectedOrigin) {\n"
+        "    return JSON.stringify({ refused: \"origin_changed\", found: window.location.origin });\n"
+        "  }\n"
         f"  const fills = {payload};\n"
         "  const elements = Array.from(document.querySelectorAll(\"input\"));\n"
         "  let filled = 0;\n"
@@ -203,7 +196,6 @@ def build_fill_js(fills: List[Dict[str, Any]]) -> str:
         "    const el = elements[f.index];\n"
         "    if (!el) continue;\n"
         "    try {\n"
-        "      el.dataset.vaultSecret = \"true\";\n"
         "      el.focus();\n"
         "      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, \"value\");\n"
         "      if (setter && setter.set) { setter.set.call(el, f.value); } else { el.value = f.value; }\n"

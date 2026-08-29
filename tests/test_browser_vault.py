@@ -1,9 +1,13 @@
-"""Tests for the vault-backed model-blind browser autofill feature.
+"""Tests for the vault-backed password-blind browser autofill feature.
 
 Covers:
-- VaultStore: encrypt/decrypt round-trip, file perms, metadata-only listing
-- login-control classifier: scoring + new-password/one-time-code exclusion
-- origin-binding refusal in browser_vault_fill
+- VaultStore: encrypt/decrypt round-trip, file perms, identifier-as-metadata
+  (login secret payload is password-only)
+- login-control classifier: scoring + new-password/one-time-code exclusion,
+  password-only fill selection
+- origin-binding refusal (pre-check + in-script TOCTOU assert)
+- fail-closed secret eval (no argv fallback)
+- vault-value redaction registry (browser_cdp read-back regression)
 - tool gating: check_fn False when the vault is empty
 """
 
@@ -25,7 +29,7 @@ from agent.vault_login_classifier import (  # noqa: E402
     LoginControl,
     build_fill_js,
     classify_login_control,
-    select_login_fills,
+    select_password_fill,
 )
 from agent.vault_store import (  # noqa: E402
     VaultError,
@@ -62,14 +66,15 @@ class TestVaultStore:
     def test_roundtrip_encrypt_decrypt(self, store):
         meta = _add_login(store)
         secret = store.resolve_secret(meta.id)
-        assert secret["identifier"] == "user@example.com"
-        assert secret["password"] == "s3cret-pw"
+        # Design: login secret payload is password-only; identifier is metadata.
+        assert secret == {"password": "s3cret-pw"}
+        assert meta.identifier == "user@example.com"
+        assert meta.identifier_type == "email"
 
-    def test_vault_file_is_encrypted_at_rest(self, store, tmp_path):
+    def test_vault_file_never_contains_password(self, store, tmp_path):
         _add_login(store)
         blob = (tmp_path / "vault" / "vault.json.enc").read_bytes()
         assert b"s3cret-pw" not in blob
-        assert b"user@example.com" not in blob
 
     def test_file_permissions_0600(self, store, tmp_path):
         _add_login(store)
@@ -77,13 +82,16 @@ class TestVaultStore:
             mode = stat.S_IMODE(os.stat(tmp_path / "vault" / name).st_mode)
             assert mode == 0o600, f"{name} has mode {oct(mode)}"
 
-    def test_listing_is_metadata_only(self, store):
+    def test_listing_is_password_free(self, store):
         meta = _add_login(store)
         items = store.list_items()
         assert len(items) == 1
         dumped = json.dumps(items[0].to_dict())
         assert "s3cret-pw" not in dumped
         assert "password" not in dumped
+        # Identifier IS visible metadata now.
+        assert items[0].identifier == "user@example.com"
+        assert items[0].identifier_type == "email"
         assert items[0].id == meta.id
         assert items[0].origin == "https://example.com"
 
@@ -180,28 +188,51 @@ class TestClassifier:
     def test_unmatched_returns_none(self):
         assert classify_login_control(_ctrl(label="Search the docs")) is None
 
-    def test_select_fills_same_form_only(self):
+    def test_select_password_fill_picks_best_password(self):
         user = ClassifiedLoginControl(_ctrl(index=0, form_index=0, autocomplete="username"), 100, "username")
-        pw = ClassifiedLoginControl(_ctrl(index=1, form_index=0, type="password"), 90, "current-password")
-        other = ClassifiedLoginControl(_ctrl(index=5, form_index=1, autocomplete="email"), 100, "email")
-        fills = select_login_fills([user, pw, other], {"username": "u", "current-password": "p"})
-        assert [(f["index"], f["token"]) for f in fills] == [(0, "username"), (1, "current-password")]
+        pw_heur = ClassifiedLoginControl(_ctrl(index=1, form_index=0, type="password"), 90, "current-password")
+        pw_exact = ClassifiedLoginControl(_ctrl(index=3, form_index=0, autocomplete="current-password"), 100, "current-password")
+        fills = select_password_fill([user, pw_heur, pw_exact], "p")
+        # Password only — the identifier field is never filled by the vault.
+        assert [(f["index"], f["token"]) for f in fills] == [(3, "current-password")]
 
-    def test_select_fills_requires_password_field(self):
+    def test_select_password_fill_requires_password_field(self):
         user = ClassifiedLoginControl(_ctrl(index=0, autocomplete="username"), 100, "username")
-        assert select_login_fills([user], {"username": "u", "current-password": "p"}) == []
+        assert select_password_fill([user], "p") == []
 
-    def test_one_field_per_token(self):
-        u1 = ClassifiedLoginControl(_ctrl(index=0, autocomplete="email"), 100, "email")
-        u2 = ClassifiedLoginControl(_ctrl(index=1, autocomplete="email"), 100, "email")
-        pw = ClassifiedLoginControl(_ctrl(index=2, type="password"), 90, "current-password")
-        fills = select_login_fills([u1, u2, pw], {"email": "e", "current-password": "p"})
-        identifier_fills = [f for f in fills if f["token"] == "email"]
-        assert len(identifier_fills) == 1 and identifier_fills[0]["index"] == 0
+    def test_select_password_fill_single_field_only(self):
+        pw1 = ClassifiedLoginControl(_ctrl(index=1, type="password"), 90, "current-password")
+        pw2 = ClassifiedLoginControl(_ctrl(index=2, type="password"), 90, "current-password")
+        fills = select_password_fill([pw1, pw2], "p")
+        assert len(fills) == 1 and fills[0]["index"] == 1
 
     def test_build_fill_js_contains_events(self):
-        js = build_fill_js([{"index": 0, "token": "email", "value": "x"}])
+        js = build_fill_js(
+            [{"index": 0, "token": "current-password", "value": "x"}],
+            expected_origin="https://example.com",
+        )
         assert "InputEvent" in js and '"change"' in js and "filled" in js
+
+    def test_build_fill_js_has_no_dom_marker(self):
+        # P1-1: no deterministic selector for filled controls.
+        js = build_fill_js(
+            [{"index": 0, "token": "current-password", "value": "x"}],
+            expected_origin="https://example.com",
+        )
+        assert "vaultSecret" not in js
+        assert "data-vault-secret" not in js
+
+    def test_build_fill_js_asserts_origin_before_any_write(self):
+        # P1-2: the origin assert must run inside the SAME script, before
+        # any element write.
+        js = build_fill_js(
+            [{"index": 0, "token": "current-password", "value": "x"}],
+            expected_origin="https://example.com",
+        )
+        assert '"https://example.com"' in js
+        assert "window.location.origin" in js
+        assert "origin_changed" in js
+        assert js.index("origin_changed") < js.index("querySelectorAll")
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +254,7 @@ class TestBrowserVaultTools:
         with patch("agent.vault_store.get_vault_store", return_value=store):
             assert browser_vault_tool._check_vault_available() is True
 
-    def test_list_returns_handles_never_values(self, store):
+    def test_list_returns_identifier_never_password(self, store):
         from tools import browser_vault_tool
 
         _add_login(store)
@@ -231,6 +262,9 @@ class TestBrowserVaultTools:
             out = json.loads(browser_vault_tool.browser_vault_list())
         assert out["success"] is True
         assert out["items"][0]["handle"].startswith("vault_")
+        # Design change: identifier is agent-visible metadata.
+        assert out["items"][0]["identifier"] == "user@example.com"
+        assert out["items"][0]["identifier_type"] == "email"
         assert "s3cret-pw" not in json.dumps(out)
 
     def test_fill_refused_on_origin_mismatch(self, store):
@@ -263,22 +297,161 @@ class TestBrowserVaultTools:
         def fake_eval(task_id, expression):
             if "location.href" in expression:
                 return {"success": True, "result": "https://example.com/login"}
-            if "querySelectorAll" in expression and "filled" not in expression:
-                return {"success": True, "result": json.dumps(controls)}
-            return {"success": True, "result": json.dumps({"filled": 2})}
+            return {"success": True, "result": json.dumps(controls)}
+
+        secret_exprs = []
+
+        def fake_eval_secret(task_id, expression):
+            secret_exprs.append(expression)
+            return {"success": True, "result": json.dumps({"filled": 1})}
 
         with patch("agent.vault_store.get_vault_store", return_value=store), \
-             patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval):
+             patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
+             patch.object(browser_vault_tool, "_eval_js_secret", side_effect=fake_eval_secret):
             raw = browser_vault_tool.browser_vault_fill(meta.id)
         out = json.loads(raw)
+        # Password-only fill: exactly one field.
         assert out == {
             "success": True,
-            "filled_fields": 2,
+            "filled_fields": 1,
             "kind": "login",
             "origin": "https://example.com",
         }
         assert "s3cret-pw" not in raw
-        assert "user@example.com" not in raw
+        # The secret expression only ever goes through the secret eval path,
+        # and it targets only the password field (index 1).
+        assert len(secret_exprs) == 1
+        assert "s3cret-pw" in secret_exprs[0]
+        assert '"index": 0' not in secret_exprs[0]
+        assert "user@example.com" not in secret_exprs[0]
+
+    def test_fill_toctou_navigation_writes_nothing(self, store):
+        """P1-2 schedule regression: inspection passes on the allowed origin,
+        the page navigates before the fill script runs, the in-script origin
+        assert refuses, and zero credential bytes are written."""
+        from tools import browser_vault_tool
+
+        meta = _add_login(store, origin="https://example.com")
+        controls = [
+            {"autocomplete": "current-password", "formIndex": 0, "index": 0, "label": "", "name": "pw", "type": "password"},
+        ]
+
+        def fake_eval(task_id, expression):
+            if "location.href" in expression:
+                # Pre-check sees the allowed origin.
+                return {"success": True, "result": "https://example.com/login"}
+            return {"success": True, "result": json.dumps(controls)}
+
+        def fake_eval_secret(task_id, expression):
+            # The evaluated script itself must carry the origin assert.
+            assert "window.location.origin" in expression
+            assert '"https://example.com"' in expression
+            # Simulate the page having navigated cross-origin by the time
+            # the fill script executes: the script's own assert fires.
+            return {
+                "success": True,
+                "result": json.dumps(
+                    {"refused": "origin_changed", "found": "https://evil.com"}
+                ),
+            }
+
+        with patch("agent.vault_store.get_vault_store", return_value=store), \
+             patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
+             patch.object(browser_vault_tool, "_eval_js_secret", side_effect=fake_eval_secret):
+            raw = browser_vault_tool.browser_vault_fill(meta.id)
+        out = json.loads(raw)
+        assert out["success"] is False
+        assert out["error_type"] == "origin_changed"
+        assert out.get("filled_fields", 0) == 0
+        assert "s3cret-pw" not in raw
+
+    def test_secret_eval_fails_closed_without_supervisor(self, store):
+        """P1-1: the secret-bearing eval NEVER falls back to the argv path."""
+        from tools import browser_vault_tool
+
+        meta = _add_login(store, origin="https://example.com")
+        controls = [
+            {"autocomplete": "current-password", "formIndex": 0, "index": 0, "label": "", "name": "pw", "type": "password"},
+        ]
+
+        def fake_eval(task_id, expression):
+            if "location.href" in expression:
+                return {"success": True, "result": "https://example.com/login"}
+            return {"success": True, "result": json.dumps(controls)}
+
+        # No supervisor registered → _eval_js_secret must refuse without
+        # ever touching _run_browser_command.
+        with patch("agent.vault_store.get_vault_store", return_value=store), \
+             patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
+             patch("tools.browser_supervisor.SUPERVISOR_REGISTRY") as reg, \
+             patch("tools.browser_tool._run_browser_command") as run_cmd:
+            reg.get.return_value = None
+            raw = browser_vault_tool.browser_vault_fill(meta.id)
+        out = json.loads(raw)
+        assert out["success"] is False
+        assert out["error_type"] == "supervisor_required"
+        assert "supervis" in out["error"].lower()
+        run_cmd.assert_not_called()
+        assert "s3cret-pw" not in raw
+
+    def test_nonsecret_eval_fallback_still_works(self):
+        """_eval_js (non-secret) may still fall back to the CLI eval path."""
+        from tools import browser_vault_tool
+
+        with patch("tools.browser_supervisor.SUPERVISOR_REGISTRY") as reg, \
+             patch("tools.browser_tool._last_session_key", return_value="k"), \
+             patch("tools.browser_tool._run_browser_command") as run_cmd:
+            reg.get.return_value = None
+            run_cmd.return_value = {"success": True, "data": {"result": "https://x.test"}}
+            res = browser_vault_tool._eval_js("t", "window.location.href")
+        assert res == {"success": True, "result": "https://x.test"}
+        run_cmd.assert_called_once()
+
+    def test_vault_canary_redacted_from_browser_cdp_results(self, store):
+        """P1-1 regression: a filled, non-token-shaped canary password must be
+        unrecoverable through a model-facing browser_cdp-style result."""
+        from agent import redact
+        from agent.redact import redact_sensitive_text
+        from tools import browser_vault_tool
+        from tools.browser_cdp_tool import _redact_cdp_output
+
+        canary = "plain sentence nobody would flag 7"
+        meta = _add_login(store, origin="https://example.com", password=canary)
+        controls = [
+            {"autocomplete": "current-password", "formIndex": 0, "index": 0, "label": "", "name": "pw", "type": "password"},
+        ]
+
+        def fake_eval(task_id, expression):
+            if "location.href" in expression:
+                return {"success": True, "result": "https://example.com/login"}
+            return {"success": True, "result": json.dumps(controls)}
+
+        def fake_eval_secret(task_id, expression):
+            return {"success": True, "result": json.dumps({"filled": 1})}
+
+        try:
+            with patch("agent.vault_store.get_vault_store", return_value=store), \
+                 patch.object(browser_vault_tool, "_eval_js", side_effect=fake_eval), \
+                 patch.object(browser_vault_tool, "_eval_js_secret", side_effect=fake_eval_secret):
+                out = json.loads(browser_vault_tool.browser_vault_fill(meta.id))
+            assert out["success"] is True
+
+            # Simulate a browser_cdp Runtime.evaluate sibling read echoing
+            # the canary back (e.g. reading the input's value from the DOM).
+            cdp_result = {
+                "result": {"type": "string", "value": canary},
+                "description": f"input value is {canary}",
+            }
+            scrubbed = _redact_cdp_output(cdp_result)
+            assert canary not in json.dumps(scrubbed)
+            assert "«redacted-vault-secret»" in json.dumps(scrubbed, ensure_ascii=False)
+
+            # And the generic browser-result scrub catches it too, even with
+            # user-level redaction preferences irrelevant (unconditional).
+            assert canary not in redact_sensitive_text(f"page text: {canary}")
+        finally:
+            with redact._VAULT_REDACTION_LOCK:
+                redact._VAULT_REDACTION_VALUES.discard(canary)
 
     def test_fill_rejects_non_login_kind(self, store):
         from tools import browser_vault_tool

@@ -1,30 +1,41 @@
-# Credential Vault (Model-Blind Autofill)
+# Credential Vault (Password-Blind Autofill)
 
 Store site logins in a locally encrypted vault and let the agent log into
-websites **without ever seeing the password**. The model only receives
-opaque handles and metadata; secret values are resolved server-side and
+websites **without ever seeing the password**. The login identifier
+(email/username/phone) is ordinary metadata the agent can see and type
+itself; only the password is vault-secret — it is resolved server-side and
 injected directly into the page.
 
 ## How it works
 
-1. You add a credential with `hermes vault add` (interactive; the password
-   is read with a hidden prompt and never echoed or passed on the command
-   line).
-2. The item is encrypted at rest under `~/.hermes/vault/` (Fernet key +
-   vault file, both `0600`) and bound to an exact **origin**
-   (`scheme://host[:port]`).
+1. You add a credential with `hermes vault add` (interactive; the
+   identifier is prompted normally, the password is read with a hidden
+   prompt and never echoed or passed on the command line).
+2. The password is encrypted at rest under `~/.hermes/vault/` (Fernet key +
+   vault file, both `0600`) and the item is bound to an exact **origin**
+   (`scheme://host[:port]`). The identifier is stored as item metadata.
 3. When the vault has at least one item, two browser tools appear in the
    agent's toolset (they add zero schema cost otherwise):
-   - `browser_vault_list` — opaque handles + metadata only.
-   - `browser_vault_fill(handle)` — fills the current page's login form.
-4. On fill, Hermes checks that the **current page origin exactly matches**
-   the credential's bound origin, classifies visible login fields (ported
-   from OpenInstinct's login-control classifier — autocomplete tokens win,
-   `new-password` / `one-time-code` fields are hard-excluded), injects the
-   values via in-page JavaScript, and returns only
+   - `browser_vault_list` — handles + metadata, including the login
+     identifier. Passwords are never returned.
+   - `browser_vault_fill(handle)` — fills **only the password field** of
+     the current page's login form.
+4. The agent types the identifier itself with its normal input tools, then
+   calls `browser_vault_fill`. Hermes checks that the **current page origin
+   exactly matches** the credential's bound origin — once up front, and
+   again synchronously inside the injected fill script immediately before
+   the write (so a page that navigates mid-flight gets a refusal and zero
+   bytes written). It classifies visible login fields (ported from
+   OpenInstinct's login-control classifier — autocomplete tokens win,
+   `new-password` / `one-time-code` fields are hard-excluded), picks the
+   single best current-password field, injects the value over the
+   supervised browser session's direct CDP WebSocket, and returns only
    `{filled_fields, kind, origin, success}`.
 
-The secret never appears in tool results, logs, or the session database.
+The password never appears in tool results, logs, or the session database.
+Its exact bytes are additionally registered with the browser-result
+redaction boundary, so even a later `browser_cdp` read that manages to echo
+the page's DOM cannot return them to the model.
 
 ## CLI
 
@@ -32,33 +43,45 @@ The secret never appears in tool results, logs, or the session database.
 # Add a login (interactive wizard; password is hidden)
 hermes vault add
 
-# List items — metadata only, values are never shown
+# List items — identifiers and origins shown, passwords never
 hermes vault list
 
 # Remove an item by handle
 hermes vault rm vault_ab12cd34ef56
 ```
 
-Item kinds: `login`, `payment`, and `address` are all stored; Phase 1
-browser fill supports `login` items only.
+Item kinds: `login`, `payment`, and `address` are all stored (`payment` and
+`address` payloads remain fully secret); Phase 1 browser fill supports
+`login` items only.
 
 ## Example agent flow
 
 ```
 User: log into example.com and check my dashboard
 Agent: browser_navigate("https://example.com/login")
-Agent: browser_vault_list()          → [{handle: "vault_…", label: "Example", origin: "https://example.com"}]
-Agent: browser_vault_fill("vault_…") → {"success": true, "filled_fields": 2, "kind": "login", "origin": "https://example.com"}
+Agent: browser_vault_list()          → [{handle: "vault_…", label: "Example", identifier: "me@example.com", origin: "https://example.com"}]
+Agent: fill_input(<username field>, "me@example.com")
+Agent: browser_vault_fill("vault_…") → {"success": true, "filled_fields": 1, "kind": "login", "origin": "https://example.com"}
 Agent: browser_click(<submit>)
 ```
 
 ## Security properties
 
-- **Model-blind:** the agent never sees identifier or password values —
-  only handles, labels, and origins.
-- **Origin-bound:** fills are refused unless the page origin exactly
-  matches (scheme + host + port) the origin the credential was saved for,
-  so a phishing page on another host cannot receive the fill.
+- **Password-blind:** the agent never sees password values — only handles,
+  labels, identifiers, and origins.
+- **Origin-bound at use time:** fills are refused unless the page origin
+  exactly matches (scheme + host + port) the origin the credential was
+  saved for — asserted both before the fill and atomically inside the fill
+  script itself, so a mid-flight navigation (including cross-origin) writes
+  nothing.
+- **No argv exposure:** the secret-bearing injection runs exclusively over
+  the supervised browser session's CDP WebSocket. If that session is not
+  available, the fill refuses rather than falling back to a subprocess
+  path that would place the password in argv.
+- **Redaction-backed egress boundary:** filled password bytes are
+  registered with the browser tool-result redactor for the life of the
+  process; every `browser_*` result (including raw `browser_cdp` output)
+  is scrubbed against them.
 - **No signup/OTP capture:** fields marked `autocomplete="new-password"`
   or `one-time-code`, and fields labeled *new/confirm/create/repeat
   password*, are never filled.
@@ -69,7 +92,7 @@ Agent: browser_click(<submit>)
 
 - No configuration is needed; the tools activate automatically once the
   vault has an item.
-- The fill targets the form containing the best password field and fills
-  at most one field per autofill token.
+- The fill targets the single best current-password field (autocomplete
+  token beats type heuristics; ties break in DOM order).
 - Design ported from Merit-Systems/OpenInstinct's opaque-handle vault
   autofill (MIT).

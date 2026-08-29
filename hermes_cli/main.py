@@ -485,6 +485,7 @@ from hermes_cli.subcommands.pairing import build_pairing_parser
 from hermes_cli.subcommands.plugins import build_plugins_parser
 from hermes_cli.subcommands.mcp import build_mcp_parser
 from hermes_cli.subcommands.claw import build_claw_parser
+from hermes_cli.subcommands.vault import build_vault_parser
 
 
 def _require_tty(command_name: str) -> None:
@@ -13681,20 +13682,9 @@ def main():
     bundles_parser.set_defaults(func=bundles_command)
 
     # =========================================================================
-    # vault command — local encrypted autofill vault (model-blind browser fill)
+    # vault command  (parser built in hermes_cli/subcommands/vault.py)
     # =========================================================================
-    vault_parser = subparsers.add_parser(
-        "vault",
-        help="Manage the local encrypted autofill vault (add/list/rm credentials)",
-        description=(
-            "Store login credentials in a locally encrypted vault. The agent "
-            "only ever sees opaque handles; browser_vault_fill injects values "
-            "server-side on the exact origin they were saved for."
-        ),
-    )
-    from hermes_cli.vault import register_cli as _vault_register, vault_command
-    _vault_register(vault_parser)
-    vault_parser.set_defaults(func=vault_command)
+    build_vault_parser(subparsers)
 
     # =========================================================================
     # plugins command  (parser built in hermes_cli/subcommands/plugins.py)

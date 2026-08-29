@@ -5,13 +5,19 @@ Two model-facing tools, gated on the local vault having at least one item
 (zero schema cost otherwise, same ``check_fn`` pattern as the Home Assistant
 tools):
 
-- ``browser_vault_list``  → opaque handles + metadata only, never values.
-- ``browser_vault_fill``  → server-side fill of the CURRENT page's login
-  form from a vault handle. The secret is resolved locally, the page origin
-  must EXACTLY match the item's bound origin (scheme+host+port), fields are
-  chosen by the ported login-control classifier, and the tool result reports
-  only ``{filled_fields, kind, origin, success}`` — the secret value never
-  appears in tool results, logs, or the session DB.
+- ``browser_vault_list``  → handles + metadata (for logins this includes the
+  identifier — it is NOT a secret; the agent types it itself). Passwords are
+  never returned.
+- ``browser_vault_fill``  → server-side fill of ONLY the password field of
+  the CURRENT page's login form from a vault handle. The password is
+  resolved locally, the page origin must EXACTLY match the item's bound
+  origin (pre-checked AND re-asserted synchronously inside the fill script),
+  the field is chosen by the ported login-control classifier, injection runs
+  exclusively over the supervisor CDP WebSocket (never argv), and the tool
+  result reports only ``{filled_fields, kind, origin, success}`` — the
+  password never appears in tool results, logs, or the session DB, and its
+  exact bytes are registered with the browser-result redaction boundary so
+  no later browser tool call can echo them back to the model.
 
 Ported design from Merit-Systems/OpenInstinct (MIT): opaque-handle vault
 autofill (kernel-login-autofill.ts / fill_from_vault.ts).
@@ -45,9 +51,13 @@ def _check_vault_available() -> bool:
 # ---------------------------------------------------------------------------
 
 def _eval_js(task_id: str, expression: str) -> Dict[str, Any]:
-    """Evaluate JS on the current page. Prefers the supervisor's persistent
-    CDP WebSocket (keeps the expression out of any subprocess argv), falls
-    back to the agent-browser CLI ``eval`` command."""
+    """Evaluate NON-SECRET JS on the current page (inspection, origin reads).
+
+    Prefers the supervisor's persistent CDP WebSocket, falls back to the
+    agent-browser CLI ``eval`` command. Never use this for expressions that
+    embed secret values — the fallback places the expression in subprocess
+    argv. Use :func:`_eval_js_secret` for secret-bearing expressions.
+    """
     try:
         from tools.browser_supervisor import SUPERVISOR_REGISTRY
 
@@ -71,6 +81,50 @@ def _eval_js(task_id: str, expression: str) -> Dict[str, Any]:
     if not result.get("success"):
         return {"success": False, "error": result.get("error", "eval failed")}
     return {"success": True, "result": result.get("data", {}).get("result")}
+
+
+def _eval_js_secret(task_id: str, expression: str) -> Dict[str, Any]:
+    """Evaluate a SECRET-BEARING JS expression. Supervisor CDP-WS only.
+
+    Fails closed: there is deliberately NO fallback to the agent-browser CLI
+    ``eval`` path, because that places the expression — and therefore the
+    credential bytes — in subprocess argv, visible to any process listing.
+    When no supervisor session is available the caller gets a typed refusal
+    (``error_type='supervisor_required'``) and nothing is written.
+    """
+    try:
+        from tools.browser_supervisor import SUPERVISOR_REGISTRY
+
+        supervisor = SUPERVISOR_REGISTRY.get(task_id)
+    except ImportError:
+        supervisor = None
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.debug("vault fill: supervisor registry unavailable (%s)", exc)
+        supervisor = None
+
+    if supervisor is None:
+        return {
+            "success": False,
+            "error_type": "supervisor_required",
+            "error": (
+                "Vault fill requires the supervised browser session (direct "
+                "CDP WebSocket). The fallback eval path would place the "
+                "credential in subprocess argv, so it is never used for "
+                "secrets. Start the browser through the Hermes-managed "
+                "session and retry."
+            ),
+        }
+
+    sup = supervisor.evaluate_runtime(expression)
+    if sup.get("ok"):
+        return {"success": True, "result": sup.get("result")}
+    return {
+        "success": False,
+        "error_type": "supervisor_required"
+        if "supervisor" in str(sup.get("error") or "").lower()
+        else "eval_failed",
+        "error": str(sup.get("error") or "eval failed"),
+    }
 
 
 def _parse_json_result(raw: Any) -> Any:
@@ -102,37 +156,46 @@ def _current_page_origin(task_id: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def browser_vault_list() -> str:
-    """List vault items as opaque handles + metadata. Never returns values."""
+    """List vault items as handles + metadata. Secret values never included.
+
+    Login identifiers (email/username/phone) ARE included — they are
+    metadata, not secrets, so the agent can type the identifier itself.
+    """
     from agent.vault_store import get_vault_store
 
     items = []
     for meta in get_vault_store().list_items():
-        items.append(
-            {
-                "handle": meta.id,
-                "label": meta.label,
-                "kind": meta.kind,
-                "origin": meta.origin,
-                # Phase 1: only login items are fillable.
-                "available": meta.kind == "login",
-            }
-        )
+        entry = {
+            "handle": meta.id,
+            "label": meta.label,
+            "kind": meta.kind,
+            "origin": meta.origin,
+            # Phase 1: only login items are fillable.
+            "available": meta.kind == "login",
+        }
+        if meta.identifier:
+            entry["identifier"] = meta.identifier
+            entry["identifier_type"] = meta.identifier_type
+        items.append(entry)
     return json.dumps({"success": True, "items": items}, ensure_ascii=False)
 
 
 def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
-    """Fill the current page's login form from a vault handle.
+    """Fill the current page's password field from a vault handle.
 
-    The secret is resolved server-side and injected via in-page JS; the
-    result reports only counts and metadata.
+    Password-only: the identifier is agent-visible metadata (see
+    browser_vault_list) and is typed by the agent via normal input tools.
+    The password is resolved server-side and injected via in-page JS over
+    the supervisor CDP WebSocket; the result reports only counts/metadata.
     """
+    from agent.redact import register_vault_redaction_value
     from agent.vault_login_classifier import (
         LOGIN_CONTROL_INSPECTION_JS,
         ClassifiedLoginControl,
         LoginControl,
         build_fill_js,
         classify_login_control,
-        select_login_fills,
+        select_password_fill,
     )
     from agent.vault_store import VaultError, get_vault_store, scrub_secret_from_text
 
@@ -149,7 +212,8 @@ def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
             {"success": False, "error": f"Vault item {handle!r} is kind={meta.kind!r}; only login items can be filled in Phase 1."}
         )
 
-    # ── Origin binding: current page origin must EXACTLY match ──────────────
+    # ── Origin binding pre-check (cheap early exit; the authoritative check
+    # runs synchronously inside the fill script itself) ──────────────────────
     page_origin = _current_page_origin(effective_task_id)
     if not page_origin:
         return json.dumps(
@@ -159,6 +223,7 @@ def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
         return json.dumps(
             {
                 "success": False,
+                "error_type": "origin_mismatch",
                 "error": (
                     f"Refused: current page origin ({page_origin}) does not match "
                     f"the vault item's bound origin ({meta.origin}). Vault fills "
@@ -191,23 +256,22 @@ def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
 
     # ── Resolve secret and fill (secret never enters any logged string) ─────
     secret = store.resolve_secret(handle)
-    identifier_token = {"email": "email", "phone": "tel", "username": "username"}.get(
-        str(secret.get("identifier_type") or "username"), "username"
-    )
-    claims = {
-        identifier_token: str(secret.get("identifier") or ""),
-        # username is the generic identifier fallback token
-        "username": str(secret.get("identifier") or ""),
-        "current-password": str(secret.get("password") or ""),
-    }
-    fills = select_login_fills(classified, claims)
+    password = str(secret.get("password") or "")
+    fills = select_password_fill(classified, password)
     if not fills:
         return json.dumps(
-            {"success": False, "error": "No fillable login fields matched (is there a password field on this page?)."}
+            {"success": False, "error": "No fillable password field matched (is there a password field on this page?)."}
         )
 
+    # Register the secret bytes with the model-egress redaction boundary
+    # BEFORE they touch the page: any later browser_* result (including
+    # browser_cdp Runtime.evaluate reads) that echoes them is scrubbed.
+    register_vault_redaction_value(password)
+
     try:
-        fill_result = _eval_js(effective_task_id, build_fill_js(fills))
+        fill_result = _eval_js_secret(
+            effective_task_id, build_fill_js(fills, expected_origin=str(meta.origin))
+        )
     except Exception as exc:
         # Strip any secret material from exception text before surfacing.
         return json.dumps(
@@ -215,11 +279,27 @@ def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
         )
     if not fill_result.get("success"):
         err = scrub_secret_from_text(str(fill_result.get("error") or "fill failed"), secret)
-        return json.dumps({"success": False, "error": err})
+        out = {"success": False, "error": err}
+        if fill_result.get("error_type"):
+            out["error_type"] = fill_result["error_type"]
+        return json.dumps(out)
 
     parsed = _parse_json_result(fill_result.get("result"))
     if isinstance(parsed, str):
         parsed = _parse_json_result(parsed)
+    if isinstance(parsed, dict) and parsed.get("refused") == "origin_changed":
+        return json.dumps(
+            {
+                "success": False,
+                "error_type": "origin_changed",
+                "error": (
+                    "Refused: the page navigated away from the bound origin "
+                    f"({meta.origin}) before the fill could run "
+                    f"(now on {parsed.get('found') or 'unknown'}). "
+                    "Nothing was written."
+                ),
+            }
+        )
     filled = parsed.get("filled", 0) if isinstance(parsed, dict) else 0
 
     return json.dumps(
@@ -239,10 +319,12 @@ def browser_vault_fill(handle: str, task_id: Optional[str] = None) -> str:
 BROWSER_VAULT_LIST_SCHEMA = {
     "name": "browser_vault_list",
     "description": (
-        "List credentials stored in the local encrypted vault as opaque "
-        "handles with metadata (label, kind, bound origin). Values are "
-        "NEVER returned. Use a handle with browser_vault_fill to log into "
-        "a site without ever seeing the password."
+        "List credentials stored in the local encrypted vault as handles "
+        "with metadata (label, kind, bound origin, and for logins the "
+        "identifier + identifier_type — identifiers are visible so you can "
+        "type them yourself with fill_input). Passwords are NEVER returned. "
+        "Workflow: type the identifier with fill_input, then call "
+        "browser_vault_fill with the handle to fill the password."
     ),
     "input_schema": {"type": "object", "properties": {}, "required": []},
 }
@@ -250,11 +332,13 @@ BROWSER_VAULT_LIST_SCHEMA = {
 BROWSER_VAULT_FILL_SCHEMA = {
     "name": "browser_vault_fill",
     "description": (
-        "Fill the CURRENT browser page's login form from a vault handle "
-        "(see browser_vault_list). The secret is resolved and injected "
-        "server-side; it never appears in the conversation. Refused unless "
-        "the page origin exactly matches the credential's bound origin. "
-        "Navigate to the site's login page first, then call this."
+        "Fill ONLY the password field of the CURRENT browser page's login "
+        "form from a vault handle (see browser_vault_list). Type the "
+        "identifier/username yourself first with fill_input (it is visible "
+        "in the vault metadata), then call this to fill the password. The "
+        "password is resolved and injected server-side; it never appears in "
+        "the conversation. Refused unless the page origin exactly matches "
+        "the credential's bound origin (re-checked atomically at fill time)."
     ),
     "input_schema": {
         "type": "object",

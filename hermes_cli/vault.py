@@ -1,14 +1,17 @@
 """``hermes vault`` — manage the local encrypted autofill vault.
 
 Subcommands:
-- ``hermes vault add``   interactive wizard; secrets read via getpass (never
-  echoed, never accepted as argv).
-- ``hermes vault list``  metadata only — labels, kinds, origins, handles.
+- ``hermes vault add``   interactive wizard; the password is read via
+  getpass (never echoed, never accepted as argv). The login identifier is
+  visible metadata and prompted normally.
+- ``hermes vault list``  metadata — labels, kinds, identifiers, origins,
+  handles. Passwords are never shown.
 - ``hermes vault rm``    remove an item by handle/id.
 
-The vault backs the model-blind browser autofill tools
-(``browser_vault_list`` / ``browser_vault_fill``): the agent gets opaque
-handles and fills login forms server-side without ever seeing the values.
+The vault backs the password-blind browser autofill tools
+(``browser_vault_list`` / ``browser_vault_fill``): the agent sees handles
+and login identifiers, types the identifier itself, and fills the password
+server-side without ever seeing it.
 """
 
 from __future__ import annotations
@@ -31,7 +34,11 @@ def _cmd_add(args) -> None:
     )
 
     c = _console()
-    c.print("[bold]Add a vault item[/] (values are encrypted at rest; the agent never sees them)")
+    c.print(
+        "[bold]Add a vault item[/] (the password is encrypted at rest and the "
+        "agent never sees it; the identifier is visible metadata the agent "
+        "can type itself)"
+    )
 
     kind = (args.kind or "").strip().lower()
     while kind not in VAULT_KINDS:
@@ -63,11 +70,12 @@ def _cmd_add(args) -> None:
             password = ""
             while not password:
                 password = getpass.getpass("Password (hidden): ")
+            # identifier_type/identifier are stored as metadata (not secret);
+            # add_item moves them out of the encrypted payload.
             secret = {
                 "identifier_type": id_type,
                 "identifier": identifier,
                 "password": password,
-                "origin": origin,
             }
             meta = get_vault_store().add_item(
                 kind="login", label=label, secret=secret, origin=origin
@@ -110,12 +118,20 @@ def _cmd_list(args) -> None:
     table.add_column("Handle", style="bold")
     table.add_column("Kind")
     table.add_column("Label")
+    table.add_column("Identifier")
     table.add_column("Origin")
     table.add_column("Created")
     for meta in items:
-        table.add_row(meta.id, meta.kind, meta.label, meta.origin or "-", meta.created_at[:19])
+        table.add_row(
+            meta.id,
+            meta.kind,
+            meta.label,
+            meta.identifier or "-",
+            meta.origin or "-",
+            meta.created_at[:19],
+        )
     c.print(table)
-    c.print("[dim]Values are never shown; the agent only ever receives handles.[/]")
+    c.print("[dim]Passwords are never shown; the agent fills them server-side from the handle.[/]")
 
 
 def _cmd_rm(args) -> None:

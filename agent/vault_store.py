@@ -71,22 +71,33 @@ def normalize_origin(url_or_origin: str) -> str:
 
 @dataclass(frozen=True)
 class VaultItemMeta:
-    """Metadata-only view of a vault item. Never contains secret values."""
+    """Metadata-only view of a vault item. Never contains secret values.
+
+    For ``kind='login'`` the identifier (email/username/phone) is metadata,
+    not a secret: the agent may see it and type it itself. Only the password
+    is vault-secret.
+    """
 
     id: str
     kind: str
     label: str
     origin: Optional[str]
     created_at: str
+    identifier_type: Optional[str] = None
+    identifier: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        out = {
             "id": self.id,
             "kind": self.kind,
             "label": self.label,
             "origin": self.origin,
             "created_at": self.created_at,
         }
+        if self.identifier is not None:
+            out["identifier"] = self.identifier
+            out["identifier_type"] = self.identifier_type
+        return out
 
 
 class VaultStore:
@@ -185,8 +196,12 @@ class VaultStore:
     ) -> VaultItemMeta:
         """Add an item. ``secret`` is the sensitive payload (encrypted at rest).
 
-        For ``kind='login'``, ``origin`` is required and the secret payload
-        must contain ``identifier_type``, ``identifier`` and ``password``.
+        For ``kind='login'``, ``origin`` is required and the payload must
+        contain ``identifier_type``, ``identifier`` and ``password``. The
+        identifier fields are NOT secret — they are moved into item metadata
+        (the agent may see and type the identifier itself); only
+        ``password`` stays in the encrypted secret payload. ``payment`` and
+        ``address`` payloads remain fully secret.
         """
         if kind not in VAULT_KINDS:
             raise VaultError(f"unknown vault kind {kind!r} (expected one of {VAULT_KINDS})")
@@ -194,17 +209,25 @@ class VaultStore:
         if not label:
             raise VaultError("label is required")
         norm_origin: Optional[str] = None
+        identifier: Optional[str] = None
+        identifier_type: Optional[str] = None
+        secret = dict(secret)
         if kind == "login":
             if not origin:
                 raise VaultError("origin is required for login items")
             norm_origin = normalize_origin(origin)
-            id_type = secret.get("identifier_type")
+            id_type = secret.pop("identifier_type", None)
             if id_type not in LOGIN_IDENTIFIER_TYPES:
                 raise VaultError(
                     f"identifier_type must be one of {LOGIN_IDENTIFIER_TYPES}"
                 )
-            if not secret.get("identifier") or not secret.get("password"):
+            identifier = str(secret.pop("identifier", "") or "").strip()
+            if not identifier or not secret.get("password"):
                 raise VaultError("login items require identifier and password")
+            identifier_type = str(id_type)
+            # Login secret payload is password-only; identifier lives in
+            # metadata and any stray origin echo is dropped.
+            secret = {"password": secret["password"]}
         elif origin:
             norm_origin = normalize_origin(origin)
 
@@ -215,6 +238,8 @@ class VaultStore:
             "label": label,
             "origin": norm_origin,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "identifier_type": identifier_type,
+            "identifier": identifier,
             "secret": dict(secret),
         }
         with _LOCK:
@@ -265,12 +290,15 @@ class VaultStore:
 
     @staticmethod
     def _meta(rec: Dict[str, Any]) -> VaultItemMeta:
+        identifier = rec.get("identifier")
         return VaultItemMeta(
             id=str(rec.get("id", "")),
             kind=str(rec.get("kind", "")),
             label=str(rec.get("label", "")),
             origin=rec.get("origin"),
             created_at=str(rec.get("created_at", "")),
+            identifier_type=rec.get("identifier_type") if identifier else None,
+            identifier=identifier or None,
         )
 
 
