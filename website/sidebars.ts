@@ -616,6 +616,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/web-development/web-development-cloudflare-temporary-deploy',
                     'user-guide/skills/optional/web-development/web-development-page-agent',
                     'user-guide/skills/optional/web-development/web-development-publish-site',
+                    'user-guide/skills/optional/web-development/web-development-scrollcraft',
                   ],
                 },
                 {
