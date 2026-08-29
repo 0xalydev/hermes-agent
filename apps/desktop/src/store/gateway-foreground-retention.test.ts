@@ -41,8 +41,14 @@ const {
   openGatewayForAgent,
   pruneSecondaryGateways,
   requestGatewayForAgent,
+  SECONDARY_IDLE_LINGER_MS,
   setPrimaryGateway
 } = await import('./gateway')
+
+/** Step past the idle linger so deferred reclamation actually runs. */
+async function advanceIdleLinger(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(SECONDARY_IDLE_LINGER_MS + 1)
+}
 
 const { $sessionTiles, foregroundSessionScopes, liveSessionScopes } = await import('./session-states')
 
@@ -81,6 +87,7 @@ const BOT_TILE = {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
   installDesktop()
   // Wired exactly as use-gateway-boot wires it.
   configureGatewayRegistry({ foregroundScopes: foregroundSessionScopes, onEvent: vi.fn() })
@@ -93,6 +100,7 @@ afterEach(() => {
   closeSecondaryGateways()
   $sessionTiles.set([])
   vi.clearAllMocks()
+  vi.useRealTimers()
   delete (window as unknown as { hermesDesktop?: unknown }).hermesDesktop
 })
 
@@ -150,9 +158,13 @@ describe('foreground tile retention vs. the live-work pruner (#93892)', () => {
     pruneSecondaryGateways(idleKeepSet())
     expect(gatewayMocks.closed).toEqual([])
 
-    // Tile gone: the next lease release disposes as it always did.
+    // Tile gone: the lease release hands the entry to idle reclamation, so it
+    // survives long enough for a repeat caller and then goes.
     $sessionTiles.set([])
     await requestGatewayForAgent('local', 'bot', 'session.usage', { session_id: 'stored-bot' })
+    expect(gatewayMocks.closed).toEqual([])
+
+    await advanceIdleLinger()
     expect(gatewayMocks.closed).toEqual(['wss://local.invalid/api/ws?profile=bot'])
   })
 

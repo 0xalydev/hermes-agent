@@ -110,12 +110,33 @@ interface Secondary {
    * an orphaned lease self-heals.
    */
   activationLeaseUntil: number
+  /**
+   * Pending idle reclamation, armed when the last request lease released.
+   * Cleared by a deliberate dispose; re-armed by the next release.
+   */
+  idleDisposeTimer: null | ReturnType<typeof setTimeout>
 }
 
 // How long a mid-dial activation holds its prune lease: covers a cold pool
 // backend spawn + socket connect with margin, while still letting a leaked
 // lease expire quickly enough for the reaper to reclaim the entry.
 const ACTIVATION_LEASE_MS = 30_000
+
+// How long an unleased secondary lingers before idle reclamation.
+//
+// Periodic callers hit the same scope over and over: the visible-window
+// backstop polls, the relay drain loop. Disposing the instant a refcount hit 0
+// meant each of those tore down its socket and redialled a fresh one on the
+// next tick — 33 WebSocket connects a minute against a remote gateway, every
+// burst paying a full handshake and landing its reconnect work on the
+// renderer's main thread. #93594 patched exactly that for the bot relay by
+// handing it an explicit retainer; lingering is the same reclamation deferred,
+// so no caller has to know to hold a lease. Sized to cover the recurring poll
+// cadences (1.5s live status, 5s / 10s messaging) while still letting a
+// genuinely idle socket go promptly. Deliberate reclamation — the live-work
+// pruner, a connection edit or removal, a soft gateway switch — still disposes
+// immediately.
+export const SECONDARY_IDLE_LINGER_MS = 15_000
 
 // ── HMR-stable module state ─────────────────────────────────────────────────
 // All mutable singletons (live sockets, active-profile routing, the event
@@ -666,7 +687,8 @@ function createSecondary(profile: string, connectionId: null | string = null): S
     retained: false,
     relayRetainCount: 0,
     wantOpen: true,
-    activationLeaseUntil: 0
+    activationLeaseUntil: 0,
+    idleDisposeTimer: null
   }
 
   // Events keep carrying the bare profile — session routing is profile-keyed
@@ -776,20 +798,7 @@ async function gatewayForProfile(
     if (!released && leaseRequest) {
       released = true
       entry.activeRequests = Math.max(0, entry.activeRequests - 1)
-
-      if (
-        entry.activeRequests === 0 &&
-        !entry.retained &&
-        !relayRetained(entry) &&
-        !foregroundPinned(entry) &&
-        g.activeKey !== entry.scope
-      ) {
-        disposeSecondary(entry)
-
-        if (g.secondaries.get(entry.scope) === entry) {
-          g.secondaries.delete(entry.scope)
-        }
-      }
+      releaseSecondaryLease(entry)
     }
   }
 
@@ -899,19 +908,8 @@ export async function requestGatewayForAgent<T>(
   } finally {
     entry.activeRequests = Math.max(0, entry.activeRequests - 1)
 
-    if (
-      !drainPendingConnectionRedial(entry) &&
-      entry.activeRequests === 0 &&
-      !entry.retained &&
-      !relayRetained(entry) &&
-      !foregroundPinned(entry) &&
-      g.activeKey !== entry.scope
-    ) {
-      disposeSecondary(entry)
-
-      if (g.secondaries.get(entry.scope) === entry) {
-        g.secondaries.delete(entry.scope)
-      }
+    if (!drainPendingConnectionRedial(entry)) {
+      releaseSecondaryLease(entry)
     }
   }
 }
@@ -946,6 +944,75 @@ function foregroundPinned(entry: Secondary): boolean {
  *  dev-HMR entries predate the field. */
 function relayRetained(entry: Secondary): boolean {
   return Number.isFinite(entry.relayRetainCount) && entry.relayRetainCount > 0
+}
+
+/** Nothing owns this entry any more, so it is eligible for idle reclamation. */
+function secondaryIsUnowned(entry: Secondary): boolean {
+  return (
+    entry.activeRequests === 0 &&
+    !entry.retained &&
+    !relayRetained(entry) &&
+    !foregroundPinned(entry) &&
+    g.activeKey !== entry.scope
+  )
+}
+
+function cancelIdleDispose(entry: Secondary): void {
+  if (entry.idleDisposeTimer !== null) {
+    clearTimeout(entry.idleDisposeTimer)
+    entry.idleDisposeTimer = null
+  }
+}
+
+/**
+ * Arm idle reclamation for an entry whose last lease just released.
+ *
+ * Ownership is re-checked when the timer fires rather than trusted from arm
+ * time: a lease taken during the window (the next poll tick, a profile
+ * activation) leaves the entry owned again, and the release that follows arms
+ * a fresh window. The identity check keeps a replacement entry under the same
+ * scope from being torn down by its predecessor's timer.
+ */
+function scheduleIdleDispose(entry: Secondary): void {
+  cancelIdleDispose(entry)
+
+  entry.idleDisposeTimer = setTimeout(() => {
+    entry.idleDisposeTimer = null
+
+    if (g.secondaries.get(entry.scope) !== entry || !secondaryIsUnowned(entry)) {
+      return
+    }
+
+    disposeSecondary(entry)
+    g.secondaries.delete(entry.scope)
+  }, SECONDARY_IDLE_LINGER_MS)
+}
+
+/**
+ * Release path for every request lease: hold the warm socket for the linger
+ * window instead of disposing under the caller.
+ *
+ * Lingering only pays for a socket a repeat caller can actually reuse. An entry
+ * whose socket already dropped has nothing to keep warm, and holding it would
+ * leave `wantOpen` set long enough for the backoff loop to redial a route
+ * nothing is waiting on — so it is reclaimed on the spot, as it always was.
+ */
+function releaseSecondaryLease(entry: Secondary): void {
+  if (!secondaryIsUnowned(entry)) {
+    return
+  }
+
+  if (!isOpen(entry.gateway)) {
+    disposeSecondary(entry)
+
+    if (g.secondaries.get(entry.scope) === entry) {
+      g.secondaries.delete(entry.scope)
+    }
+
+    return
+  }
+
+  scheduleIdleDispose(entry)
 }
 
 /**
@@ -1088,19 +1155,7 @@ export async function retainGatewayForAgent(connectionId: null | string, profile
       return
     }
 
-    if (
-      entry.activeRequests === 0 &&
-      !entry.retained &&
-      !relayRetained(entry) &&
-      !foregroundPinned(entry) &&
-      g.activeKey !== entry.scope
-    ) {
-      disposeSecondary(entry)
-
-      if (g.secondaries.get(entry.scope) === entry) {
-        g.secondaries.delete(entry.scope)
-      }
-    }
+    releaseSecondaryLease(entry)
   }
 
   try {
@@ -1528,6 +1583,7 @@ export function touchSecondaryGateways(): void {
 function disposeSecondary(entry: Secondary): void {
   entry.wantOpen = false
   clearTimer(entry)
+  cancelIdleDispose(entry)
   entry.offEvent()
   entry.offState()
   entry.gateway.close()

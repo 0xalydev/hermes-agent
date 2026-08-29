@@ -58,9 +58,17 @@ const {
   requestGatewayForAgent,
   requestGatewayForProfile,
   retainGatewayForAgent,
+  SECONDARY_IDLE_LINGER_MS,
   setPrimaryGateway,
   setPrimaryGatewayConnection
 } = await import('./gateway')
+
+/** Step past the idle linger so deferred reclamation actually runs. An unleased
+ *  secondary now lingers so a repeat caller reuses the warm socket instead of
+ *  redialling; every assertion below that wants the close has to wait it out. */
+async function advanceIdleLinger(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(SECONDARY_IDLE_LINGER_MS + 1)
+}
 
 function installDesktop(getConnection: ReturnType<typeof vi.fn>): void {
   ;(window as unknown as { hermesDesktop: unknown }).hermesDesktop = {
@@ -77,6 +85,7 @@ function makePrimary() {
 }
 
 beforeEach(async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
   secondaryGateways.length = 0
   connectGate = null
   configureGatewayRegistry({ onEvent: vi.fn() })
@@ -86,6 +95,7 @@ beforeEach(async () => {
 afterEach(() => {
   closeSecondaryGateways()
   vi.clearAllMocks()
+  vi.useRealTimers()
   delete (window as unknown as { hermesDesktop?: unknown }).hermesDesktop
 })
 
@@ -105,8 +115,11 @@ describe('requestGatewayForProfile', () => {
     expect(result).toEqual({ method: 'profiles.list', params: { include_sessions: true } })
     expect(secondaryGateways).toHaveLength(1)
     expect(secondaryGateways[0].request).toHaveBeenCalledWith('profiles.list', { include_sessions: true })
-    expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
+    expect(secondaryGateways[0].close).not.toHaveBeenCalled()
     expect($gateway.get()).toBe(primary)
+
+    await advanceIdleLinger()
+    expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
   })
 
   it('uses the primary socket and adds profile scope for a shared global remote route', async () => {
@@ -158,8 +171,11 @@ describe('requestGatewayForProfile', () => {
     expect(secondResult).toEqual({ method: 'profiles.list', params: {} })
     expect(secondaryGateways[0].connect).toHaveBeenCalledOnce()
     expect(secondaryGateways[0].request).toHaveBeenCalledTimes(2)
-    expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
+    expect(secondaryGateways[0].close).not.toHaveBeenCalled()
     expect($gateway.get()).toBe(primary)
+
+    await advanceIdleLinger()
+    expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
   })
 
   it('prevents pruning while a background request is connecting or in flight', async () => {
@@ -184,6 +200,9 @@ describe('requestGatewayForProfile', () => {
     releaseConnect()
 
     await expect(request).resolves.toEqual({ method: 'profiles.list', params: {} })
+    expect(secondaryGateways[0].close).not.toHaveBeenCalled()
+
+    await advanceIdleLinger()
     expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
 
     pruneSecondaryGateways(new Set())
@@ -297,9 +316,11 @@ describe('requestGatewayForAgent', () => {
     expect(getGatewayWsUrlFor).toHaveBeenCalledWith({ connectionId: 'source-b', profile: 'research' })
     expect(getConnection).not.toHaveBeenCalled()
     expect(secondaryGateways).toHaveLength(2)
+    expect($gateway.get()).toBe(primary)
+
+    await advanceIdleLinger()
     expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
     expect(secondaryGateways[1].close).toHaveBeenCalledOnce()
-    expect($gateway.get()).toBe(primary)
   })
 
   it('routes an explicit local registry descriptor through getConnectionFor', async () => {
@@ -507,6 +528,7 @@ describe('retainGatewayForAgent (#93602)', () => {
     expect(secondaryGateways[0].request).toHaveBeenCalledTimes(3)
 
     release()
+    await advanceIdleLinger()
     expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
   })
 
@@ -520,6 +542,7 @@ describe('retainGatewayForAgent (#93602)', () => {
     release()
     release()
 
+    await advanceIdleLinger()
     expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
 
     // A fresh retain still works after the double release.
@@ -527,10 +550,11 @@ describe('retainGatewayForAgent (#93602)', () => {
     await requestGatewayForAgent('mini', 'helper', 'prompt.submit', { session_id: 'rt-2', text: 'hi' })
     expect(secondaryGateways[1].close).not.toHaveBeenCalled()
     again()
+    await advanceIdleLinger()
     expect(secondaryGateways[1].close).toHaveBeenCalledOnce()
   })
 
-  it('without the retain, the leased socket closes after each request (the #93602 race)', async () => {
+  it('without the retain, the leased socket is still reclaimed once the sequence goes quiet (#93602)', async () => {
     const primary = makePrimary()
     setPrimaryGateway(primary as never, 'default')
     installRegistryDesktop()
@@ -538,8 +562,14 @@ describe('retainGatewayForAgent (#93602)', () => {
 
     await requestGatewayForAgent('mini', 'helper', 'session.create', { title: 'g' })
 
-    // Refcount hit 0 → disposed: this is the socket close that reaps the
-    // runtime session server-side and makes the later prompt.submit 4001.
+    // The #93602 race was refcount 0 disposing on the spot, reaping the runtime
+    // the create had just minted. The idle linger holds the socket between
+    // calls now, but reclamation still lands once the sequence goes quiet — so
+    // a multi-RPC turn must still take the explicit retain rather than lean on
+    // the window.
+    expect(secondaryGateways[0].close).not.toHaveBeenCalled()
+
+    await advanceIdleLinger()
     expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
   })
 
@@ -561,6 +591,7 @@ describe('retainGatewayForAgent (#93602)', () => {
     expect(secondaryGateways[0].close).not.toHaveBeenCalled()
 
     release()
+    await advanceIdleLinger()
     expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
   })
 })

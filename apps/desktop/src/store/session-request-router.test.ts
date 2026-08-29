@@ -39,7 +39,10 @@ vi.mock('@/hermes', () => ({
     close = vi.fn()
     emit = (event: { payload?: Record<string, unknown>; session_id?: string; type: string }) =>
       this.eventHandler?.(event)
-    emitState = (state: string) => this.stateHandler?.(state)
+    emitState = (state: string) => {
+      this.connectionState = state
+      this.stateHandler?.(state)
+    }
     onEvent = vi.fn(
       (handler: (event: { payload?: Record<string, unknown>; session_id?: string; type: string }) => void) => {
         this.eventHandler = handler
@@ -74,6 +77,7 @@ const {
   ensureGatewayForProfile,
   pruneSecondaryGateways,
   retireLocalProfileGateways,
+  SECONDARY_IDLE_LINGER_MS,
   setPrimaryGateway
 } = await import('./gateway')
 
@@ -395,6 +399,11 @@ describe('requestForSessionProfile', () => {
     })
     await vi.advanceTimersByTimeAsync(500)
 
+    // The turn lease is done, but reclamation is deferred so a chained turn can
+    // still inherit the warm socket.
+    expect(secondaryGateways[0].close).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(SECONDARY_IDLE_LINGER_MS + 1)
     expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
     vi.useRealTimers()
   })
@@ -419,6 +428,7 @@ describe('requestForSessionProfile', () => {
   )
 
   it.each(['complete', 'completed', 'error'])('releases a routed socket for terminal ACK status %s', async status => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     const primary = makePrimary()
     setPrimaryGateway(primary as never, 'default')
     installDesktop()
@@ -431,7 +441,13 @@ describe('requestForSessionProfile', () => {
       text: 'finish'
     })
 
+    // The terminal ACK drops the turn lease; the socket is reclaimed on the
+    // idle linger rather than under the caller.
+    expect(secondaryGateways[0].close).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(SECONDARY_IDLE_LINGER_MS + 1)
     expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
+    vi.useRealTimers()
   })
 
   it('releases turn leases when their route is pruned and creates a fresh route next time', async () => {
@@ -466,6 +482,8 @@ describe('requestForSessionProfile', () => {
     })
     expect(secondaryGateways[0].close).not.toHaveBeenCalled()
 
+    // The socket is already gone, so there is nothing to keep warm: this one
+    // is reclaimed on the spot rather than lingering.
     secondaryGateways[0].emitState('closed')
     expect(secondaryGateways[0].close).toHaveBeenCalledOnce()
   })

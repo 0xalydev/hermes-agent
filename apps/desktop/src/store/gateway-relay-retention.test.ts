@@ -48,8 +48,14 @@ const {
   pruneSecondaryGateways,
   requestGatewayForAgent,
   retainGatewayForRelay,
+  SECONDARY_IDLE_LINGER_MS,
   setPrimaryGateway
 } = await import('./gateway')
+
+/** Step past the idle linger so deferred reclamation actually runs. */
+async function advanceIdleLinger(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(SECONDARY_IDLE_LINGER_MS + 1)
+}
 
 const agentConn = {
   authMode: 'token',
@@ -68,6 +74,7 @@ function installDesktop(): void {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
   configureGatewayRegistry({ onEvent: vi.fn() })
   setPrimaryGateway({ connectionState: 'open' } as never, 'default')
   installDesktop()
@@ -77,19 +84,27 @@ beforeEach(() => {
 afterEach(() => {
   closeSecondaryGateways()
   vi.clearAllMocks()
+  vi.useRealTimers()
   delete (window as unknown as { hermesDesktop?: unknown }).hermesDesktop
 })
 
 describe('bot-relay gateway retention (#93594)', () => {
-  it('without retention every drain tick dials a fresh socket (the churn this fix removes)', async () => {
-    // Baseline: three request-leased RPCs against an otherwise-unheld route.
+  it('without retention, ticks inside the idle linger still reuse one socket', async () => {
+    // The churn this retainer was introduced for is now covered generically by
+    // the idle linger: an unheld route stays warm between ticks, so a caller
+    // that never learned to retain no longer redials per tick.
     for (let tick = 0; tick < 3; tick += 1) {
       await requestGatewayForAgent('homelab', 'research', 'bot_relay.outbox.drain', {})
     }
 
-    // Refcount hits 0 after each call → dispose → next tick constructs anew.
-    expect(gatewayMocks.constructions).toBe(3)
-    expect(gatewayMocks.connect).toHaveBeenCalledTimes(3)
+    expect(gatewayMocks.constructions).toBe(1)
+    expect(gatewayMocks.connect).toHaveBeenCalledTimes(1)
+
+    // Reclamation is deferred, not cancelled: once the ticks stop, the socket
+    // goes.
+    await advanceIdleLinger()
+    await requestGatewayForAgent('homelab', 'research', 'bot_relay.outbox.drain', {})
+    expect(gatewayMocks.constructions).toBe(2)
   })
 
   it('a retained relay route holds ONE persistent socket across multiple drain ticks', async () => {
@@ -113,8 +128,9 @@ describe('bot-relay gateway retention (#93594)', () => {
 
     release()
 
-    // With retention gone (and no in-flight lease), the entry was disposed —
-    // a later drain tick constructs a fresh gateway again.
+    // Dropping the retainer is a deliberate teardown (stopBotRelay / plugin
+    // dispose), so it still disposes on the spot rather than lingering — a
+    // later drain tick constructs a fresh gateway again.
     await requestGatewayForAgent('homelab', 'research', 'bot_relay.outbox.drain', {})
     expect(gatewayMocks.constructions).toBe(2)
   })
