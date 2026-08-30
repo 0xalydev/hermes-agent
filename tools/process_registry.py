@@ -2783,6 +2783,13 @@ class ProcessRegistry:
             if (now - s.started_at) > FINISHED_TTL_SECONDS
         ]
         for sid in expired:
+            # Belt-and-suspenders handle release: sessions normally arrive in
+            # _finished via _move_to_finished(), which already released their
+            # Popen/PTY handles — but any session inserted into _finished
+            # directly (defensive paths, historical checkpoints) would
+            # otherwise carry its OS handles to the grave unreleased. The
+            # release is idempotent, so double-closing is safe.
+            self._release_finished_handles(self._finished[sid])
             del self._finished[sid]
             self._completion_consumed.discard(sid)
             self._poll_observed.discard(sid)
@@ -2791,6 +2798,7 @@ class ProcessRegistry:
         total = len(self._running) + len(self._finished)
         if total >= MAX_PROCESSES and self._finished:
             oldest_id = min(self._finished, key=lambda sid: self._finished[sid].started_at)
+            self._release_finished_handles(self._finished[oldest_id])
             del self._finished[oldest_id]
             self._completion_consumed.discard(oldest_id)
             self._poll_observed.discard(oldest_id)
