@@ -155,6 +155,24 @@ def _error(message: str) -> dict:
     return {"error": _sanitize_error_text(message)}
 
 
+def _authorize_relay_target(platform_name: str, chat_id) -> str | None:
+    """Relay egress-authorization guard (P5a); None when the send may proceed.
+
+    Thin, never-raising delegate to ``gateway.relay.egress`` so the tool keeps
+    working in environments where the gateway package can't be imported. The
+    guard itself FAILS CLOSED on an unattested target but must not fail closed
+    on its own import error — a missing gateway module means there is no relay
+    egress to authorize in the first place.
+    """
+    try:
+        from gateway.relay.egress import authorize_relay_target
+
+        return authorize_relay_target(platform_name, chat_id)
+    except Exception:  # noqa: BLE001 - no gateway package ⇒ no relay egress
+        logger.debug("relay target authorization unavailable", exc_info=True)
+        return None
+
+
 def _display_chat_id(platform_name: str, chat_id: str) -> str:
     """Return a result-safe chat identifier for tool transcripts/log consumers."""
     if platform_name == "signal" and str(chat_id).startswith("group:"):
@@ -324,6 +342,13 @@ def _handle_react(args, remove=False):
             )
         chat_id = home.chat_id
 
+    # P5(a): same egress-authorization floor as the send path — a reaction is
+    # an outbound act against a named destination, so an unattested relay
+    # target must be refused here too, not just on `send`.
+    _relay_denial = _authorize_relay_target(platform_name, chat_id)
+    if _relay_denial:
+        return tool_error(_relay_denial)
+
     runner = None
     try:
         from gateway.run import _gateway_runner_ref
@@ -459,6 +484,17 @@ def _handle_send(args):
                 f"Either specify a channel directly with '{platform_name}:CHANNEL_NAME', "
                 f"or set a home channel via: hermes config set {home_env} <channel_id>"
             )
+
+    # P5(a): a relay-routed destination must be one this gateway can show a
+    # provenance for. The `target` parameter is free-form, so without this a
+    # model could name ANY chat id and the gateway would dutifully emit an
+    # outbound frame for it — authenticating the sender while never
+    # authorizing the destination. Applies to the generic `relay` plane and to
+    # connector-fronted platforms with no live native adapter; every other
+    # platform keeps its adapter's own authorization unchanged.
+    _relay_denial = _authorize_relay_target(platform_name, chat_id)
+    if _relay_denial:
+        return tool_error(_relay_denial)
 
     duplicate_skip = _maybe_skip_cron_duplicate_send(platform_name, chat_id, thread_id)
     if duplicate_skip:
