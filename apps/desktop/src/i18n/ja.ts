@@ -1039,7 +1039,7 @@ export const ja = defineLocale({
       recommended: 'おすすめ',
       downloaded: 'ダウンロード済み',
       downloadAction: size => `ダウンロード · ${size}`,
-      downloadProgress: (done, total) => `${done} / ${total}`,
+      downloadProgress: (done, total) => `ダウンロード中 ${done} / ${total}`,
       downloadDoneToast: model => `${model} の準備ができました。`,
       installDoneToast: 'ローカルランタイムのインストールが完了しました。',
       useAction: '使用する',

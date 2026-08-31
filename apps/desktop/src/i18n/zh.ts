@@ -1338,7 +1338,7 @@ export const zh: Translations = {
       recommended: '推荐',
       downloaded: '已下载',
       downloadAction: size => `下载 · ${size}`,
-      downloadProgress: (done, total) => `${done} / ${total}`,
+      downloadProgress: (done, total) => `正在下载 ${done} / ${total}`,
       downloadDoneToast: model => `${model} 已就绪。`,
       installDoneToast: '本地运行时已安装就绪。',
       useAction: '使用',

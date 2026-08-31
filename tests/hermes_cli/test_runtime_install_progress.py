@@ -122,3 +122,45 @@ def test_progress_hook_translates_stages_to_job_fields():
     hook2("verify", 0, 0, "")
     assert job2["phase"] == "verifying-runtime"
     assert job2["total_bytes"] is None  # indeterminate bar, not a stuck 0%
+
+
+def test_progress_hook_accumulates_across_assets(monkeypatch):
+    """A two-asset engine reads as ONE growing download: the second asset's
+    bytes stack on the first's instead of restarting the bar at zero, and
+    unpack/verify leave the finished download's counters standing."""
+    # Drive the throttle's clock so every tick lands (the real hook drops
+    # sub-250ms non-terminal ticks; this test is about arithmetic, not
+    # pacing — pacing has its own assertions above).
+    from hermes_cli.web_routers import local_models as lm
+
+    clock = {"now": 0.0}
+
+    def fake_monotonic():
+        clock["now"] += 1.0
+        return clock["now"]
+
+    monkeypatch.setattr(lm.time, "monotonic", fake_monotonic)
+
+    job = _job("runtime-install", "engine")
+    hook = _runtime_progress_hook(job)
+
+    hook("download", 40 << 20, 40 << 20, "1/2")
+    assert job["done_bytes"] == 40 << 20
+    assert job["total_bytes"] == 40 << 20
+
+    # Second asset starts: counters continue from the first asset's total.
+    hook("download", 0, 60 << 20, "2/2")
+    assert job["done_bytes"] == 40 << 20
+    assert job["total_bytes"] == 100 << 20
+
+    hook("download", 60 << 20, 60 << 20, "2/2")
+    assert job["done_bytes"] == 100 << 20
+    assert job["total_bytes"] == 100 << 20
+
+    # Unpack and verify narrate without rewinding the finished bar.
+    hook("extract", 1, 100, "2/2")
+    assert job["phase"] == "unpacking-runtime"
+    assert job["done_bytes"] == 100 << 20
+    hook("verify", 0, 0, "")
+    assert job["phase"] == "verifying-runtime"
+    assert job["done_bytes"] == 100 << 20

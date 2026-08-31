@@ -618,11 +618,14 @@ class RuntimeInstallBody(BaseModel):
 def _runtime_progress_hook(job: Dict[str, Any]):
     """Adapter: ensure_runtime_installed's progress stream -> job fields.
 
-    Throttled to ~4 updates/s; each stage restarts the byte counters so
-    the bar reflects the CURRENT stage (download then unpack per asset).
-    Slow lines sit in the download stage for minutes — the counters are
-    what proves liveness, so they must move on every tick."""
-    state = {"last": 0.0}
+    Throttled to ~4 updates/s. The byte counters are CUMULATIVE across the
+    plan: a multi-asset engine (CUDA zip + cudart zip) reads as one growing
+    download, not a bar that restarts at zero per asset. The total grows as
+    each asset's size becomes known (sizes arrive with the response, not
+    the plan). Unpack/verify keep the download's counters in place — the
+    stage text says what's happening, and a bar that bounces back to zero
+    after the bytes finished reads as a failure."""
+    state = {"last": 0.0, "banked": 0, "asset": None, "asset_total": 0}
 
     def hook(stage: str, done: int, total: int, label: str) -> None:
         now = time.monotonic()
@@ -631,21 +634,30 @@ def _runtime_progress_hook(job: Dict[str, Any]):
         state["last"] = now
         suffix = f" ({label})" if label else ""
         if stage == "download":
+            if label != state["asset"]:
+                # Previous asset finished: bank its bytes so the counters
+                # keep climbing instead of restarting for the next asset.
+                state["banked"] += state["asset_total"]
+                state["asset"] = label
+            state["asset_total"] = total or done
+            plan_done = state["banked"] + done
+            plan_total = state["banked"] + (total or 0)
             job["phase"] = "downloading-runtime"
             if total:
                 job["detail"] = (f"Downloading the local engine{suffix} — "
-                                 f"{_human_gb(done)} of {_human_gb(total)}")
+                                 f"{_human_gb(plan_done)} of {_human_gb(plan_total)}")
             else:
                 job["detail"] = (f"Downloading the local engine{suffix} — "
-                                 f"{_human_gb(done)}")
+                                 f"{_human_gb(plan_done)}")
+            job["done_bytes"] = plan_done
+            job["total_bytes"] = plan_total or None
         elif stage == "extract":
             job["phase"] = "unpacking-runtime"
-            job["detail"] = f"Unpacking the engine{suffix}"
+            pct = f" — {min(100, round(done / total * 100))}%" if total else ""
+            job["detail"] = f"Unpacking the engine{suffix}{pct}"
         else:  # verify
             job["phase"] = "verifying-runtime"
-            job["detail"] = "Verifying the engine"
-        job["done_bytes"] = done
-        job["total_bytes"] = total or None
+            job["detail"] = f"Verifying the engine{suffix}"
 
     return hook
 

@@ -1003,7 +1003,7 @@ export const zhHant = defineLocale({
       recommended: '推薦',
       downloaded: '已下載',
       downloadAction: size => `下載 · ${size}`,
-      downloadProgress: (done, total) => `${done} / ${total}`,
+      downloadProgress: (done, total) => `正在下載 ${done} / ${total}`,
       downloadDoneToast: model => `${model} 已就緒。`,
       installDoneToast: '本地執行環境已安裝就緒。',
       useAction: '使用',

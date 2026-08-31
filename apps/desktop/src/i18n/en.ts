@@ -1135,7 +1135,7 @@ export const en: Translations = {
       recommended: 'Recommended',
       downloaded: 'Downloaded',
       downloadAction: size => `Download · ${size}`,
-      downloadProgress: (done, total) => `${done} of ${total}`,
+      downloadProgress: (done, total) => `Downloading ${done} of ${total}`,
       downloadDoneToast: model => `${model} is ready.`,
       installDoneToast: 'Local runtime installed and ready.',
       quickstartTitle: 'Run a model on this machine',
