@@ -59,9 +59,17 @@ class TestDetectCrossVmFs:
 
 class TestWalRefusalOnCrossVmFs:
     @pytest.fixture(autouse=True)
-    def _clear_cache(self):
+    def _clear_cache(self, monkeypatch):
         with hermes_state._cross_vm_fs_cache_lock:
             hermes_state._cross_vm_fs_cache.clear()
+        # Pin the WAL-reset vulnerability gate OFF: on builds bundling a
+        # vulnerable SQLite (e.g. 3.50.4 on CI) apply_wal_with_fallback
+        # returns via _apply_delete_for_wal_reset_bug BEFORE the cross-VM
+        # check, so these tests would exercise the wrong branch and pass
+        # (or fail) vacuously depending on the interpreter's SQLite build.
+        monkeypatch.setattr(
+            hermes_state, "is_sqlite_wal_reset_vulnerable", lambda *a, **k: False
+        )
         yield
         with hermes_state._cross_vm_fs_cache_lock:
             hermes_state._cross_vm_fs_cache.clear()
