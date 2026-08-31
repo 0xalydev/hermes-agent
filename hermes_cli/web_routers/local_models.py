@@ -486,7 +486,7 @@ async def local_models_catalog():
     entry is hidden; unaffordable models show WHY."""
     from hermes_cli.local_runtime.catalog import (
         CATALOG,
-        recommended_id,
+        recommended_entry,
         refresh_catalog_soon,
         select_variant,
     )
@@ -508,9 +508,13 @@ async def local_models_catalog():
     budget = probe_budget(planning=True)
     # The default pick for THIS machine: quality-ranked, fit- and
     # speed-gated (recommended_entry). Engine-gated entries can't be
-    # activated today, so they can't be the recommendation either.
+    # activated today, so they can't be the recommendation either. The
+    # reason key ships with the row — the Recommended badge's tooltip is
+    # the branch that actually fired, not a re-derivation that can drift.
     eligible = tuple(e for e in CATALOG if not _engine_too_old(e.min_engine))
-    recommended = recommended_id(budget, eligible)
+    picked = recommended_entry(budget, eligible)
+    recommended = picked[0].id if picked is not None else None
+    recommended_reason = picked[1] if picked is not None else None
     # Completeness-checked staging (split parts all present) — the same
     # answer the picker and the router see, so a mid-download model never
     # reads as downloaded here.
@@ -531,6 +535,7 @@ async def local_models_catalog():
             "native_context": entry.n_ctx_train,
             "native_context_label": f"{entry.n_ctx_train // 1024}K",
             "recommended": entry.id == recommended,
+            "recommended_reason": recommended_reason if entry.id == recommended else None,
             "downloaded": downloaded_variant is not None,
             "downloaded_model_id": downloaded_variant.model_id if downloaded_variant else None,
             "downloaded_quant": downloaded_variant.quant if downloaded_variant else None,
@@ -939,7 +944,8 @@ async def local_models_quickstart(body: QuickstartBody):
         candidates = [entry]
     else:
         eligible = tuple(e for e in CATALOG if not _engine_too_old(e.min_engine))
-        best = recommended_entry(budget, eligible)
+        picked = recommended_entry(budget, eligible)
+        best = picked[0] if picked is not None else None
         candidates = ([best] if best is not None else []) + [
             e for e in CATALOG if best is None or e.id != best.id]
     chosen = None

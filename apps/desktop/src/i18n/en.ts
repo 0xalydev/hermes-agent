@@ -1133,6 +1133,19 @@ export const en: Translations = {
       unifiedMemory: 'Unified memory',
       modelsTitle: 'Models',
       recommended: 'Recommended',
+      /* The Recommended badge's tooltip, keyed by the resolver branch that
+         made the pick. Qualitative on purpose: predictions order candidates,
+         they are not promises to print. */
+      recommendedReason: {
+        'best-quality-resident':
+          'The highest-quality model that runs entirely on your GPU at full speed. Picks weigh quality against predicted speed on this hardware.',
+        'speed-gated-quality':
+          'A higher-quality model fits this machine but would respond too slowly on its memory bandwidth — this is the best model that stays fast.',
+        'fastest-resident':
+          'No model reaches full speed on this hardware; this one comes closest while running entirely in GPU memory.',
+        'least-painful-spilled':
+          'No model fits entirely in GPU memory here — this one runs best from system RAM.'
+      } as Record<string, string>,
       downloaded: 'Downloaded',
       downloadAction: size => `Download · ${size}`,
       downloadProgress: (done, total) => `Downloading ${done} of ${total}`,

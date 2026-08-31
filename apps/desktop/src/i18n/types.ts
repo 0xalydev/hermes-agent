@@ -980,6 +980,9 @@ export interface Translations {
       unifiedMemory: string
       modelsTitle: string
       recommended: string
+      /** Recommended-badge tooltip by resolver branch; unknown keys (newer
+       *  backend) simply show no tooltip. */
+      recommendedReason: Record<string, string>
       downloaded: string
       downloadAction: (size: string) => string
       downloadProgress: (done: string, total: string) => string

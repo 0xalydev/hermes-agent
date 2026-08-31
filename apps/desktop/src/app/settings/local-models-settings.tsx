@@ -732,7 +732,17 @@ export function LocalModelsSettings() {
                   <span className="inline-flex items-center gap-2">
                     {model.display_name}
 
-                    {model.recommended && <Pill tone="primary">{copy.recommended}</Pill>}
+                    {model.recommended &&
+                      (model.recommended_reason ? (
+                        // The why, straight from the resolver: the tooltip is
+                        // the branch that picked this model, so the shown
+                        // rationale can never drift from the actual decision.
+                        <Tip label={copy.recommendedReason[model.recommended_reason]}>
+                          <Pill tone="primary">{copy.recommended}</Pill>
+                        </Tip>
+                      ) : (
+                        <Pill tone="primary">{copy.recommended}</Pill>
+                      ))}
                   </span>
                 }
               />

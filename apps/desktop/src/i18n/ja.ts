@@ -1037,6 +1037,16 @@ export const ja = defineLocale({
       unifiedMemory: 'ユニファイドメモリ',
       modelsTitle: 'モデル',
       recommended: 'おすすめ',
+      recommendedReason: {
+        'best-quality-resident':
+          'GPU に完全に載り、フルスピードで動くモデルの中で最高品質です。おすすめは品質とこのハードウェアでの予測速度を両立させて選ばれます。',
+        'speed-gated-quality':
+          'より高品質なモデルもこのマシンに載りますが、メモリ帯域の制約で応答が遅くなります — これは速度を保てる最良のモデルです。',
+        'fastest-resident':
+          'このハードウェアでフルスピードに達するモデルはありません。GPU メモリ内で動くものの中で最速です。',
+        'least-painful-spilled':
+          'GPU メモリに完全に収まるモデルはありません — システム RAM からの実行で最も快適なモデルです。'
+      } as Record<string, string>,
       downloaded: 'ダウンロード済み',
       downloadAction: size => `ダウンロード · ${size}`,
       downloadProgress: (done, total) => `ダウンロード中 ${done} / ${total}`,
