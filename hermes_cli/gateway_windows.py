@@ -1043,7 +1043,7 @@ def _install_startup_fallback(script_path: Path, start_now: bool, detail: str) -
         print(f"✓ Gateway already running (PID: {', '.join(map(str, running_pids))})")
     elif start_now:
         pid = _spawn_detached()
-        _report_gateway_start(f"direct spawn (PID {pid})")
+        _report_gateway_start(f"direct spawn (PID {pid})", spawned_pid=pid)
     else:
         profile_arg = _profile_arg()
         start_cmd = f"hermes {profile_arg} gateway start" if profile_arg else "hermes gateway start"
@@ -1076,7 +1076,7 @@ def install(
                 print(f"✓ Gateway already running (PID: {', '.join(map(str, running_pids))})")
             else:
                 pid = _spawn_detached()
-                _report_gateway_start(f"direct spawn (PID {pid})")
+                _report_gateway_start(f"direct spawn (PID {pid})", spawned_pid=pid)
         else:
             print("ℹ Gateway not started and no auto-start service installed.")
             print("  Run later with: hermes gateway start")
@@ -1119,7 +1119,7 @@ def install(
                 print(f"✓ Gateway already running (PID: {', '.join(map(str, running_pids))})")
             else:
                 pid = _spawn_detached()
-                _report_gateway_start(f"direct spawn (PID {pid})")
+                _report_gateway_start(f"direct spawn (PID {pid})", spawned_pid=pid)
         else:
             print("ℹ Gateway not started now.")
             print("  Start manually with: hermes gateway start")
@@ -1165,7 +1165,7 @@ def install(
             print(f"✓ Gateway already running (PID: {', '.join(map(str, running_pids))})")
         elif start_now:
             pid = _spawn_detached()
-            _report_gateway_start(f"direct spawn (PID {pid})")
+            _report_gateway_start(f"direct spawn (PID {pid})", spawned_pid=pid)
         else:
             profile_arg = _profile_arg()
             start_cmd = f"hermes {profile_arg} gateway start" if profile_arg else "hermes gateway start"
@@ -1195,9 +1195,139 @@ def _wait_for_gateway_ready(timeout_s: float = 6.0, interval_s: float = 0.4) -> 
     return []
 
 
-def _report_gateway_start(via: str) -> None:
+def _process_in_job(pid: int | None = None) -> bool | None:
+    """Best-effort: is *pid* (default: this process) inside a Windows Job Object?
+
+    Returns ``True``/``False`` when the kernel answered, ``None`` when the
+    probe could not run (non-Windows host, ``OpenProcess`` denied, …).
+    Never raises.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        # Fresh WinDLL instance: setting argtypes/restype on the shared
+        # ctypes.windll.kernel32 cache would leak prototypes into every
+        # other caller in the process. Without explicit prototypes the
+        # 64-bit HANDLE from GetCurrentProcess()/OpenProcess is truncated
+        # to a 32-bit int and IsProcessInJob fails (seen live on
+        # windows-latest, run 33526461117).
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        kernel32.IsProcessInJob.restype = ctypes.c_int
+        kernel32.IsProcessInJob.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        close_handle = False
+        if pid is None:
+            handle = kernel32.GetCurrentProcess()
+        else:
+            _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = kernel32.OpenProcess(
+                _PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid)
+            )
+            if not handle:
+                return None
+            close_handle = True
+        try:
+            in_job = ctypes.c_int(0)
+            ok = kernel32.IsProcessInJob(handle, None, ctypes.byref(in_job))
+        finally:
+            if close_handle:
+                kernel32.CloseHandle(handle)
+        if not ok:
+            return None
+        return bool(in_job.value)
+    except Exception:
+        return None
+
+
+def _job_teardown_risk(child_pid: int) -> bool:
+    """True when a just-spawned gateway child is doomed by parent-job teardown.
+
+    ``CREATE_BREAKAWAY_FROM_JOB`` is not a guarantee: some job objects deny
+    breakaway with ``ERROR_ACCESS_DENIED`` (we retry without the flag — the
+    child then lands inside the job), and some accept the flag but silently
+    keep the child in the job anyway (#84185, Halldrix's finding). Either
+    way the child survives the 6s liveness poll, the CLI prints ✓, and the
+    parent job's teardown SIGKILLs the gateway moments later (#91675).
+
+    The deterministic tell is that the CHILD is still inside a job object
+    while the parent CLI is in one too. When the parent is not in a job (the
+    common plain-console case) there is nothing to tear down and the risk is
+    zero regardless of the child's job state.
+    """
+    if not _process_in_job():
+        return False
+    return bool(_process_in_job(child_pid))
+
+
+def _start_via_scheduled_task(timeout_s: float = 30.0) -> bool:
+    """Trigger the gateway's Scheduled Task and confirm a NEW gateway PID.
+
+    Task Scheduler creates the worker outside any job object that holds the
+    calling CLI, so ``schtasks /Run`` is the spawn path that survives
+    parent-job teardown (#84185 / #84409's escape primitive, applied here to
+    ``hermes gateway start``). Two lessons from #84409's live review
+    (#91675, @jrleal10) are baked in:
+
+    * ``pre_pids`` is snapshotted BEFORE ``/Run`` so a task-spawned process
+      that becomes visible quickly can never be mistaken for pre-existing.
+    * The poll window is 30s, not 6s — a cold Task Scheduler start took
+      ~13s to its first log line on the reporting host.
+
+    Returns True only when a gateway PID that was not running before the
+    trigger is observed. Never raises.
+    """
+    try:
+        pre_pids = set(_gateway_pids())
+    except Exception:
+        pre_pids = set()
+    code, _out, err = _exec_schtasks(["/Run", "/TN", get_task_name()])
+    if code != 0:
+        logger.debug("schtasks /Run failed (code %s): %s", code, err.strip())
+        return False
+    ready = _wait_for_gateway_ready(timeout_s=timeout_s)
+    new_pids = sorted(set(ready) - pre_pids)
+    if not new_pids:
+        return False
+    print(
+        "✓ Gateway started via Scheduled Task "
+        f"(PID: {', '.join(map(str, new_pids))})"
+    )
+    return True
+
+
+def _report_gateway_start(via: str, spawned_pid: int | None = None) -> None:
     pids = _wait_for_gateway_ready()
     if pids:
+        # Passing the 6s liveness poll is not survival: a child confined in
+        # the parent's job object outlives the poll and is then killed by
+        # job teardown the moment this CLI exits (#91675). Don't print ✓
+        # for a process we can prove is doomed.
+        if spawned_pid is not None and _job_teardown_risk(spawned_pid):
+            print(
+                f"⚠ Gateway process is up (PID: {', '.join(map(str, pids))}) but is "
+                "still inside this console's Job Object."
+            )
+            print(
+                "  CREATE_BREAKAWAY_FROM_JOB did not take effect, so Windows may "
+                "terminate the gateway"
+            )
+            print("  when this command's job tears down (#84185 / #91675).")
+            if is_task_registered():
+                print("  Start it via Task Scheduler instead:")
+                print(f'    schtasks /Run /TN "{get_task_name()}"')
+            else:
+                print(
+                    "  Start it from a plain console window, or install autostart "
+                    "with: hermes gateway install"
+                )
+            return
         print(f"✓ Gateway started via {via} (PID: {', '.join(map(str, pids))})")
     else:
         print(f"⚠ Launched gateway via {via}, but no process detected after 6s.")
@@ -1517,8 +1647,18 @@ def start() -> None:
     # Manual starts use the same console-less direct spawn path as restart()
     # and install --start-now. Scheduled Task / Startup entries are only login
     # persistence mechanisms.
+    #
+    # Exception (#91675): when THIS process is inside a Windows Job Object, a
+    # direct child spawn may not outlive us even with CREATE_BREAKAWAY_FROM_JOB
+    # (the job can deny it, or silently keep the child anyway — #84185). If a
+    # Scheduled Task exists, escape the job by letting Task Scheduler create
+    # the worker instead.
+    if task_installed and _process_in_job():
+        if _start_via_scheduled_task():
+            return
+        print("↻ Scheduled Task start did not come up; falling back to direct spawn")
     pid = _spawn_detached()
-    _report_gateway_start(f"direct spawn (PID {pid})")
+    _report_gateway_start(f"direct spawn (PID {pid})", spawned_pid=pid)
 
 
 def _drain_gateway_pid(pid: int, drain_timeout: float) -> bool:

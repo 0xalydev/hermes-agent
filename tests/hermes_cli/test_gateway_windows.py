@@ -221,7 +221,7 @@ def _arrange_startup_fallback(monkeypatch, tmp_path, running_pids):
 
     monkeypatch.setattr(gateway_windows, "_install_startup_entry", fake_install_startup_entry)
     monkeypatch.setattr(gateway_windows, "_spawn_detached", lambda path: calls.append(("spawn", path)) or 12345)
-    monkeypatch.setattr(gateway_windows, "_report_gateway_start", lambda via: calls.append(("report_start", via)))
+    monkeypatch.setattr(gateway_windows, "_report_gateway_start", lambda via, **_kw: calls.append(("report_start", via)))
     monkeypatch.setattr(gateway_windows, "_print_next_steps", lambda: calls.append(("next_steps", None)))
     monkeypatch.setattr(gateway, "find_gateway_pids", lambda: running_pids)
     monkeypatch.setattr(gateway, "_profile_arg", lambda: "--profile alice")
