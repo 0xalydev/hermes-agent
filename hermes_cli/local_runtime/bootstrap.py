@@ -113,20 +113,26 @@ def _stop_state_server(state: dict) -> None:
     """Best-effort stop of the server the state file points at (an
     incumbent this process doesn't supervise). The state pid is ours by
     contract — the file only ever describes the managed server."""
+    from hermes_cli.local_runtime.endpoint import _pid_alive
+
     pid = state.get("pid")
-    if not pid:
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return
+    if pid <= 0:
         return
     try:
         import signal
 
-        os.kill(int(pid), signal.SIGTERM)
+        os.kill(pid, signal.SIGTERM)
     except (OSError, ValueError):
         return
-    # Give it a moment to release the port and the GPU.
+    # Give it a moment to release the port and the GPU. Liveness via
+    # psutil — on Windows os.kill(pid, 0) TERMINATES the process, it is
+    # not a probe (the endpoint.py pitfall note; #local-models review).
     for _ in range(50):
-        try:
-            os.kill(int(pid), 0)
-        except OSError:
+        if not _pid_alive(pid):
             return
         time.sleep(0.1)
 
