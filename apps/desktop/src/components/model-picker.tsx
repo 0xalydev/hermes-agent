@@ -8,6 +8,7 @@ import { modelSearchText } from '@/lib/model-search-text'
 import { currentPickerSelection } from '@/lib/model-status-label'
 import { normalize } from '@/lib/text'
 import { useStoreSelector } from '@/lib/use-session-slice'
+import { $localModelsEnabled } from '@/store/local-models-flag'
 import { $localRuntimeJobs, runningModelDownloads, watchLocalRuntimeJobs } from '@/store/local-runtime-jobs'
 import type { LocalModelLoadProgress, ModelOptionProvider, ModelPricing } from '@/types/hermes'
 
@@ -71,10 +72,14 @@ export function ModelPickerDialog({
   // over the router's SSE stream). Polled only while the picker is open —
   // 2s idle cadence is enough for a bar under a ~40s load. Errors read as
   // "nothing loading" (remote-only installs have no local-models routes).
+  // Every local-models read here sits behind the --local launch flag (strict:
+  // the llamacpp provider group hides even with staged models on disk).
+  const localModelsEnabled = $localModelsEnabled.get()
+
   const localStatus = useQuery({
     queryKey: ['local-models-loading', profile],
     queryFn: () => getLocalModelsStatus(),
-    enabled: open,
+    enabled: open && localModelsEnabled,
     refetchInterval: 2_000,
     retry: false
   })
@@ -88,7 +93,7 @@ export function ModelPickerDialog({
   // to download identity (changes when a download starts/ends, and never
   // while closed); each row selects its own percent scalar (#72163 class).
   const downloadsKey = useStoreSelector($localRuntimeJobs, jobs =>
-    open
+    open && localModelsEnabled
       ? runningModelDownloads(jobs)
           .map(job => `${job.job_id}\u0000${job.target}`)
           .join('\u0001')
@@ -110,10 +115,10 @@ export function ModelPickerDialog({
   // Rediscover in-flight work on open: the poller idles when nothing was
   // running, and a download can start from any surface.
   useEffect(() => {
-    if (open) {
+    if (open && localModelsEnabled) {
       watchLocalRuntimeJobs()
     }
-  }, [open])
+  }, [open, localModelsEnabled])
 
   // A finished download turns into a real selectable model — refetch the
   // options so the placeholder row is replaced while the picker is open.
@@ -264,7 +269,14 @@ function ModelResults({
   // Only configured providers (those with curated models) are selectable
   // here. Switching to a NOT-yet-configured provider goes through the
   // "Add provider" footer button, which opens the full onboarding selector.
-  const configured = providers.filter(p => (p.models ?? []).length > 0)
+  // The local provider sits behind the --local launch flag (strict: staged
+  // models on disk don't show without it). Module-level read — a launch flag
+  // can't change mid-session.
+  const localModelsShown = $localModelsEnabled.get()
+
+  const configured = providers.filter(
+    p => (p.models ?? []).length > 0 && (localModelsShown || p.slug !== LOCAL_PROVIDER_SLUG)
+  )
 
   // In-flight local downloads render as disabled progress rows: inside the
   // Local group when it exists, else as their own group (first download —
