@@ -31,6 +31,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -102,6 +103,37 @@ def _ram_bytes() -> tuple[int, int]:
         return stat.ullTotalPhys, stat.ullAvailPhys
     except (AttributeError, OSError):
         pass
+    if sys.platform == "darwin":
+        # macOS getconf has no _PHYS_PAGES/_AVPHYS_PAGES (exit 64, "no such
+        # configuration parameter") — the POSIX branch below returns (0, 0)
+        # and every model reads unavailable. sysctl is the platform truth.
+        try:
+            total = int(subprocess.run(
+                ["/usr/sbin/sysctl", "-n", "hw.memsize"],
+                capture_output=True, text=True, timeout=5).stdout.strip() or 0)
+            if total <= 0:
+                return 0, 0
+            avail = total // 2  # conservative fallback
+            try:
+                out = subprocess.run(["/usr/bin/vm_stat"], capture_output=True,
+                                     text=True, timeout=5).stdout
+                page_m = re.search(r"page size of (\d+)", out)
+                page = int(page_m.group(1)) if page_m else 16384
+                pages = 0
+                # free + inactive + purgeable ≈ reclaimable-on-demand; the
+                # speculative pool is dropped by the OS under pressure too.
+                for key in ("Pages free", "Pages inactive", "Pages purgeable",
+                            "Pages speculative"):
+                    m = re.search(rf"{key}:\s+(\d+)\.", out)
+                    if m:
+                        pages += int(m.group(1))
+                if pages > 0:
+                    avail = pages * page
+            except (OSError, ValueError):
+                pass
+            return total, avail
+        except (OSError, ValueError):
+            return 0, 0
     # POSIX
     try:
         page = int(subprocess.run(["getconf", "PAGE_SIZE"], capture_output=True,
