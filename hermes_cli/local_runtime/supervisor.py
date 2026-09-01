@@ -186,6 +186,13 @@ class LlamaServerSupervisor:
             *self.extra_args,
         ]
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        if self._log_handle is not None:
+            # The crash-restart loop calls _spawn repeatedly; without
+            # closing the prior handle each restart leaks one fd.
+            try:
+                self._log_handle.close()
+            except Exception:  # noqa: BLE001 — best-effort
+                pass
         self._log_handle = open(self.log_path, "a", encoding="utf-8", errors="replace")
         self._log_handle.write(f"\n# spawn: {cmd}\n")
         self._log_handle.flush()
