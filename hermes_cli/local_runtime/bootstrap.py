@@ -285,7 +285,17 @@ def ensure_local_runtime(config: dict, force: bool = False) -> "object | None":
             port=int(section.get("port", 0)) or None,
             preset_path=preset_path,
         )
-        sup.start()
+        try:
+            sup.start()
+        except Exception:
+            # start() can fail after the router process exists (health
+            # timeout, spawn error): leaving it running unsupervised
+            # strands its VRAM behind a port nothing will clean up.
+            try:
+                sup.stop()
+            except Exception:  # noqa: BLE001 — cleanup is best-effort
+                pass
+            raise
         _SUPERVISOR = sup
         logger.info("managed llama-server up at %s (backend=%s tag=%s)",
                     sup.base_url, backend, tag)
