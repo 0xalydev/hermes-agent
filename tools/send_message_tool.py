@@ -485,17 +485,6 @@ def _handle_send(args):
                 f"or set a home channel via: hermes config set {home_env} <channel_id>"
             )
 
-    # P5(a): a relay-routed destination must be one this gateway can show a
-    # provenance for. The `target` parameter is free-form, so without this a
-    # model could name ANY chat id and the gateway would dutifully emit an
-    # outbound frame for it — authenticating the sender while never
-    # authorizing the destination. Applies to the generic `relay` plane and to
-    # connector-fronted platforms with no live native adapter; every other
-    # platform keeps its adapter's own authorization unchanged.
-    _relay_denial = _authorize_relay_target(platform_name, chat_id)
-    if _relay_denial:
-        return tool_error(_relay_denial)
-
     duplicate_skip = _maybe_skip_cron_duplicate_send(platform_name, chat_id, thread_id)
     if duplicate_skip:
         return json.dumps(duplicate_skip)
@@ -516,6 +505,26 @@ def _handle_send(args):
             if _resolve_err:
                 return json.dumps(_resolve_err)
             chat_id = _resolved
+
+    # P5(a): a relay-routed destination must be one this gateway can show a
+    # provenance for. The `target` parameter is free-form, so without this a
+    # model could name ANY chat id and the gateway would dutifully emit an
+    # outbound frame for it — authenticating the sender while never
+    # authorizing the destination. Applies to the generic `relay` plane and to
+    # connector-fronted platforms with no live native adapter; every other
+    # platform keeps its adapter's own authorization unchanged.
+    #
+    # POSITION IS LOAD-BEARING — this must stay BELOW Slack user→DM resolution.
+    # `_parse_target_ref` emits internal pseudo-ids (`user_name:ben`,
+    # `user:U...`) that no provenance can ever contain, because provenances
+    # record RESOLVED conversation ids. Authorizing above the resolver compared
+    # a handle against a set of `D...` ids and refused every Slack DM — a fix
+    # that caused the outage it was meant to prevent. Pinned by
+    # test_slack_user_targets_resolve_then_authorize; moving this call back up
+    # turns those cases red.
+    _relay_denial = _authorize_relay_target(platform_name, chat_id)
+    if _relay_denial:
+        return tool_error(_relay_denial)
 
     try:
         from model_tools import _run_async

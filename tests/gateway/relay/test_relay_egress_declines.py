@@ -119,8 +119,29 @@ def relay():
 # ── the classifier itself ────────────────────────────────────────────────
 
 def test_decline_is_recognised_by_code_and_by_uniform_text():
+    # The wire contract, pinned as a LITERAL. Asserting against the imported
+    # constant is a tautology — it cannot fail when the constant changes, and
+    # review mutation M05 survived exactly there. The connector stamps this
+    # exact string (gateway-gateway routedEgressGuard); changing either side
+    # alone is a silent cross-repo break, so the literal is the point.
+    assert EGRESS_DECLINE_CODE == "egress_declined"
+    assert is_egress_decline({"success": False, "code": "egress_declined"}) is True
     assert is_egress_decline({"success": False, "code": EGRESS_DECLINE_CODE}) is True
+
     assert is_egress_decline(DECLINE) is True
+
+    # M10: the `.lower()` in is_egress_decline was untested, so making the
+    # marker match case-SENSITIVE survived — a connector emitting "Egress
+    # declined:" would silently stop being classified as a decline and start
+    # falling back into the refused chat. Every fixture happened to be
+    # lowercase, which is what hid it.
+    for variant in (
+        "Discord Egress Declined: target is not approved",
+        "EGRESS DECLINED: target is not approved",
+        "discord EGRESS declined: target is not approved",
+    ):
+        assert is_egress_decline({"success": False, "error": variant}) is True, variant
+
 
 
 def test_an_ambiguous_failure_is_not_a_decline():
