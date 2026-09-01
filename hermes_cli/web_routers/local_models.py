@@ -263,10 +263,13 @@ def _runtime_section() -> dict:
 
 
 @router.get("/api/local-models/status")
-async def local_models_status():
+def local_models_status():
     """Cheap, immediate, never blocks on probes (responsiveness standard):
     config state + installed runtime + staged models + supervisor state.
-    GPU facts come from /api/local-models/hardware (slower, polled)."""
+    GPU facts come from /api/local-models/hardware (slower, polled).
+
+    Sync def on purpose: the body does blocking urlopen/scans, so it runs
+    in FastAPI's threadpool instead of stalling the event loop."""
     from hermes_cli.local_runtime.binaries import (
         default_tag,
         installed_tags,
@@ -432,9 +435,10 @@ def _loading_progress() -> Dict[str, Any]:
 
 
 @router.get("/api/local-models/hardware")
-async def local_models_hardware():
+def local_models_hardware():
     """The budget as plain facts. Polled by the pane and the statusbar
-    resource item (throttled client-side)."""
+    resource item (throttled client-side). Sync def on purpose: the body
+    shells out to nvidia-smi and probes budgets — threadpool, not loop."""
     from hermes_cli.local_runtime.hardware import probe_budget, _nvidia_vram, _ram_bytes
 
     budget = probe_budget()
@@ -476,14 +480,15 @@ async def local_models_hardware():
 
 
 @router.get("/api/local-models/catalog")
-async def local_models_catalog():
+def local_models_catalog():
     """Every entry answers the user's three questions up front: how big is
     the download, will it fit, and what context/speed shape will I get —
     computed from the catalog's measured numbers + this machine's
     budget. Hardware-aware quant selection: the row advertises the BEST
     build for this machine (highest quality that runs fully on the GPU at
     the 64K floor; else the smallest that works, spilled and priced). No
-    entry is hidden; unaffordable models show WHY."""
+    entry is hidden; unaffordable models show WHY. Sync def on purpose:
+    probe_budget + catalog I/O block — threadpool, not loop."""
     from hermes_cli.local_runtime.catalog import (
         CATALOG,
         recommended_entry,
@@ -1146,10 +1151,11 @@ class ModelEjectBody(BaseModel):
 
 
 @router.post("/api/local-models/eject")
-async def local_models_eject(body: ModelEjectBody):
+def local_models_eject(body: ModelEjectBody):
     """Free a loaded model's GPU memory now. Nothing reloads it except
     demand — the next message to it (residency v2: no automatic loading
-    exists anywhere)."""
+    exists anywhere). Sync def on purpose: the fallback path blocks on a
+    urlopen with a 120s timeout — threadpool, never the event loop."""
     from hermes_cli.local_runtime.bootstrap import get_supervisor
 
     sup = get_supervisor()
