@@ -1,0 +1,35 @@
+name: wine2e-91675 gateway start job-object proof
+
+on:
+  push:
+    branches:
+      - "wine2e-91675/**"
+
+permissions:
+  contents: read
+
+jobs:
+  windows-proof:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # 8.2.0
+        with:
+          version: "0.9.28"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --locked --python 3.11 --extra all --extra dev
+
+      - name: Run 91675 regression tests (incl. live Job Object E2E)
+        run: uv run --no-sync python -m pytest tests/hermes_cli/test_gateway_start_job_object_liveness.py -v -o addopts=""
