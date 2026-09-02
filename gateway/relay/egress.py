@@ -212,6 +212,21 @@ def attested_relay_targets(platform_name: str) -> Set[str]:
     return attested
 
 
+def _is_unresolved_handle(platform_name: str, target: str) -> bool:
+    """Whether *target* is a NAME the gateway cannot compare against an id.
+
+    Provenance records RESOLVED destinations (numeric chat ids). A Telegram
+    public `@username` is not a destination yet — the Bot API resolves it at
+    send time — so comparing it to a set of numeric ids can only ever refuse,
+    no matter how legitimately the user configured it.
+
+    Deliberately narrow: `@`-prefixed Telegram targets only. A numeric id, a
+    `-100…` supergroup, or any other platform's form is a resolved destination
+    and stays fully guarded.
+    """
+    return platform_name == "telegram" and target.startswith("@")
+
+
 def authorize_relay_target(platform_name: str, chat_id: Any) -> Optional[str]:
     """Return an error string when this relay destination may not be named.
 
@@ -225,6 +240,37 @@ def authorize_relay_target(platform_name: str, chat_id: Any) -> Optional[str]:
         return None
     name = str(platform_name).strip().lower()
     if target in attested_relay_targets(name):
+        return None
+    # ── Telegram `@username`: authorized by the CONNECTOR, not here ─────────
+    #
+    # Checked AFTER attestation, so a handle that IS attested takes the normal
+    # path; this only catches the case that would otherwise be a false refusal.
+    #
+    # WHY THE GATEWAY CANNOT ANSWER THIS: the guard fires only when there is no
+    # live native adapter (`_has_live_native_adapter`), i.e. on relay-fronted
+    # deployments — and on exactly those the CONNECTOR holds the bot token, not
+    # this process. There is no local way to turn `@channel` into the numeric id
+    # provenance stores, so refusing here is not "fail closed", it is "fail
+    # always". It regressed the public-channel username support added in #53573.
+    #
+    # WHY THAT IS SAFE, NOT A HOLE: the destination is still authorized, one
+    # layer out. The connector's Telegram egress floor (gg#238, merged 743a7c2)
+    # classifies and refuses unauthorized destinations after ITS resolution,
+    # which is the layer that closed the reported vulnerability in the first
+    # place. This carve-out drops handles from two guards to one — the
+    # authoritative one — rather than to zero.
+    #
+    # FOLLOW-UP (option 2, deliberately not done here): resolve the handle
+    # before authorizing, so both layers apply. That needs a resolution
+    # round-trip through the connector — new wire surface — so it belongs in
+    # its own phase, not bolted onto this one.
+    if _is_unresolved_handle(name, target):
+        logger.debug(
+            "relay target '%s:%s' is an unresolved handle — deferring "
+            "authorization to the connector's egress floor",
+            name,
+            target,
+        )
         return None
     return (
         f"Refusing to send to unattested relay target '{name}:{target}': "
