@@ -115,3 +115,78 @@ def test_non_decline_error_text_is_not_laundered_into_declined():
             )
             == "failed"
         ), error
+
+
+# ── the STRUCTURED response, not the rendered string ────────────────────────
+#
+# Round-2 review: I fixed the text-marker path and tested only the text-marker
+# path. The adapter preserves the connector's own dict in `raw_response`, and
+# classifying the error STRING instead loses two contracts.
+
+
+def _result_raw(raw, *, error=None):
+    from gateway.relay.egress import decline_error
+
+    return SimpleNamespace(
+        success=False, error=error if error is not None else decline_error(raw),
+        raw_response=raw,
+    )
+
+
+def test_code_only_decline_is_declined_not_failed():
+    """A decline carrying `code` and NO text must not fall back.
+
+    `decline_error()` renders it as "relay egress declined" — no marker colon —
+    so a string-based check returns `failed`, which is the fallback cue. This
+    is the shape the connector actually sends when it has no human text.
+    """
+    from gateway.run import _approval_send_outcome
+
+    raw = {"success": False, "code": "egress_declined"}
+    assert _approval_send_outcome(_future(_result_raw(raw)), timeout=5) == "declined"
+
+
+def test_ambiguous_result_is_never_a_definite_failure():
+    """Lost ack ≠ refusal ≠ failure.
+
+    `is_egress_decline` deliberately excludes `ambiguous`, because the frame
+    may well have been applied. Flattening it into `failed` re-sends a card
+    that may already be on the user's screen — the duplicate-card bug the
+    ambiguous verdict was introduced to prevent.
+    """
+    from gateway.run import _approval_send_outcome
+
+    raw = {"success": False, "ambiguous": True, "error": "lost ack"}
+    assert _approval_send_outcome(_future(_result_raw(raw)), timeout=5) == "ambiguous"
+
+
+def test_ambiguous_wins_over_decline_text():
+    """An ambiguous result carrying decline text is STILL ambiguous.
+
+    Order matters: a mid-write drop whose partial error happens to contain the
+    marker must not be reported as a definite refusal.
+    """
+    from gateway.run import _approval_send_outcome
+
+    raw = {
+        "success": False,
+        "ambiguous": True,
+        "error": "discord egress declined: target is not approved",
+    }
+    assert _approval_send_outcome(_future(_result_raw(raw)), timeout=5) == "ambiguous"
+
+
+def test_structured_lane_failure_still_falls_back():
+    """A structured NON-decline failure keeps its fallback."""
+    from gateway.run import _approval_send_outcome
+
+    raw = {"success": False, "error": "connection reset"}
+    assert _approval_send_outcome(_future(_result_raw(raw)), timeout=5) == "failed"
+
+
+def test_legacy_connector_without_raw_response_still_classified():
+    """No `raw_response` (older connector) falls back to the wire sentence."""
+    from gateway.run import _approval_send_outcome
+
+    legacy = SimpleNamespace(success=False, error=DECLINE_ERROR, raw_response=None)
+    assert _approval_send_outcome(_future(legacy), timeout=5) == "declined"

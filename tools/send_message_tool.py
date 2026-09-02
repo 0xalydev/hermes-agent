@@ -158,19 +158,39 @@ def _error(message: str) -> dict:
 def _authorize_relay_target(platform_name: str, chat_id) -> str | None:
     """Relay egress-authorization guard (P5a); None when the send may proceed.
 
-    Thin, never-raising delegate to ``gateway.relay.egress`` so the tool keeps
-    working in environments where the gateway package can't be imported. The
-    guard itself FAILS CLOSED on an unattested target but must not fail closed
-    on its own import error — a missing gateway module means there is no relay
-    egress to authorize in the first place.
+    Thin delegate to ``gateway.relay.egress`` so the tool keeps working in
+    environments where the gateway package can't be imported.
+
+    THE TWO FAILURES ARE NOT THE SAME, and conflating them disabled the
+    boundary. A missing gateway module means there is no relay egress to
+    authorize, so proceeding is correct. A fault INSIDE the guard means
+    authorization did not happen — and returning None there means "authorized",
+    so a single runtime bug in the guard silently switched the whole P5(a)
+    boundary off. Review found this by making the guard raise and watching the
+    send go through.
+
+    So: the import is tolerated, the CALL is not. A guard that cannot answer
+    refuses, which is the only safe polarity for an authorization check.
     """
     try:
         from gateway.relay.egress import authorize_relay_target
-
-        return authorize_relay_target(platform_name, chat_id)
     except Exception:  # noqa: BLE001 - no gateway package ⇒ no relay egress
         logger.debug("relay target authorization unavailable", exc_info=True)
         return None
+
+    try:
+        return authorize_relay_target(platform_name, chat_id)
+    except Exception:  # noqa: BLE001 - the guard faulted; FAIL CLOSED
+        logger.exception(
+            "relay target authorization FAILED for %s — refusing the send",
+            platform_name,
+        )
+        return (
+            f"Refusing to send to relay target '{platform_name}': the egress "
+            "authorization check failed, so this destination could not be "
+            "verified. This is a bug — the send was blocked rather than "
+            "allowed through unchecked."
+        )
 
 
 def _display_chat_id(platform_name: str, chat_id: str) -> str:

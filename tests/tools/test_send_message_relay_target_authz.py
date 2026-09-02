@@ -319,3 +319,54 @@ def test_slack_user_target_resolving_to_unattested_dm_is_refused(slack_relay_env
         )
     }
     assert sent == []
+
+
+# ── the guard must FAIL CLOSED on its own fault ─────────────────────────────
+#
+# Round-2 review: `_authorize_relay_target` wrapped BOTH the import and the
+# call in one `except Exception: return None`, and None means AUTHORIZED. So
+# any runtime bug inside the guard silently switched the whole P5(a) boundary
+# off — the most expensive possible failure mode for an authorization check.
+
+
+def test_guard_fault_refuses_rather_than_authorizing(relay_env, monkeypatch):
+    """A guard that cannot answer must refuse, and must not egress."""
+    import gateway.relay.egress as eg
+    from tools import send_message_tool as smt
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("bug inside the guard")
+
+    monkeypatch.setattr(eg, "authorize_relay_target", _boom)
+
+    denial = smt._authorize_relay_target("discord", ATTESTED_CHAT)
+    assert denial is not None, "a faulting guard authorized the send"
+    assert "authorization check failed" in denial
+
+    # And end to end: nothing may egress.
+    sent: list[str] = []
+    result = _send(f"discord:{ATTESTED_CHAT}", sent)
+    assert "error" in result
+    assert sent == []
+
+
+def test_missing_gateway_package_still_allows(relay_env, monkeypatch):
+    """The tolerated case survives: no gateway ⇒ no relay egress to authorize.
+
+    This is the distinction the original code collapsed. Keeping it tested
+    stops a future "make it fail closed" change from breaking the CLI-only
+    install.
+    """
+    import builtins
+
+    from tools import send_message_tool as smt
+
+    real_import = builtins.__import__
+
+    def _no_gateway(name, *a, **k):
+        if name.startswith("gateway.relay.egress"):
+            raise ImportError("no gateway package")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _no_gateway)
+    assert smt._authorize_relay_target("discord", ARBITRARY_CHAT) is None

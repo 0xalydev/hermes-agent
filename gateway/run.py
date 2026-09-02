@@ -1100,13 +1100,37 @@ def _approval_send_outcome(future, timeout: float) -> str:
     # plain text into that same chat is the exfiltration the egress guard
     # exists to stop. `failed` is the cue to fall back, so a decline needs its
     # own verdict — callers must surface it and send nothing further.
-    _err = getattr(result, "error", None)
-    if _err:
-        from gateway.relay.egress import is_egress_decline
+    #
+    # CLASSIFY THE STRUCTURED RESPONSE, NOT THE ERROR STRING. The adapter
+    # preserves the connector's own dict in `raw_response`; rebuilding a dict
+    # from `error` alone loses two things review demonstrated:
+    #   * a decline carrying `code: egress_declined` and NO text renders as
+    #     "relay egress declined" — no marker colon — so the string check
+    #     missed it and the fallback fired into the refused chat;
+    #   * `ambiguous: True` (lost ack, mid-write drop) was flattened into a
+    #     DEFINITE failure, which re-sends a card that may well have posted.
+    # I fixed the text-marker path and tested only the text-marker path.
+    from gateway.relay.egress import is_egress_decline
 
-        if is_egress_decline({"success": False, "error": _err}):
-            logger.warning("Prompt send DECLINED by connector egress guard: %s", _err)
+    _raw = getattr(result, "raw_response", None)
+    if isinstance(_raw, dict):
+        if _raw.get("ambiguous"):
+            # The frame may have been applied. Same physics as a scheduling
+            # timeout: possibly-delivered, so never re-send.
+            logger.warning("Prompt send AMBIGUOUS (lost ack): %s", _raw.get("error"))
+            return "ambiguous"
+        if is_egress_decline(_raw):
+            logger.warning(
+                "Prompt send DECLINED by connector egress guard: %s",
+                getattr(result, "error", None),
+            )
             return "declined"
+    _err = getattr(result, "error", None)
+    if _err and is_egress_decline({"success": False, "error": _err}):
+        # No structured response (older connector): fall back to the uniform
+        # decline sentence, which is the documented wire contract.
+        logger.warning("Prompt send DECLINED by connector egress guard: %s", _err)
+        return "declined"
     logger.warning(
         "Prompt send failed: %s", getattr(result, "error", None) or "unknown error"
     )
@@ -25207,23 +25231,36 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     # the same chat. Suppress the fallback and tear down the
                     # registration — no card rendered, so a later reply must
                     # not be captured as an answer to an invisible prompt.
-                    _confirm_err = getattr(button_result, "error", None)
-                    if _confirm_err:
-                        from gateway.relay.egress import is_egress_decline
+                    #
+                    # Classify the STRUCTURED response (see
+                    # _approval_send_outcome): a code-only decline has no
+                    # marker colon in its rendered text, and an ambiguous
+                    # result must not be treated as a definite refusal.
+                    from gateway.relay.egress import is_egress_decline
 
-                        if is_egress_decline(
-                            {"success": False, "error": _confirm_err}
-                        ):
-                            logger.warning(
-                                "slash-confirm DECLINED by the connector's egress "
-                                "guard for %s on %s — suppressing the text "
-                                "fallback: %s",
-                                command,
-                                source.platform,
-                                _confirm_err,
+                    _raw = getattr(button_result, "raw_response", None)
+                    _confirm_err = getattr(button_result, "error", None)
+                    _declined = (
+                        is_egress_decline(_raw)
+                        if isinstance(_raw, dict)
+                        else bool(
+                            _confirm_err
+                            and is_egress_decline(
+                                {"success": False, "error": _confirm_err}
                             )
-                            _slash_confirm_mod.clear(session_key)
-                            return None
+                        )
+                    )
+                    if _declined:
+                        logger.warning(
+                            "slash-confirm DECLINED by the connector's egress "
+                            "guard for %s on %s — suppressing the text "
+                            "fallback: %s",
+                            command,
+                            source.platform,
+                            _confirm_err,
+                        )
+                        _slash_confirm_mod.clear(session_key)
+                        return None
             except Exception as exc:
                 logger.debug(
                     "send_slash_confirm failed for %s on %s: %s",
