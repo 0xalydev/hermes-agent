@@ -17,6 +17,15 @@ name: Workflow syntax
 #
 # It runs on every pull request rather than behind a `paths:` filter so it
 # can be a required status check without the skipped-and-stuck-pending trap.
+#
+# The check itself is actionlint (rhysd/actionlint), which carries a real
+# port of GitHub's expression parser. A substring scan for `${{`/`}}` cannot
+# do this job: `${{ false && (a == b }}`, `${{ format('}}') }}` and
+# `${{ github.ref == }}` each have balanced braces, each is rejected by
+# GitHub's parser, and each passed the substring checker this file first
+# shipped with. actionlint also resolves every local `uses:
+# ./.github/actions/<name>` and fails when that action.yml does not parse
+# or the caller passes an input the action does not declare.
 
 on:
   pull_request:
@@ -38,17 +47,46 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # 8.2.0
-        with:
-          # Pinned: unpinned setup-uv fetches a 'latest' manifest from
-          # raw.githubusercontent.com every job; transient fetch failures
-          # fail the job (2026-07-28 incident). Keep in sync with tests.yml.
-          version: "0.9.28"
+      - name: Download actionlint
+        env:
+          # Bump both together. Checksum is the linux_amd64 line of
+          # https://github.com/rhysd/actionlint/releases/download/v<ver>/actionlint_<ver>_checksums.txt
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            --output actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          tar -xzf actionlint.tar.gz -C "$RUNNER_TEMP/actionlint" actionlint
+          chmod 0755 "$RUNNER_TEMP/actionlint/actionlint"
+          rm actionlint.tar.gz
+          "$RUNNER_TEMP/actionlint/actionlint" -version
 
       - name: Reject unparseable workflow files
-        # --no-project: this guard must not depend on the project resolving.
-        # The pyyaml pin matches the one in pyproject.toml.
+        # Syntax and expression checking only: shellcheck and pyflakes are
+        # separate concerns with their own backlog, and this gate must stay
+        # a pure "would GitHub dispatch this?" answer so it can be required.
+        # Config (runner labels, ignores): .github/actionlint.yaml
         run: |
-          uv run --no-project --with 'pyyaml==6.0.3' \
-            python scripts/ci/check_workflow_expressions.py
+          "$RUNNER_TEMP/actionlint/actionlint" -color=false -shellcheck= -pyflakes=
+
+      - name: Every composite action is reachable by the lint
+        # actionlint only opens an action.yml when a workflow references it
+        # via `uses: ./.github/actions/<name>`. An action nobody references
+        # is dead code and would also be unchecked; fail loudly instead of
+        # silently letting it rot.
+        run: |
+          set -euo pipefail
+          status=0
+          for meta in .github/actions/*/action.yml .github/actions/*/action.yaml; do
+            [ -e "$meta" ] || continue
+            dir=$(dirname "$meta")
+            if ! grep -rqF -- "uses: ./$dir" .github/workflows/; then
+              echo "::error file=$meta::no workflow references '$dir'; actionlint never parsed it. Reference it or delete it."
+              status=1
+            fi
+          done
+          exit "$status"

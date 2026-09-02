@@ -7,3 +7,12 @@ self-hosted-runner:
     - ubuntu-latest-32-core
     - ubuntu-latest-32-arm-core
     - windows-latest-32-core
+
+paths:
+  .github/workflows/ci.yaml:
+    ignore:
+      # `if: false` is the sanctioned way to park a flaky lane (see the
+      # e2e-desktop job). actionlint flags any constant condition; the
+      # `${{ false && (...) }}` alternative is what broke the parser in
+      # 24f5a60 (#100748), so the constant form stays and this rule does not.
+      - 'constant expression "false" in condition'
