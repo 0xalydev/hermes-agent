@@ -15,6 +15,8 @@ the only substitution is the transport, which is what the connector is.
 
 from __future__ import annotations
 
+import os
+
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
@@ -290,3 +292,68 @@ def test_cosmetic_lane_degrades_but_logs_the_decline_at_warning(
     ]
     assert len(declines) == 1
     assert DECLINE_TEXT in declines[0].getMessage()
+
+
+# ── round-2 review survivors: lines the docstrings call load-bearing ────────
+#
+# M25 and M21 both survived because nothing exercised them, while the code
+# around them explains at length why they matter. A comment is not a guard.
+
+
+def test_thread_qualified_session_id_attests_the_bare_chat():
+    """M25: session ids may be "chat:thread"; the connector authorizes the CHAT.
+
+    `_session_ids` deliberately adds BOTH forms. Without the split, a gateway
+    whose session origin is `-100999:77` cannot send to `-100999` — the chat it
+    is demonstrably already talking in.
+    """
+    import gateway.channel_directory as cd
+    import gateway.relay.egress as eg
+
+    original = cd._build_from_sessions
+    try:
+        cd._build_from_sessions = lambda _p: [{"id": "-100999:77"}]
+        ids = eg._session_ids("telegram")
+    finally:
+        cd._build_from_sessions = original
+
+    assert "-100999:77" in ids, "the qualified form must stay attested"
+    assert "-100999" in ids, "the bare chat must be attested (M25)"
+
+
+def test_relay_plane_attests_the_union_of_fronted_platforms():
+    """M21: a relay session is filed under its LOGICAL platform.
+
+    `attested_relay_targets("relay")` must span every fronted platform, or the
+    generic plane refuses chats the agent is already in — the exact failure the
+    docstring warns about.
+    """
+    import gateway.channel_directory as cd
+    import gateway.relay.egress as eg
+
+    orig_dir = cd.load_directory
+    orig_env = os.environ.get("GATEWAY_RELAY_PLATFORMS")
+    try:
+        # Drive the REAL `relay_fronted_platforms()` through its env source —
+        # the `GATEWAY_RELAY_PLATFORMS` deploy stamp. My first version patched
+        # `_relay_fronted` itself, so the mutation that emptied it survived:
+        # the test was asserting against its own stub instead of production.
+        os.environ["GATEWAY_RELAY_PLATFORMS"] = "discord,slack"
+        cd.load_directory = lambda: {
+            "platforms": {
+                "discord": [{"id": "C-DISCORD"}],
+                "slack": [{"id": "C-SLACK"}],
+                "relay": [],
+            }
+        }
+        targets = eg.attested_relay_targets("relay")
+    finally:
+        cd.load_directory = orig_dir
+        if orig_env is None:
+            os.environ.pop("GATEWAY_RELAY_PLATFORMS", None)
+        else:
+            os.environ["GATEWAY_RELAY_PLATFORMS"] = orig_env
+
+    assert "C-DISCORD" in targets and "C-SLACK" in targets, (
+        "the relay plane must union the fronted platforms (M21)"
+    )
