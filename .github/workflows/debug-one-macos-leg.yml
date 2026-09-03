@@ -1,0 +1,41 @@
+name: Debug one macos dmg leg
+
+# One-off dispatch harness for debugging a single macos dmg leg: calls the
+# same reusable macos runner the matrix uses, with hand-picked inputs, so a
+# failing combo can be re-run with driver instrumentation without paying for
+# the whole matrix.
+
+on:
+  workflow_dispatch:
+    inputs:
+      update-method:
+        description: 'Update method for the leg.'
+        required: true
+        type: choice
+        default: hermes-desktop-app-update
+        options: [open-app-update, hermes-desktop-app-update, hermes-update, installer-script, installer-script+desktop]
+      install-ref:
+        description: 'Tag/branch/SHA to install first.'
+        required: false
+        type: string
+        default: v2026.7.7.2
+      dmg-url:
+        description: 'Bootstrap dmg URL.'
+        required: false
+        type: string
+        default: https://hermes-assets.nousresearch.com/Hermes-Setup.dmg
+
+permissions:
+  contents: read
+
+jobs:
+  leg:
+    uses: ./.github/workflows/install-e2e-macos-run.yml
+    with:
+      install-method: desktop-installer@latest
+      update-method: ${{ inputs.update-method }}
+      install-ref: ${{ inputs.install-ref }}
+      tag-has-desktop: true
+      leg-id: debug-macos-dmg
+      dmg-url: ${{ inputs.dmg-url }}
+      timeout-minutes: 60
