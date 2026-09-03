@@ -440,6 +440,9 @@ class TestWebServerEndpoints:
 
         legacy = sqlite3.connect(str(db_path))
         try:
+            # SQLite refuses DROP COLUMN while an index references the
+            # column; a pre-column legacy store has neither.
+            legacy.execute("DROP INDEX IF EXISTS idx_sessions_effective_activity")
             legacy.execute(f"ALTER TABLE sessions DROP COLUMN {missing_column}")
             legacy.commit()
         finally:
@@ -486,6 +489,7 @@ class TestWebServerEndpoints:
 
         legacy = sqlite3.connect(str(db_path))
         try:
+            legacy.execute("DROP INDEX IF EXISTS idx_sessions_effective_activity")
             legacy.execute("ALTER TABLE sessions DROP COLUMN last_activity_at")
             legacy.commit()
         finally:
@@ -2839,9 +2843,11 @@ class TestNewEndpoints:
             ),
         )
         # No xAI credentials → the Grok OAuth-backed row needs sign-in.
+        import hermes_cli.tools_config_post_setup as tools_config_post_setup
+
         monkeypatch.setattr(tools_config, "_xai_credentials_present", lambda: False)
         # Local TTS engines not installed → their rows need setup.
-        monkeypatch.setattr(tools_config, "_module_installed", lambda name: False)
+        monkeypatch.setattr(tools_config_post_setup, "_module_installed", lambda name: False)
         monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
 
         resp = self.client.get("/api/tools/toolsets/tts/config")

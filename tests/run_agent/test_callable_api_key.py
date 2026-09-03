@@ -254,9 +254,9 @@ class TestCliEnsureRuntimeCredentialsCallable:
         # module the method actually lives in now.
         src = (Path(__file__).resolve().parent.parent.parent
                / "hermes_cli" / "cli_agent_setup_mixin.py").read_text()
-        # The fix introduces ``_is_callable_provider`` which gates the
-        # string-only check so callable token providers survive.
-        assert "_is_callable_provider = callable(api_key)" in src, (
+        # The fix gates the string-only check on ``callable(api_key)`` so callable
+        # token providers survive.
+        assert "if not callable(api_key) and not (isinstance(api_key, str) and api_key):" in src, (
             "_ensure_runtime_credentials must preserve a callable "
             "api_key (Entra ID bearer provider). Without the guard, the "
             "callable is stringified to 'no-key-required' and Azure 401s."
@@ -282,13 +282,16 @@ class TestInlinedDisplayMasks:
         from pathlib import Path
         src = (Path(__file__).resolve().parent.parent.parent
                / "agent" / "agent_init.py").read_text()
-        assert src.count("is_token_provider(") >= 2, (
+        # Both banner paths route through the shared ``_print_key_banner`` helper,
+        # which owns the single ``is_token_provider`` guard.
+        assert src.count("_print_key_banner(") >= 3, (
             "agent/agent_init.py must guard BOTH masked-banner paths "
             "(chat_completions and anthropic_messages) with "
-            "is_token_provider()."
+            "is_token_provider() via _print_key_banner()."
         )
-        assert src.count('"🔑 Using credentials: Microsoft Entra ID"') >= 2, (
-            "agent/agent_init.py banner blocks should print a static "
+        assert "is_token_provider(" in src
+        assert '"🔑 Using credentials: Microsoft Entra ID"' in src, (
+            "agent/agent_init.py banner helper should print a static "
             "'Microsoft Entra ID' label for callable api_keys — no "
             "placeholder plumbing, no describe-mask fallback."
         )

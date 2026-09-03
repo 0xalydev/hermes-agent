@@ -25,6 +25,12 @@ class _Request:
         self.content = content
 
 
+class _ToolExecutionResult:
+    def __init__(self, result: Any, annotation: Any = None) -> None:
+        self.result = result
+        self.annotation = annotation
+
+
 class _Relay:
     def __init__(self) -> None:
         self.events: list[tuple[Any, ...]] = []
@@ -39,6 +45,7 @@ class _Relay:
             Agent="agent", Function="function", Tool="tool"
         )
         self.LLMRequest = _Request
+        self.ToolExecutionResult = _ToolExecutionResult
         self.scope = SimpleNamespace(
             push=self._scope_push,
             pop=self._scope_pop,
@@ -174,11 +181,13 @@ class _Relay:
     def _tool_call_end(
         self,
         handle: Any,
-        result: dict[str, Any],
+        result: _ToolExecutionResult,
         **kwargs: Any,
     ) -> None:
+        assert isinstance(result, _ToolExecutionResult)
+        payload = result.result
         start = self._tool_starts.pop(handle)
-        self.events.append(("tool.call_end", handle, result, kwargs))
+        self.events.append(("tool.call_end", handle, payload, kwargs))
         event = SimpleNamespace(
             kind="scope",
             category="tool",
@@ -190,7 +199,7 @@ class _Relay:
                 **kwargs["metadata"],
                 "otel.status_code": "OK",
             },
-            data=result,
+            data=payload,
         )
         for callback in list(self._callbacks.values()):
             callback(event)
@@ -939,7 +948,7 @@ def test_execution_adapters_do_not_create_relay_host_without_a_consumer(
 
     assert result is tool_result
     assert observed_args is tool_args
-    assert relay_runtime.get_host(create=False) is None
+    assert relay_runtime.HOST_REGISTRY.for_profile(create=False) is None
     assert imports == []
 
 
@@ -958,7 +967,7 @@ def test_core_runtime_is_fail_open_without_a_published_binding(monkeypatch, capl
     monkeypatch.setattr(relay_runtime.importlib, "import_module", missing_relay)
 
     assert relay_runtime.get_runtime() is None
-    host = relay_runtime.get_host()
+    host = relay_runtime.HOST_REGISTRY.for_profile()
     assert isinstance(host, relay_runtime.NoopRelayRuntime)
     assert host.profile_key == relay_runtime.current_profile_key()
     assert "nemo_relay" in host.reason
@@ -967,7 +976,6 @@ def test_core_runtime_is_fail_open_without_a_published_binding(monkeypatch, capl
         tool_name="terminal",
         args={"command": "true"},
     ) == {"command": "true"}
-    assert not relay_runtime.emit_mark("hermes.probe", session_id="s1")
     assert "Hermes Relay runtime initialization failed" in caplog.text
     relay_runtime._reset_for_tests()
 

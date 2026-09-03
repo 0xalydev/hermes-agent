@@ -317,7 +317,7 @@ class TestWindowsMsysPathResolution:
         """Windows-only: ``_resolve_path_for_task`` hands the translated path
         to ``ntpath``/``Path``, and only a real Windows ``Path`` renders
         ``C:\\Users\\...`` — faking ``sys.platform`` left PosixPath in place."""
-        import tools.file_tools as file_tools
+        import tools.file_tools_paths as file_tools
 
         monkeypatch.setattr(file_tools, "_uses_container_paths", lambda task_id="default": False)
 
@@ -332,7 +332,7 @@ class TestWindowsMsysPathResolution:
         Windows-only: the translation this guards against only happens when
         the host really is Windows, so the negative is only meaningful there.
         """
-        import tools.file_tools as file_tools
+        import tools.file_tools_paths as file_tools
 
         monkeypatch.setattr(file_tools, "_uses_container_paths", lambda task_id="default": True)
         monkeypatch.setattr(
@@ -436,8 +436,8 @@ class TestSensitivePathCheck:
 
     def test_hermes_config_blocked_for_write_file(self, tmp_path, monkeypatch):
         fake_config = tmp_path / "config.yaml"
-        monkeypatch.setattr("tools.file_tools._hermes_config_resolved", str(fake_config))
-        monkeypatch.setattr("tools.file_tools._hermes_config_resolved_loaded", True)
+        monkeypatch.setattr("tools.file_tools_write_guards._hermes_config_resolved", str(fake_config))
+        monkeypatch.setattr("tools.file_tools_write_guards._hermes_config_resolved_loaded", True)
 
         from tools.file_tools import write_file_tool
         result = json.loads(write_file_tool(str(fake_config), "approvals:\n  mode: off\n"))
@@ -446,8 +446,8 @@ class TestSensitivePathCheck:
 
     def test_hermes_config_blocked_via_tilde_path(self, tmp_path, monkeypatch):
         fake_config = tmp_path / "config.yaml"
-        monkeypatch.setattr("tools.file_tools._hermes_config_resolved", str(fake_config))
-        monkeypatch.setattr("tools.file_tools._hermes_config_resolved_loaded", True)
+        monkeypatch.setattr("tools.file_tools_write_guards._hermes_config_resolved", str(fake_config))
+        monkeypatch.setattr("tools.file_tools_write_guards._hermes_config_resolved_loaded", True)
 
         from tools.file_tools import write_file_tool
         result = json.loads(write_file_tool(str(fake_config), "approvals:\n  mode: off\n"))
@@ -456,8 +456,8 @@ class TestSensitivePathCheck:
 
 
     def test_system_path_still_blocked(self, monkeypatch):
-        monkeypatch.setattr("tools.file_tools._hermes_config_resolved", "/some/other/path")
-        monkeypatch.setattr("tools.file_tools._hermes_config_resolved_loaded", True)
+        monkeypatch.setattr("tools.file_tools_write_guards._hermes_config_resolved", "/some/other/path")
+        monkeypatch.setattr("tools.file_tools_write_guards._hermes_config_resolved_loaded", True)
 
         from tools.file_tools import write_file_tool
         result = json.loads(write_file_tool("/etc/passwd", "evil"))
@@ -480,8 +480,8 @@ class TestSensitivePathCheck:
 
     @patch("tools.file_tools._get_file_ops")
     def test_normal_file_not_blocked(self, mock_get, monkeypatch):
-        monkeypatch.setattr("tools.file_tools._hermes_config_resolved", "/home/user/.hermes/config.yaml")
-        monkeypatch.setattr("tools.file_tools._hermes_config_resolved_loaded", True)
+        monkeypatch.setattr("tools.file_tools_write_guards._hermes_config_resolved", "/home/user/.hermes/config.yaml")
+        monkeypatch.setattr("tools.file_tools_write_guards._hermes_config_resolved_loaded", True)
         mock_ops = MagicMock()
         result_obj = MagicMock()
         result_obj.to_dict.return_value = {"status": "ok", "path": "/tmp/other.txt", "bytes": 5}
@@ -1022,7 +1022,7 @@ class TestSSHConfigWriteGateSingleQuery:
     def test_gate_call_passes_single_query_deny_message(self):
         import inspect as _inspect
         import re as _re
-        import tools.file_tools as ft
+        import tools.file_tools_write_guards as ft
 
         src = _inspect.getsource(ft)
         idx = src.find("_approval._run_approval_gate(")

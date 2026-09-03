@@ -76,9 +76,14 @@ class TestCallSiteWiring:
     """
 
     def _read_auth_source(self):
+        # The Nous refresh sites live in auth_nous.py (split out of auth.py);
+        # read both so the guard tolerates relocation but still fires on deletion.
         import hermes_cli.auth as _auth_mod
+        import hermes_cli.auth_nous as _nous_mod
         from pathlib import Path
-        return Path(_auth_mod.__file__).read_text(encoding="utf-8")
+        return "".join(
+            Path(m.__file__).read_text(encoding="utf-8") for m in (_auth_mod, _nous_mod)
+        )
 
     def test_no_unvalidated_inference_base_url_assignments_remain(self):
         """No remaining ``_optional_base_url(...inference_base_url...)`` reads
@@ -96,13 +101,17 @@ class TestCallSiteWiring:
             )
 
     def test_validator_wired_at_all_known_call_sites(self):
-        """All 2 known auth.py NETWORK sites use the validator. If this count
-        drops, someone removed protection; if it grows, audit the new
-        site to be sure validation is appropriate."""
+        """All 2 known auth.py NETWORK refresh sites route the Portal-returned
+        inference URL through ``_healed_nous_inference_url`` (which applies the
+        validator and heals to the default). If this count drops, someone removed
+        protection; if it grows, audit the new site to be sure validation is
+        appropriate."""
         source = self._read_auth_source()
-        refresh_count = source.count(
-            '_validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))'
-        )
+        assert (
+            source.count('_validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))')
+            == 1
+        ), "the validator must be applied exactly once, inside _healed_nous_inference_url"
+        refresh_count = source.count("_healed_nous_inference_url(refreshed)")
         mint_count = source.count(
             '_validate_nous_inference_url_from_network(mint_payload.get("inference_base_url"))'
         )

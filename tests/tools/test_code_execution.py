@@ -441,7 +441,7 @@ class TestStubSchemaDrift(unittest.TestCase):
         import tools.file_tools  # noqa: F401 - registers read_file, write_file, patch, search_files
         import tools.web_tools  # noqa: F401 - registers web_search, web_extract
 
-        for tool_name, (func_name, sig, doc, args_expr) in _TOOL_STUBS.items():
+        for tool_name, (sig, doc, args_expr) in _TOOL_STUBS.items():
             entry = registry._tools.get(tool_name)
             if not entry:
                 # Tool might not be registered yet (e.g., terminal uses a
@@ -475,10 +475,11 @@ class TestStubSchemaDrift(unittest.TestCase):
         compile(src, "hermes_tools.py", "exec")
 
         # Verify specific parameter signatures are in the source
-        # search_files must accept context, offset, output_mode
+        # search_files must accept its pagination, output, and ordering controls
         self.assertIn("context", src)
         self.assertIn("offset", src)
         self.assertIn("output_mode", src)
+        self.assertIn("order", src)
 
         # patch must accept mode and patch params
         self.assertIn("mode", src)

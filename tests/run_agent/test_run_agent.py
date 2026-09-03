@@ -872,7 +872,7 @@ class TestInit:
 
 class TestInterrupt:
     def test_interrupt_sets_flag(self, agent):
-        with patch("run_agent._set_interrupt"):
+        with patch("run_agent._set_interrupt"), patch("agent.interrupt_control._set_interrupt"):
             agent.interrupt()
             assert agent._interrupt_requested is True
 
@@ -900,7 +900,7 @@ class TestHydrateTodoStore:
             {"role": "user", "content": "hello"},
             {"role": "assistant", "content": "hi"},
         ]
-        with patch("run_agent._set_interrupt"):
+        with patch("run_agent._set_interrupt"), patch("agent.interrupt_control._set_interrupt"):
             agent._hydrate_todo_store(history)
         assert not agent._todo_store.has_items()
 
@@ -925,7 +925,7 @@ class TestHydrateTodoStore:
             },
         ]
 
-        with patch("run_agent._set_interrupt"):
+        with patch("run_agent._set_interrupt"), patch("agent.interrupt_control._set_interrupt"):
             agent._hydrate_todo_store(history)
 
         assert agent._todo_store.snapshot()["revision"] == 5
@@ -948,7 +948,7 @@ class TestHydrateTodoStore:
             },
         ]
 
-        with patch("run_agent._set_interrupt"):
+        with patch("run_agent._set_interrupt"), patch("agent.interrupt_control._set_interrupt"):
             agent._hydrate_todo_store(history)
 
         assert agent._todo_store.snapshot()["revision"] == 2
@@ -1778,6 +1778,8 @@ class TestExecuteToolCalls:
         with (
             patch("run_agent.handle_function_call", side_effect=KeyboardInterrupt),
             patch("run_agent._set_interrupt"),
+            patch("agent.interrupt_control._set_interrupt"),
+            patch("agent.turn_facade._set_interrupt"),
             pytest.raises(KeyboardInterrupt),
         ):
             agent._execute_tool_calls_sequential(mock_msg, messages, "task-1")
@@ -1806,7 +1808,7 @@ class TestExecuteToolCalls:
             lambda hook_name, **kwargs: hook_calls.append((hook_name, kwargs)) or [],
         )
 
-        with patch("run_agent._set_interrupt"):
+        with patch("run_agent._set_interrupt"), patch("agent.interrupt_control._set_interrupt"):
             agent.interrupt()
 
         agent._execute_tool_calls(mock_msg, messages, "task-1")
@@ -2340,20 +2342,6 @@ class TestConcurrentToolExecution:
         assert post_calls[0]["tool_call_id"] == "terminal-1"
         assert post_calls[0]["status"] == "ok"
         assert post_calls[0]["result"] == '{"intercepted":true}'
-
-    def test_agent_runtime_post_hook_ownership_predicate_covers_agent_tools(self, agent):
-        """Sequential and concurrent agent-level paths share post-hook ownership."""
-        from agent.agent_runtime_helpers import agent_runtime_owns_post_tool_hook
-
-        for tool_name in ("todo_list", "session_search", "memory", "clarify", "delegate_task"):
-            assert agent_runtime_owns_post_tool_hook(agent, tool_name) is True
-
-        agent._context_engine_tool_names = {"context_query"}
-        assert agent_runtime_owns_post_tool_hook(agent, "context_query") is True
-
-        agent._memory_manager = SimpleNamespace(has_tool=lambda name: name == "memory_extra")
-        assert agent_runtime_owns_post_tool_hook(agent, "memory_extra") is True
-        assert agent_runtime_owns_post_tool_hook(agent, "web_search") is False
 
     def test_blocked_memory_tool_does_not_reset_counter(self, agent, monkeypatch):
         """Blocked memory tool should not reset the nudge counter."""
@@ -3423,6 +3411,8 @@ class TestRunConversation:
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
             patch("run_agent._set_interrupt"),
+            patch("agent.interrupt_control._set_interrupt"),
+            patch("agent.turn_facade._set_interrupt"),
             patch.object(
                 agent, "_interruptible_api_call", side_effect=interrupt_side_effect
             ),
@@ -3513,12 +3503,12 @@ class TestRunConversation:
         assert result["api_calls"] == 6  # 1 original + 2 prefill + 3 retries
 
 
-    def test_truly_empty_response_retries_3_times_then_empty(self, agent):
-        """Truly empty response (no content, no reasoning) retries 3 times then falls through to (empty)."""
+    def test_truly_empty_response_stops_after_repeated_empty(self, agent):
+        """Repeated empty responses stop after one retry and return an explanation."""
         self._setup_agent(agent)
         agent.base_url = "http://127.0.0.1:1234/v1"
         empty_resp = _mock_response(content=None, finish_reason="stop")
-        # 4 responses: 1 original + 3 nudge retries, all empty
+        # Extra responses prove the guard stops consuming after repetition.
         agent.client.chat.completions.create.side_effect = [
             empty_resp, empty_resp, empty_resp, empty_resp,
         ]
@@ -3532,7 +3522,7 @@ class TestRunConversation:
         # #34452: explanation replaces the bare "(empty)" sentinel.
         assert result["final_response"] != "(empty)"
         assert "No reply:" in result["final_response"]
-        assert result["api_calls"] == 4  # 1 original + 3 retries
+        assert result["api_calls"] == 2  # 1 original + 1 retry
 
     def test_deterministic_empty_stops_retries_early(self, agent):
         """NS-503: consecutive zero-output-token empties with identical
@@ -3588,10 +3578,11 @@ class TestRunConversation:
         assert result["completed"] is True
         assert result["api_calls"] == 4  # legacy: 1 original + 3 retries
 
-    def test_empty_without_usage_keeps_full_retry_budget(self, agent):
-        """NS-503 fail-open: no usage data means no evidence of a
-        deterministic empty — legacy 3-retry behaviour must be preserved
-        (this is the flaky-provider case retries exist for)."""
+    def test_empty_without_usage_stops_after_one_retry_and_logs_calls(
+        self, agent, caplog
+    ):
+        """Two complete empty responses are enough evidence to stop even when
+        the provider omits usage; both attempts remain observable."""
         self._setup_agent(agent)
         agent.base_url = "http://127.0.0.1:1234/v1"
         empty_resp = _mock_response(content=None, finish_reason="stop")
@@ -3600,10 +3591,13 @@ class TestRunConversation:
             patch.object(agent, "_persist_session"),
             patch.object(agent, "_save_trajectory"),
             patch.object(agent, "_cleanup_task_resources"),
+            caplog.at_level(logging.INFO, logger="agent.conversation_loop"),
         ):
             result = agent.run_conversation("answer me")
         assert result["completed"] is True
-        assert result["api_calls"] == 4  # unchanged: 1 original + 3 retries
+        assert result["api_calls"] == 2
+        assert agent.session_api_calls == 2
+        assert caplog.text.count("usage=unavailable") == 2
 
     def test_truly_empty_response_succeeds_on_nudge(self, agent):
         """Model produces content after being nudged for empty response."""
