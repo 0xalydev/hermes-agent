@@ -92,6 +92,28 @@ describe('PreviewBrowserBar', () => {
     expect(address(rendered)).toBeTruthy()
   })
 
+  it('renders the Annotate control and a blue Commenting status while the mode is on', () => {
+    const onToggleAnnotate = vi.fn()
+    const rendered = render(<PreviewBrowserBar {...baseProps} annotateMode onToggleAnnotate={onToggleAnnotate} />)
+
+    const toggle = rendered.getByRole('button', { name: 'Stop annotating' })
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(toggle)
+    expect(onToggleAnnotate).toHaveBeenCalledOnce()
+    expect(rendered.getByText('Commenting').getAttribute('data-annotate-status')).toBe('commenting')
+  })
+
+  it('flushes stacked comments from the bar without implying a send on save', () => {
+    const onFlushComments = vi.fn()
+
+    const rendered = render(
+      <PreviewBrowserBar {...baseProps} commentCount={2} onFlushComments={onFlushComments} onToggleAnnotate={vi.fn()} />
+    )
+
+    fireEvent.click(rendered.getByRole('button', { name: 'Add 2 comments' }))
+    expect(onFlushComments).toHaveBeenCalledOnce()
+  })
+
   it('disables back and forward when there is no history', () => {
     const rendered = render(<PreviewBrowserBar {...baseProps} />)
 
@@ -320,9 +342,8 @@ describe('PreviewBrowserBar', () => {
 
   it('shows Open in browser when only the external handler is provided', () => {
     const onOpenExternal = vi.fn()
-    const rendered = render(
-      <PreviewBrowserBar {...baseProps} onOpenExternal={onOpenExternal} onPopOut={undefined} />
-    )
+
+    const rendered = render(<PreviewBrowserBar {...baseProps} onOpenExternal={onOpenExternal} onPopOut={undefined} />)
 
     expect(rendered.getByRole('button', { name: 'Open in browser' })).toBeTruthy()
     expect(rendered.queryByRole('button', { name: 'Pop out' })).toBeNull()

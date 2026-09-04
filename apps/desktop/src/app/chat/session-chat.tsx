@@ -99,7 +99,13 @@ export function SessionChat({
     [ownerRoute, requestGateway]
   )
 
-  const { selectModel } = useModelControls({ queryClient, requestGateway: requestOwnGateway })
+  const { selectModel } = useModelControls({
+    cacheOwnerConnectionId: ownerRoute?.connectionId || undefined,
+    cacheProfile: ownerRoute?.targetProfile || ownerRoute?.profile || undefined,
+    queryClient,
+    requestGateway: requestOwnGateway
+  })
+
   const activeGatewayProfile = useStore($activeGatewayProfile)
   const cwd = useStore(view.$cwd)
   const gatewayOpen = useStore($gatewayState) === 'open'
@@ -172,13 +178,22 @@ export function SessionChat({
     () =>
       modelMenu && gatewayOpen ? (
         <ModelMenuPanel
-          gateway={gateway || undefined}
           onSelectModel={selectModel}
-          profile={ownerRoute?.profile || activeGatewayProfile}
+          ownerConnectionId={ownerRoute?.connectionId || undefined}
+          profile={ownerRoute?.targetProfile || ownerRoute?.profile || activeGatewayProfile}
           requestGateway={requestOwnGateway}
         />
       ) : null,
-    [activeGatewayProfile, gateway, gatewayOpen, modelMenu, ownerRoute?.profile, requestOwnGateway, selectModel]
+    [
+      activeGatewayProfile,
+      gatewayOpen,
+      modelMenu,
+      ownerRoute?.connectionId,
+      ownerRoute?.profile,
+      ownerRoute?.targetProfile,
+      requestOwnGateway,
+      selectModel
+    ]
   )
 
   return (
@@ -187,6 +202,8 @@ export function SessionChat({
         <ChatView
           gateway={gateway}
           modelMenuContent={modelMenuContent}
+          modelOptionsOwnerConnectionId={ownerRoute?.connectionId || undefined}
+          modelOptionsProfile={ownerRoute?.targetProfile || ownerRoute?.profile || activeGatewayProfile}
           onAddContextRef={addContextRefAttachment}
           onAddUrl={onAddUrl}
           onAttachDroppedItems={composer.attachDroppedItems}
@@ -209,6 +226,7 @@ export function SessionChat({
           onThreadMessagesChange={actions.handleThreadMessagesChange}
           onToggleSelectedPin={noop}
           onTranscribeAudio={chatTranscribeAudio}
+          requestModelOptionsForOwner={requestOwnGateway}
         />
       </ComposerScopeProvider>
     </SessionViewProvider>
