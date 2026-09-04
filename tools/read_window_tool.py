@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """Read which OS window sits directly underneath the Hermes desktop window.
 
-The window list lives with the OS, so this tool round-trips through the
-gateway's blocking-prompt bridge — the same one `read_terminal` uses:
-tui_gateway emits ``window.read.request``, the desktop renderer asks its main
-process (which owns native window enumeration) and answers with
-``window.read.respond``. This module is just schema + a thin dispatcher over
-the platform-injected callback.
+The window list lives with the OS, so this round-trips through the gateway's
+blocking-prompt bridge like `read_terminal`: ``window.read.request`` -> the renderer's
+main process (native window enumeration) -> ``window.read.respond``.
 """
 
 import json
 import socket
 from typing import Callable, Optional
 
-from tools.registry import registry, tool_error
+from tools.read_terminal_tool import read_pane
+from tools.registry import registry
 
 
 def _agent_host(payload: dict) -> Optional[dict]:
@@ -50,59 +48,45 @@ def _agent_host(payload: dict) -> Optional[dict]:
 
 def read_window_below_tool(callback: Optional[Callable] = None) -> str:
     """Return the window underneath the Hermes window as a JSON string."""
-    if callback is None:
-        return tool_error(
-            "read_window_below is only available in the Hermes desktop app."
-        )
-
+    result = read_pane(callback, (), (
+        "read_window_below is only available in the Hermes desktop app.",
+        "",
+        "Failed to read the window below: ",
+        "Could not determine the window underneath (the desktop app did "
+        "not answer, or window enumeration is unavailable on this system).",
+    ))
     try:
-        raw = callback()
-    except Exception as exc:
-        return tool_error(f"Failed to read the window below: {exc}")
-
-    if not raw:
-        return tool_error(
-            "Could not determine the window underneath (the desktop app did "
-            "not answer, or window enumeration is unavailable on this system)."
-        )
-
-    # Desktop answers with a JSON object; pass it through, else wrap the raw text.
-    try:
-        payload = json.loads(raw)
+        payload = json.loads(result)
     except (TypeError, ValueError):
-        return json.dumps({"text": str(raw)}, ensure_ascii=False)
+        return result
 
-    if isinstance(payload, dict):
+    if isinstance(payload, dict) and "agent_on_this_machine" in payload:
         agent_host = _agent_host(payload)
         payload.pop("agent_on_this_machine", None)
 
         if agent_host:
             payload["agent_host"] = agent_host
 
-    return json.dumps(payload, ensure_ascii=False)
+        return json.dumps(payload, ensure_ascii=False)
+
+    return result
 
 
 READ_WINDOW_BELOW_SCHEMA = {
     "name": "read_window_below",
     "description": (
-        "Identify the application window directly underneath (behind) the "
-        "Hermes desktop window — what the user is working in behind this app. "
-        "Returns JSON: {window: {app, title, bounds{x,y,width,height}, id}, "
-        "frontmost: {app, title}, platform}. An `agent_host` key appears only "
-        "when you are running on a different machine than the user's screen "
-        "— its `note` says what you can and cannot do with the window, so "
-        "relay it rather than trying anyway. `title` may be empty when the OS "
-        "withholds window titles (e.g. macOS without the Screen Recording "
-        "permission — never prompted for, noted in `note`). Other Hermes "
-        "windows are skipped: the nearest non-Hermes window is reported. "
-        "Returns {error, platform} instead where the OS cannot enumerate "
-        "windows at all (e.g. a Wayland session); `error` says what would fix "
-        "it, so relay it rather than retrying. "
-        "Metadata only; this never captures pixels or content of other windows."
+        "Identify the app window directly behind the Hermes desktop window "
+        "(what the user is working in). JSON: {window: {app, title, bounds, "
+        "id}, frontmost, platform}. An `agent_host` key appears only when you "
+        "are running on a different machine than the user's screen — its "
+        "`note` says what you can and cannot do with the window, so relay it "
+        "rather than trying anyway. title may be empty when the OS withholds "
+        "it (noted in `note`); where windows cannot be enumerated at all, "
+        "{error, platform} says what would fix it — relay that instead of "
+        "retrying. Metadata only; never captures pixels."
     ),
     "parameters": {
-        "type": "object",
-        "properties": {},
+        "type": "object", "properties": {}
     },
 }
 
@@ -114,3 +98,26 @@ registry.register(
     handler=lambda args, **kw: read_window_below_tool(callback=kw.get("callback")),
     emoji="🪟",
 )
+
+
+# ---- BEGIN PLUGIN-COMPAT (revert-scheduled; see COMPAT_MANIFEST.md) ----
+# Names external plugins imported from this module before the Sep 2026 decomposition.
+# Internal code MUST NOT use these (scripts/check_compat_pointers.py fails CI if it does).
+# The whole block is removed by reverting the commit that added it.
+import json  # noqa: F401,E402
+
+
+_PLUGIN_COMPAT_LAZY = {
+    'tool_error': ('tools.registry', 'tool_error'),
+}
+
+
+def __getattr__(name):  # PEP 562 — lazy so no import cycles
+    target = _PLUGIN_COMPAT_LAZY.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+    from hermes_cli.plugin_compat import warn_once
+    warn_once(__name__, name, *target)
+    return getattr(importlib.import_module(target[0]), target[1])
+# ---- END PLUGIN-COMPAT ----
