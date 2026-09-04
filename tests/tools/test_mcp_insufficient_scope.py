@@ -19,7 +19,7 @@ import pytest
 
 pytest.importorskip("mcp.types")
 
-from tools.mcp_tool import (  # noqa: E402  -- after importorskip
+from tools.mcp_tool_handlers import (  # noqa: E402  -- after importorskip
     _handle_auth_error_and_retry,
     _insufficient_scope,
 )
@@ -80,8 +80,8 @@ class TestAnsweringIt:
     def test_an_ordinary_auth_error_still_takes_the_refresh_path(self):
         """The scope branch must not swallow the case it sits in front of."""
         with (
-            patch("tools.mcp_tool._is_auth_error", return_value=True),
-            patch("tools.mcp_tool._run_on_mcp_loop", return_value=False) as recover,
+            patch("tools.mcp_tool_handlers._is_auth_error", return_value=True),
+            patch("tools.mcp_tool_loop._run_on_mcp_loop", return_value=False) as recover,
             patch("tools.mcp_tool._bump_server_error"),
         ):
             result = _handle_auth_error_and_retry(
