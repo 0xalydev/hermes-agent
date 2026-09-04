@@ -22,10 +22,10 @@ naming the missing provider.
 from __future__ import annotations
 
 import logging
-import threading
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from agent.computer_use_provider import ComputerUseProvider
+from agent.provider_registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,10 @@ HOST_PROVIDER_NAME = "local"
 #: lands here too, so the default is the behavior that predates the registry.
 _HOST_ALIASES = {"", "local", "cua", "cua-driver", "builtin", "host"}
 
-_providers: Dict[str, ComputerUseProvider] = {}
-_lock = threading.Lock()
+_registry: ProviderRegistry[ComputerUseProvider] = ProviderRegistry(
+    label="Computer use", provider_cls=ComputerUseProvider, logger=logger,
+)
+_registry.export(globals())
 
 
 class UnknownComputerUseProvider(LookupError):
@@ -54,68 +56,6 @@ class UnknownComputerUseProvider(LookupError):
         )
 
 
-def register_provider(provider: ComputerUseProvider) -> None:
-    """Register a provider. Re-registering the same name replaces it."""
-    if not isinstance(provider, ComputerUseProvider):
-        raise TypeError(
-            "register_provider() expects a ComputerUseProvider instance, "
-            f"got {type(provider).__name__}"
-        )
-
-    name = provider.name
-
-    if not isinstance(name, str) or not name.strip():
-        raise ValueError("Computer use provider .name must be a non-empty string")
-
-    with _lock:
-        existing = _providers.get(name)
-        _providers[name] = provider
-
-    if existing is not None:
-        logger.debug("Computer use provider %r replaced %s", name, type(existing).__name__)
-
-
-def list_providers() -> List[ComputerUseProvider]:
-    """Every registered provider, sorted by name."""
-    with _lock:
-        return sorted(_providers.values(), key=lambda p: p.name)
-
-
-def get_provider(name: str) -> Optional[ComputerUseProvider]:
-    """The provider registered under *name*, or None."""
-    if not isinstance(name, str):
-        return None
-
-    with _lock:
-        return _providers.get(name.strip())
-
-
-def snapshot_registration(name: str) -> Optional[ComputerUseProvider]:
-    """What is registered under *name* right now, for unload restore."""
-    return get_provider(name)
-
-
-def restore_registration(
-    name: str,
-    current: ComputerUseProvider,
-    previous: Optional[ComputerUseProvider],
-) -> None:
-    """Undo one registration when its plugin unloads.
-
-    A no-op unless *current* is still the live entry: a third plugin that
-    registered the same name afterwards owns it now, and rolling back to our
-    predecessor would silently take its provider away.
-    """
-    with _lock:
-        if _providers.get(name) is not current:
-            return
-
-        if previous is None:
-            _providers.pop(name, None)
-        else:
-            _providers[name] = previous
-
-
 def resolve_provider(configured: Optional[str]) -> ComputerUseProvider:
     """Return the provider that should service calls.
 
@@ -129,15 +69,9 @@ def resolve_provider(configured: Optional[str]) -> ComputerUseProvider:
     if name in _HOST_ALIASES:
         name = HOST_PROVIDER_NAME
 
-    provider = get_provider(name)
+    provider = _registry.get_provider(name)
 
     if provider is None:
-        raise UnknownComputerUseProvider(name, [p.name for p in list_providers()])
+        raise UnknownComputerUseProvider(name, [p.name for p in _registry.list_providers()])
 
     return provider
-
-
-def _reset_for_tests() -> None:
-    """Clear the registry. **Test-only.**"""
-    with _lock:
-        _providers.clear()
