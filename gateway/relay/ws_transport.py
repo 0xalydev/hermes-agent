@@ -687,10 +687,13 @@ class WebSocketRelayTransport:
                 except (asyncio.TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001 - best-effort teardown
                     pass
                 self._supervisor = None
-            if self._auth_retry is not None:
-                self._auth_retry.cancel()
+            # getattr: several teardown tests build the transport via
+            # object.__new__ without __init__, so this attribute may be absent.
+            auth_retry = getattr(self, "_auth_retry", None)
+            if auth_retry is not None:
+                auth_retry.cancel()
                 try:
-                    await asyncio.wait_for(self._auth_retry, timeout=_TEARDOWN_AWAIT_TIMEOUT_S)
+                    await asyncio.wait_for(auth_retry, timeout=_TEARDOWN_AWAIT_TIMEOUT_S)
                 except (asyncio.TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001 - best-effort teardown
                     pass
                 self._auth_retry = None
