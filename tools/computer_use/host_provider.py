@@ -33,7 +33,7 @@ class HostCuaProvider(ComputerUseProvider):
         return "This machine (cua-driver)"
 
     def is_available(self) -> bool:
-        from tools.computer_use.cua_backend import cua_driver_binary_available
+        from tools.computer_use.cua_backend_driver import cua_driver_binary_available
 
         return cua_driver_binary_available()
 
