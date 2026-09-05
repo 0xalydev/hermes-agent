@@ -2058,99 +2058,48 @@ def _build_primary_runtime_snapshot(agent, api_mode) -> Dict[str, Any]:
     return rt
 
 
-def _is_custom_provider_name(provider: Optional[str]) -> bool:
-    """Return True if provider represents a custom OpenAI-compatible endpoint."""
-    p = (provider or "").strip().lower()
-    return p == "custom" or p.startswith("custom:")
-
-
-def _entry_targets_endpoint(
-    entry: Dict[str, Any], target_provider: str, target_base_url: str = ""
-) -> bool:
-    """Check if a fallback chain entry targets the specified provider/endpoint.
-
-    For standard registry providers, matches by provider identifier.
-    For custom providers, bare 'custom' is a category rather than a concrete host, so matching
-    requires identical normalized base_url endpoints (or identical custom alias names)
-    to prevent false-positive pruning of distinct local/proxy fallback backends (issue #103788).
-    """
-    if not isinstance(entry, dict):
-        return False
-    entry_prov = (entry.get("provider") or "").strip().lower()
-    target_prov = (target_provider or "").strip().lower()
-    if not entry_prov or not target_prov:
-        return False
-
-    entry_is_custom = _is_custom_provider_name(entry_prov)
-    target_is_custom = _is_custom_provider_name(target_prov)
-
-    if entry_is_custom != target_is_custom:
-        return False
-
-    if not entry_is_custom:
-        return entry_prov == target_prov
-
-    from hermes_cli.route_identity import normalize_route_base_url
-
-    entry_url = normalize_route_base_url(entry.get("base_url") or "").lower()
-    target_url = normalize_route_base_url(target_base_url or "").lower()
-
-    if entry_url and target_url:
-        return entry_url == target_url
-
-    if entry_prov != "custom" and entry_prov == target_prov:
-        return True
-
-    if entry_prov == "custom" and target_prov == "custom" and not entry_url and not target_url:
-        return True
-
-    return False
-
-
 def _finish_switch(
     agent,
+    old_provider: str,
+    old_model: str,
+    old_base_url: str,
     new_provider: str,
-    old_norm: str,
-    new_norm: str,
-    old_base_url: str = "",
-    new_base_url: str = "",
 ) -> None:
     """Post-switch bookkeeping: fallback reset/prune, request_overrides, billing route."""
     agent._fallback_activated = False
     agent._provider_fallback_active = False
     agent._provider_fallback_route = None
     agent._fallback_index = 0
-    # On a deliberate provider swap, prune fallback entries targeting the OLD or NEW primary;
+    # On a deliberate provider swap, prune fallback entries targeting the OLD or NEW endpoint;
     # otherwise a failed turn silently re-activates the provider the user just rejected.
     fallback_chain = list(getattr(agent, "_fallback_chain", []) or [])
-    effective_new_base_url = new_base_url or getattr(agent, "base_url", "") or ""
+    old_norm = (old_provider or "").strip().lower()
+    new_norm = (new_provider or "").strip().lower()
+    if old_norm and new_norm and old_norm != new_norm:
+        from agent.backend_identity import BackendIdentity, FailureScope, should_skip_candidate
 
-    should_prune = False
-    if old_norm and new_norm:
-        if old_norm != new_norm:
-            should_prune = True
-        elif (
-            _is_custom_provider_name(old_norm)
-            and old_base_url
-            and effective_new_base_url
-        ):
-            from hermes_cli.route_identity import normalize_route_base_url
+        old_identity = BackendIdentity.build(
+            provider=old_provider, model=old_model, base_url=old_base_url
+        )
+        new_identity = BackendIdentity.build(
+            provider=new_provider,
+            model=getattr(agent, "model", ""),
+            base_url=getattr(agent, "base_url", ""),
+        )
 
-            should_prune = (
-                normalize_route_base_url(old_base_url).lower()
-                != normalize_route_base_url(effective_new_base_url).lower()
+        def targets_switched_endpoint(entry):
+            candidate = BackendIdentity.build(
+                provider=entry.get("provider"),
+                model=entry.get("model"),
+                base_url=entry.get("base_url"),
+            )
+            return (
+                should_skip_candidate(candidate, old_identity, FailureScope.ENDPOINT)
+                or should_skip_candidate(candidate, new_identity, FailureScope.ENDPOINT)
             )
 
-    if should_prune:
         pre_prune_len = len(fallback_chain)
-        fallback_chain = [
-            entry
-            for entry in fallback_chain
-            if not (
-                _entry_targets_endpoint(entry, old_norm, old_base_url)
-                or _entry_targets_endpoint(entry, new_norm, effective_new_base_url)
-            )
-        ]
+        fallback_chain = [entry for entry in fallback_chain if not targets_switched_endpoint(entry)]
         if pre_prune_len > 0 and not fallback_chain:
             logger.warning(
                 "Model switch pruned all %d fallback chain entries; agent has no active fallback chain",
@@ -2242,14 +2191,7 @@ def switch_model(
     from agent.chat_completion_helpers import _reset_stale_streak
     _reset_stale_streak(agent)
     agent._primary_runtime = _build_primary_runtime_snapshot(agent, api_mode)
-    _finish_switch(
-        agent,
-        new_provider,
-        old_norm,
-        new_norm,
-        old_base_url=old_base_url,
-        new_base_url=getattr(agent, "base_url", "") or base_url,
-    )
+    _finish_switch(agent, old_provider, old_model, old_base_url, new_provider)
     logger.info(
         "Model switched in-place: %s (%s) -> %s (%s)",
         old_model, old_provider, new_model, new_provider,

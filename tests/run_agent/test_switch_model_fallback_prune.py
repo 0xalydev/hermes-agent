@@ -217,30 +217,43 @@ def test_switch_logs_warning_when_prune_empties_chain(caplog):
     assert any("pruned all 1 fallback chain entries" in r.message for r in caplog.records)
 
 
-def test_entry_targets_endpoint_matching():
-    """Test endpoint matching semantics across standard and custom providers."""
-    from agent.agent_runtime_helpers import _entry_targets_endpoint
+def test_backend_identity_endpoint_matching():
+    """Test endpoint matching semantics across standard and custom providers using BackendIdentity."""
+    from agent.backend_identity import BackendIdentity, FailureScope, should_skip_candidate
+
+    def targets(entry, target_provider, target_base_url=""):
+        cand = BackendIdentity.build(
+            provider=entry.get("provider"),
+            model=entry.get("model"),
+            base_url=entry.get("base_url"),
+        )
+        target = BackendIdentity.build(
+            provider=target_provider,
+            base_url=target_base_url,
+        )
+        return should_skip_candidate(cand, target, FailureScope.ENDPOINT)
 
     # Standard registry providers match by provider name
-    assert _entry_targets_endpoint({"provider": "openrouter"}, "openrouter")
-    assert not _entry_targets_endpoint({"provider": "openrouter"}, "anthropic")
-    assert not _entry_targets_endpoint({"provider": "custom"}, "openrouter")
-    assert not _entry_targets_endpoint({"provider": "openrouter"}, "custom")
+    assert targets({"provider": "openrouter"}, "openrouter")
+    assert not targets({"provider": "openrouter"}, "anthropic")
+    assert not targets({"provider": "custom"}, "openrouter")
+    assert not targets({"provider": "openrouter"}, "custom")
 
     # Custom providers match by normalized base_url
-    assert _entry_targets_endpoint(
+    assert targets(
         {"provider": "custom", "base_url": "http://127.0.0.1:8001/v1/"},
         "custom",
         "http://127.0.0.1:8001/v1",
     )
-    assert not _entry_targets_endpoint(
+    assert not targets(
         {"provider": "custom", "base_url": "http://127.0.0.1:8001/v1"},
         "custom",
         "http://127.0.0.1:8002/v1",
     )
 
     # Named custom provider matches identical name
-    assert _entry_targets_endpoint({"provider": "custom:foo"}, "custom:foo")
-    assert not _entry_targets_endpoint({"provider": "custom:foo"}, "custom:bar")
+    assert targets({"provider": "custom:foo"}, "custom:foo")
+    assert not targets({"provider": "custom:foo"}, "custom:bar")
+
 
 
