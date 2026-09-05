@@ -9,6 +9,7 @@ mutate ``agent`` / ``messages`` / ``api_messages`` in place. Logger name stays
 
 from __future__ import annotations
 
+from contextlib import suppress
 import logging
 import re
 import time
@@ -30,6 +31,26 @@ from agent.turn_retry_state import TurnRetryState
 from utils import base_url_host_matches
 
 logger = logging.getLogger("agent.conversation_loop")
+
+
+def emit_terminal_stream_response(
+    agent: Any, final_response: str, *, safe_print: bool = True
+) -> None:
+    """Emit a synthesized/recovered response to SSE/TUI streams before loop exit.
+
+    Prevents silent stream closes on abnormal exits (guardrail halt, partial stream recovery,
+    prior turn content fallback) where the client would otherwise receive zero content delta
+    and render an empty bubble (#31448, #31449).
+    """
+    if not final_response:
+        return
+    if safe_print and hasattr(agent, "_safe_print"):
+        with suppress(Exception):
+            agent._safe_print(f"\n{final_response}\n")
+    if getattr(agent, "stream_delta_callback", None):
+        with suppress(Exception):
+            agent.stream_delta_callback(final_response)
+            agent.stream_delta_callback(None)
 
 
 def _vlines(agent: Any, *lines: str) -> None:
