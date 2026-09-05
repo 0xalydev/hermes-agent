@@ -768,14 +768,19 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
 
 
 def export_threejs_preview(mesh: Mesh, glb_path: Path, output_path: Path) -> Path:
+    import html
+    import json
+
     html_path = output_path.with_suffix(".html")
     rel_glb = os.path.relpath(glb_path, html_path.parent).replace("\\", "/")
+    escaped_name = html.escape(mesh.name)
+    json_rel_glb = json.dumps(rel_glb)
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Preview - {mesh.name}</title>
+  <title>3D Preview - {escaped_name}</title>
   <style>
     body {{ margin: 0; overflow: hidden; background: #121418; font-family: sans-serif; }}
     #info {{ position: absolute; top: 12px; left: 16px; color: #e0e0e0; z-index: 10; pointer-events: none; }}
@@ -794,7 +799,7 @@ def export_threejs_preview(mesh: Mesh, glb_path: Path, output_path: Path) -> Pat
 </head>
 <body>
   <div id="info">
-    <h1>{mesh.name}</h1>
+    <h1>{escaped_name}</h1>
     <p>Vertices: {len(mesh.vertices)} | Triangles: {len(mesh.indices) // 3}</p>
   </div>
   <div id="controls-hint">Left click + drag to orbit | Right click to pan | Scroll to zoom</div>
@@ -836,7 +841,7 @@ def export_threejs_preview(mesh: Mesh, glb_path: Path, output_path: Path) -> Pat
     scene.add(grid);
 
     const loader = new GLTFLoader();
-    loader.load('{rel_glb}', (gltf) => {{
+    loader.load({json_rel_glb}, (gltf) => {{
       const model = gltf.scene;
       scene.add(model);
 
