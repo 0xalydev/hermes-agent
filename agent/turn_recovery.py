@@ -45,12 +45,16 @@ def emit_terminal_stream_response(
     if not final_response:
         return
     if safe_print and hasattr(agent, "_safe_print"):
-        with suppress(Exception):
+        try:
             agent._safe_print(f"\n{final_response}\n")
+        except Exception as exc:
+            logger.debug("emit_terminal_stream_response safe_print failed: %s", exc)
     if getattr(agent, "stream_delta_callback", None):
-        with suppress(Exception):
+        try:
             agent.stream_delta_callback(final_response)
             agent.stream_delta_callback(None)
+        except Exception as exc:
+            logger.debug("emit_terminal_stream_response callback failed: %s", exc)
 
 
 def _vlines(agent: Any, *lines: str) -> None:
