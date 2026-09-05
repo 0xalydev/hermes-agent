@@ -3064,11 +3064,14 @@ class _StreamingCall:
                     else:
                         has_truncated_tool_args = True
                 else:
-                    if is_repetition_dominated(arguments):
+                    # Parseable JSON does not prove that a dropped stream completed its
+                    # action. Treat degenerate argument loops without a finish_reason as
+                    # dropped tool calls rather than executing corrupt repetitive payloads.
+                    # Confirmed completions (e.g. finish_reason='stop') keep valid repetitive data (#103612).
+                    if finish_reason is None and is_repetition_dominated(arguments):
                         logger.warning(
-                            "Tool call '%s' arguments are repetition-dominated "
-                            "(degenerate model output); treating as a dropped "
-                            "tool call instead of executing.", tc["function"]["name"] or "?",
+                            "Tool call '%s' has repetition-dominated arguments without a "
+                            "finish_reason; treating as a dropped tool call.", tc["function"]["name"] or "?",
                         )
                         has_truncated_tool_args = True
             elif finish_reason is None:

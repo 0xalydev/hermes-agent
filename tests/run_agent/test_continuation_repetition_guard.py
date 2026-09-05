@@ -134,3 +134,51 @@ class TestContinuationRepetitionGuard:
         # Exactly one API call — no continuation was attempted.
         assert loop_agent.client.chat.completions.create.call_count == 1
 
+    def test_repetition_on_length_truncation_preserves_retry_path(self, loop_agent):
+        # A length-truncated turn (not a dropped stream stub) with repetitive arguments
+        # must preserve its retry path rather than aborting immediately (#103615 / @Halldrix).
+        from tests.run_agent.test_run_agent import _mock_assistant_msg
+
+        echo_cmd = ("echo 'repeated block'; " * 150)
+        tool_call = SimpleNamespace(
+            id="call_rep_2",
+            type="function",
+            function=SimpleNamespace(
+                name="terminal",
+                arguments=f'{{"command": "{echo_cmd}"}}'
+            )
+        )
+        msg = _mock_assistant_msg(content=None, tool_calls=[tool_call])
+        # Real length response (not PARTIAL_STREAM_STUB_ID)
+        length_resp = SimpleNamespace(
+            id="chatcmpl-real-123",
+            model="test/model",
+            choices=[SimpleNamespace(
+                index=0,
+                message=msg,
+                finish_reason=FINISH_REASON_LENGTH,
+            )],
+            usage=None,
+        )
+
+        # Successful completion on retry
+        success_msg = _mock_assistant_msg(content="All done!", tool_calls=[])
+        success_resp = SimpleNamespace(
+            id="chatcmpl-real-456",
+            model="test/model",
+            choices=[SimpleNamespace(
+                index=0,
+                message=success_msg,
+                finish_reason="stop",
+            )],
+            usage=None,
+        )
+
+        loop_agent.client.chat.completions.create.side_effect = [length_resp, success_resp]
+
+        result = _run(loop_agent, "write repeated blocks")
+
+        # Proves continuation retry WAS attempted (call_count == 2), not aborted outright
+        assert loop_agent.client.chat.completions.create.call_count == 2
+
+
