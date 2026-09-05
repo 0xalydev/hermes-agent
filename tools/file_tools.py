@@ -169,7 +169,7 @@ def _rewrite_v4a_patch_paths_for_host(patch: str, path_to_resolved: dict, file_o
 
 def _is_blocked_device_path(path: str) -> bool:
     """Return True for concrete device/fd/proc paths that can hang reads or leak process state."""
-    normalized = os.path.normpath(_expand_tilde(path)).replace("\\", "/")
+    normalized = os.path.normpath(_expand_tilde(path))
     if normalized in _BLOCKED_DEVICE_PATHS:
         return True
     return normalized.startswith("/proc/") and normalized.endswith(_BLOCKED_PROC_SUFFIXES)

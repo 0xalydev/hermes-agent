@@ -14,9 +14,10 @@ from tools.registry import registry
 from tools.send_file_tool import (
     SEND_FILE_SCHEMA,
     _DEFAULT_MAX_SEND_BYTES,
-    _format_size,
+    _check_remote_sensitive_path,
     _extract_local_file,
     _extract_remote_file,
+    _format_size,
     send_file_tool,
 )
 
@@ -97,13 +98,29 @@ class TestSendFileLocal:
             res = send_file_tool(str(tmp_path))
             assert "is a directory, not a regular file" in res
 
+    def test_send_local_fifo_rejected(self, tmp_path):
+        """Regression test for Point 1: FIFOs/named pipes must be rejected before blocking read."""
+        fifo_path = tmp_path / "stream.fifo"
+        with patch("tools.send_file_tool._special_file_kind", return_value="a FIFO (named pipe)"):
+            data, err = _extract_local_file(str(fifo_path), _DEFAULT_MAX_SEND_BYTES)
+            assert data is None
+            assert "is a FIFO (named pipe), not a regular file" in err
+
+    def test_send_local_socket_rejected(self, tmp_path):
+        sock_path = tmp_path / "app.sock"
+        with patch("tools.send_file_tool._special_file_kind", return_value="a socket"):
+            data, err = _extract_local_file(str(sock_path), _DEFAULT_MAX_SEND_BYTES)
+            assert data is None
+            assert "is a socket, not a regular file" in err
+
     def test_send_local_oversized_file(self, tmp_path):
         large_file = tmp_path / "huge.dat"
-        with patch("os.stat") as mock_stat:
-            stat_res = MagicMock()
-            stat_res.st_mode = stat.S_IFREG
-            stat_res.st_size = _DEFAULT_MAX_SEND_BYTES + 1024
-            mock_stat.return_value = stat_res
+        large_file.write_bytes(b"x" * 100)
+        with patch("os.fstat") as mock_fstat:
+            st = MagicMock()
+            st.st_mode = stat.S_IFREG
+            st.st_size = _DEFAULT_MAX_SEND_BYTES + 1024
+            mock_fstat.return_value = st
 
             data, err = _extract_local_file(str(large_file), _DEFAULT_MAX_SEND_BYTES)
             assert data is None
@@ -136,15 +153,13 @@ class TestSendFileRemoteSandbox:
 
         def fake_exec(cmd: str):
             res = MagicMock()
-            if "wc -c" in cmd or "__HERMES_DIR__" in cmd:
-                res.returncode = 0
-                res.output = f"{len(raw_content)}\n"
-            elif "base64" in cmd:
-                res.returncode = 0
-                res.output = f"{b64_content}\n"
-            else:
-                res.returncode = 0
-                res.output = ""
+            res.returncode = 0
+            res.output = (
+                f"__HERMES_REALPATH__:/workspace/output/invoice.pdf\n"
+                f"__HERMES_SIZE__:{len(raw_content)}\n"
+                f"__HERMES_DATA__\n"
+                f"{b64_content}\n"
+            )
             return res
 
         mock_ops._exec.side_effect = fake_exec
@@ -194,7 +209,7 @@ class TestSendFileRemoteSandbox:
             res = send_file_tool("/workspace/src")
             assert "is a directory in the sandbox" in res
 
-    def test_send_remote_file_oversized(self):
+    def test_send_remote_special_file_rejected(self):
         mock_ops = MagicMock()
         mock_ops.env = MagicMock()
         mock_ops.env.is_local = False
@@ -202,8 +217,49 @@ class TestSendFileRemoteSandbox:
         def fake_exec(cmd: str):
             res = MagicMock()
             res.returncode = 0
-            # 60 MB
-            res.output = f"{60 * 1024 * 1024}\n"
+            res.output = "__HERMES_SPECIAL__"
+            return res
+
+        mock_ops._exec.side_effect = fake_exec
+
+        data, err = _extract_remote_file(mock_ops, "/workspace/my.fifo", _DEFAULT_MAX_SEND_BYTES)
+        assert data is None
+        assert "special (non-regular) file or FIFO" in err
+
+    def test_send_remote_symlink_to_sensitive_target_blocked(self):
+        """Regression test for Point 2: Symlinks targeting remote ~/.ssh/id_rsa or /etc/shadow must be denied."""
+        mock_ops = MagicMock()
+        mock_ops.env = MagicMock()
+        mock_ops.env.is_local = False
+
+        def fake_exec(cmd: str):
+            res = MagicMock()
+            res.returncode = 0
+            # Path appears innocent (/workspace/innocent.txt) but realpath is /root/.ssh/id_rsa
+            res.output = (
+                "__HERMES_REALPATH__:/root/.ssh/id_rsa\n"
+                "__HERMES_SIZE__:1024\n"
+                "__HERMES_DATA__\n"
+                "UklGRg==\n"
+            )
+            return res
+
+        mock_ops._exec.side_effect = fake_exec
+
+        data, err = _extract_remote_file(mock_ops, "innocent.txt", _DEFAULT_MAX_SEND_BYTES)
+        assert data is None
+        assert "Access denied for protected sandbox target" in err
+        assert ".ssh" in err
+
+    def test_send_remote_file_oversized_at_probe(self):
+        mock_ops = MagicMock()
+        mock_ops.env = MagicMock()
+        mock_ops.env.is_local = False
+
+        def fake_exec(cmd: str):
+            res = MagicMock()
+            res.returncode = 0
+            res.output = f"__HERMES_SIZE__:{60 * 1024 * 1024}\n__HERMES_TOO_LARGE__:{60 * 1024 * 1024}"
             return res
 
         mock_ops._exec.side_effect = fake_exec
@@ -212,6 +268,40 @@ class TestSendFileRemoteSandbox:
         assert data is None
         assert "exceeds the maximum allowed transfer size" in err
 
+    def test_send_remote_decoded_payload_size_cap_postcondition(self):
+        """Regression test for Point 2: Small at probe, but large at read -> final decoded cap catches it."""
+        mock_ops = MagicMock()
+        mock_ops.env = MagicMock()
+        mock_ops.env.is_local = False
+
+        # Generates > 100 bytes payload when max is 50 bytes
+        oversized_data = b"A" * 1000
+        b64_oversized = base64.b64encode(oversized_data).decode("ascii")
+
+        def fake_exec(cmd: str):
+            res = MagicMock()
+            res.returncode = 0
+            # Pretends size is small (10 bytes), but payload returns 1000 bytes
+            res.output = (
+                "__HERMES_REALPATH__:/workspace/dynamic.log\n"
+                "__HERMES_SIZE__:10\n"
+                "__HERMES_DATA__\n"
+                f"{b64_oversized}\n"
+            )
+            return res
+
+        mock_ops._exec.side_effect = fake_exec
+
+        data, err = _extract_remote_file(mock_ops, "dynamic.log", max_bytes=500)
+        assert data is None
+        assert "exceeds the maximum allowed transfer size" in err
+
+    def test_send_remote_tilde_expansion_check(self):
+        assert _check_remote_sensitive_path("~/.ssh/id_rsa") is not None
+        assert _check_remote_sensitive_path("/home/user/.aws/credentials") is not None
+        assert _check_remote_sensitive_path("/etc/shadow") is not None
+        assert _check_remote_sensitive_path("/workspace/report.pdf") is None
+
     def test_send_remote_extraction_failure(self):
         mock_ops = MagicMock()
         mock_ops.env = MagicMock()
@@ -219,12 +309,8 @@ class TestSendFileRemoteSandbox:
 
         def fake_exec(cmd: str):
             res = MagicMock()
-            if "wc -c" in cmd:
-                res.returncode = 0
-                res.output = "1024\n"
-            elif "base64" in cmd:
-                res.returncode = 1
-                res.output = "base64: error reading file: I/O error"
+            res.returncode = 1
+            res.output = "base64: error reading file: I/O error"
             return res
 
         mock_ops._exec.side_effect = fake_exec

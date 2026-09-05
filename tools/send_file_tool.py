@@ -13,11 +13,12 @@ import os
 import posixpath
 import re
 import shlex
+import stat
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from agent.file_safety import get_read_block_error
-from tools.file_tools import _get_file_ops, _is_blocked_device
+from tools.file_tools import _get_file_ops, _is_blocked_device, _special_file_kind
 from tools.file_tools_paths import _expand_tilde, _resolve_path_for_task
 from tools.registry import registry, tool_error
 
@@ -25,6 +26,18 @@ logger = logging.getLogger(__name__)
 
 # Default max file size for outbound transfer (50 MB matching platform upload limits).
 _DEFAULT_MAX_SEND_BYTES = 50 * 1024 * 1024
+
+# Remote sensitive patterns that must not be exfiltrated from remote/sandboxed environments.
+_REMOTE_SENSITIVE_PATTERNS = (
+    re.compile(r"(?:^|/)\.ssh(?:/|$)"),
+    re.compile(r"(?:^|/)\.aws(?:/|$)"),
+    re.compile(r"(?:^|/)\.env(?:\.[^/]+)?$"),
+    re.compile(r"(?:^|/)\.(?:netrc|pgpass|npmrc|pypirc|dockercfg)$"),
+    re.compile(r"(?:^|/)\.docker/config\.json$"),
+    re.compile(r"^/(?:etc|private/etc)/(?:shadow|master\.passwd|sudoers|security)"),
+    re.compile(r"^/(?:proc|dev|sys)/"),
+    re.compile(r"(?:^|/)\.hermes(?:/|$)"),
+)
 
 SEND_FILE_SCHEMA = {
     "name": "send_file",
@@ -63,6 +76,27 @@ def _format_size(num_bytes: int) -> str:
     return f"{num_bytes / (1024 * 1024):.1f} MB"
 
 
+def _is_device_or_proc_path(path: str) -> bool:
+    """Check if a path is a /dev/, /proc/, or /sys/ device path across platforms."""
+    if not path:
+        return False
+    clean = path.replace("\\", "/").strip()
+    if clean.startswith("/dev/") or clean.startswith("/proc/") or clean.startswith("/sys/"):
+        return True
+    return _is_blocked_device(path)
+
+
+def _check_remote_sensitive_path(path: str) -> Optional[str]:
+    """Check if a remote/sandbox path (or its resolved realpath) targets sensitive files."""
+    if not path:
+        return None
+    normalized = posixpath.normpath(path.replace("\\", "/"))
+    for pattern in _REMOTE_SENSITIVE_PATTERNS:
+        if pattern.search(normalized) or pattern.search(path):
+            return f"access denied for protected remote path '{path}'"
+    return None
+
+
 def _cache_extracted_bytes(data: bytes, filename: str) -> str:
     """Save raw file bytes to the host document/media cache and return the host path."""
     try:
@@ -83,64 +117,147 @@ def _cache_extracted_bytes(data: bytes, filename: str) -> str:
 
 
 def _extract_local_file(resolved_path: str, max_bytes: int) -> Tuple[Optional[bytes], Optional[str]]:
-    """Read a local file from the host filesystem."""
-    try:
-        st = os.stat(resolved_path)
-        import stat
+    """Read a local file from the host filesystem using object-bound file descriptor inspection."""
+    # 1. Directory check
+    if os.path.isdir(resolved_path):
+        return None, f"'{resolved_path}' is a directory, not a regular file. Archive it into a .zip or .tar.gz first."
 
-        st_mode = getattr(st, "st_mode", None)
-        if isinstance(st_mode, int) and stat.S_ISDIR(st_mode) or (st_mode is None and os.path.isdir(resolved_path)):
+    # 2. Reject special files (FIFOs, sockets, char/block devices) before opening to prevent hangs
+    special_kind = _special_file_kind(resolved_path)
+    if special_kind:
+        return None, f"'{resolved_path}' is {special_kind}, not a regular file."
+
+    # 3. Name / path guard check
+    if _is_device_or_proc_path(resolved_path):
+        return None, f"access denied for device or proc path '{resolved_path}'."
+
+    # 4. Object-bound open and fstat check
+    fd = None
+    try:
+        flags = os.O_RDONLY
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        if hasattr(os, "O_NONBLOCK"):
+            flags |= os.O_NONBLOCK
+
+        fd = os.open(resolved_path, flags)
+        st = os.fstat(fd)
+
+        # Check directory vs regular file on opened descriptor
+        if stat.S_ISDIR(st.st_mode):
             return None, f"'{resolved_path}' is a directory, not a regular file. Archive it into a .zip or .tar.gz first."
+        if not stat.S_ISREG(st.st_mode):
+            return None, f"'{resolved_path}' is a special (non-regular) file, not a regular file."
+
         if st.st_size > max_bytes:
             return None, f"File size ({_format_size(st.st_size)}) exceeds the maximum allowed transfer size ({_format_size(max_bytes)})."
-        with open(resolved_path, "rb") as f:
-            data = f.read()
+
+        # Read at most max_bytes + 1 to enforce size limit directly on descriptor
+        data = os.read(fd, max_bytes + 1)
+        if len(data) > max_bytes:
+            return None, f"File size ({_format_size(len(data))}) exceeds the maximum allowed transfer size ({_format_size(max_bytes)})."
+
         return data, None
     except FileNotFoundError:
         return None, f"File not found: '{resolved_path}'"
     except PermissionError:
         return None, f"Permission denied reading file: '{resolved_path}'"
+    except BlockingIOError:
+        return None, f"Cannot read '{resolved_path}': resource would block (special file or FIFO)."
     except OSError as exc:
         return None, f"Failed to read file '{resolved_path}': {exc}"
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
 
-def _extract_remote_file(file_ops, remote_path: str, max_bytes: int) -> Tuple[Optional[bytes], Optional[str]]:
-    """Extract a file from a sandboxed or remote terminal backend via shell execution."""
-    quoted = shlex.quote(remote_path)
-    # Probe existence, type, and size in one compound command
-    probe_cmd = (
-        f'if [ -d {quoted} ]; then echo "__HERMES_DIR__"; '
-        f'elif [ -f {quoted} ]; then wc -c < {quoted}; '
-        f'else echo "__HERMES_NOT_FOUND__"; fi'
+def _extract_remote_file(file_ops, raw_remote_path: str, max_bytes: int) -> Tuple[Optional[bytes], Optional[str]]:
+    """Extract a file from a sandboxed or remote terminal backend with atomic realpath resolution and size validation."""
+    quoted_raw = shlex.quote(raw_remote_path)
+    cwd = getattr(file_ops, "cwd", "/workspace")
+    if not isinstance(cwd, str) or not cwd:
+        cwd = "/workspace"
+    quoted_cwd = shlex.quote(cwd)
+
+    # Compound script to resolve path, expand ~, probe existence, inspect realpath, check size, and base64 dump
+    script = (
+        f'p={quoted_raw}\n'
+        f'case "$p" in\n'
+        f'  "~"*) p="$HOME${{p#\\~}}" ;;\n'
+        f'  /*) ;;\n'
+        f'  *) p="{quoted_cwd}/$p" ;;\n'
+        f'esac\n'
+        f'if [ ! -e "$p" ] && [ ! -L "$p" ]; then\n'
+        f'  echo "__HERMES_NOT_FOUND__"\n'
+        f'  exit 0\n'
+        f'fi\n'
+        f'if [ -d "$p" ]; then\n'
+        f'  echo "__HERMES_DIR__"\n'
+        f'  exit 0\n'
+        f'fi\n'
+        f'rp=""\n'
+        f'if command -v realpath >/dev/null 2>&1; then\n'
+        f'  rp=$(realpath "$p" 2>/dev/null || echo "")\n'
+        f'elif command -v readlink >/dev/null 2>&1; then\n'
+        f'  rp=$(readlink -f "$p" 2>/dev/null || echo "")\n'
+        f'fi\n'
+        f'[ -z "$rp" ] && rp="$p"\n'
+        f'echo "__HERMES_REALPATH__:$rp"\n'
+        f'if [ ! -f "$p" ]; then\n'
+        f'  echo "__HERMES_SPECIAL__"\n'
+        f'  exit 0\n'
+        f'fi\n'
+        f'sz=$(wc -c < "$p" 2>/dev/null || echo "0")\n'
+        f'echo "__HERMES_SIZE__:$sz"\n'
+        f'if [ "$sz" -gt {max_bytes} ]; then\n'
+        f'  echo "__HERMES_TOO_LARGE__:$sz"\n'
+        f'  exit 0\n'
+        f'fi\n'
+        f'echo "__HERMES_DATA__"\n'
+        f'(base64 -w 0 "$p" 2>/dev/null || base64 "$p" 2>/dev/null)\n'
     )
-    res = file_ops._exec(probe_cmd)
+
+    res = file_ops._exec(script)
     output = (res.output or "").strip()
 
-    if "__HERMES_NOT_FOUND__" in output or res.returncode != 0 and not output:
-        return None, f"File not found in sandbox: '{remote_path}'"
+    if "__HERMES_NOT_FOUND__" in output or (res.returncode != 0 and not output):
+        return None, f"File not found in sandbox: '{raw_remote_path}'"
     if "__HERMES_DIR__" in output:
-        return None, f"'{remote_path}' is a directory in the sandbox, not a regular file. Archive it into a .zip or .tar.gz first."
+        return None, f"'{raw_remote_path}' is a directory in the sandbox, not a regular file. Archive it into a .zip or .tar.gz first."
+    if "__HERMES_SPECIAL__" in output:
+        return None, f"'{raw_remote_path}' is a special (non-regular) file or FIFO in the sandbox."
+    if "__HERMES_TOO_LARGE__" in output:
+        m = re.search(r"__HERMES_TOO_LARGE__:(\d+)", output)
+        sz = int(m.group(1)) if m else max_bytes + 1
+        return None, f"File size ({_format_size(sz)}) exceeds the maximum allowed transfer size ({_format_size(max_bytes)})."
 
-    # Parse file size from wc -c digits
-    match = re.search(r"\b(\d+)\b", output)
-    if match:
-        size = int(match.group(1))
-        if size > max_bytes:
-            return None, f"File size ({_format_size(size)}) exceeds the maximum allowed transfer size ({_format_size(max_bytes)})."
+    # 1. Verify remote realpath for symlink targets against sensitive targets
+    rp_match = re.search(r"__HERMES_REALPATH__:(.+)", output)
+    if rp_match:
+        remote_realpath = rp_match.group(1).strip()
+        sec_err = _check_remote_sensitive_path(remote_realpath)
+        if sec_err:
+            return None, f"Access denied for protected sandbox target '{remote_realpath}': {sec_err}"
 
-    # Extract bytes as base64
-    b64_cmd = f"base64 -w 0 {quoted} 2>/dev/null || base64 {quoted}"
-    b64_res = file_ops._exec(b64_cmd)
-    if b64_res.returncode != 0 or not b64_res.output:
-        return None, f"Failed to extract file '{remote_path}' from sandbox: {b64_res.output or 'empty output'}"
+    # 2. Extract base64 payload after marker
+    if "__HERMES_DATA__" not in output:
+        return None, f"Failed to extract file '{raw_remote_path}' from sandbox: {output or 'empty output'}"
 
-    # Clean whitespace and decode
-    clean_b64 = re.sub(r"\s+", "", b64_res.output)
+    b64_part = output.split("__HERMES_DATA__", 1)[1].strip()
+    clean_b64 = re.sub(r"\s+", "", b64_part)
     try:
         raw_bytes = base64.b64decode(clean_b64)
-        return raw_bytes, None
     except (binascii.Error, ValueError) as exc:
-        return None, f"Failed to decode base64 file data for '{remote_path}': {exc}"
+        return None, f"Failed to decode base64 file data for '{raw_remote_path}': {exc}"
+
+    # 3. Postcondition: Enforce decoded payload cap strictly
+    if len(raw_bytes) > max_bytes:
+        return None, f"File size ({_format_size(len(raw_bytes))}) exceeds the maximum allowed transfer size ({_format_size(max_bytes)})."
+
+    return raw_bytes, None
 
 
 def send_file_tool(path: str, message: Optional[str] = None, task_id: str = "default") -> str:
@@ -150,8 +267,8 @@ def send_file_tool(path: str, message: Optional[str] = None, task_id: str = "def
 
     raw_path = path.strip()
 
-    # Security check: prevent exfiltration of internal credential/secret files
-    if _is_blocked_device(raw_path):
+    # Name-based blocked device check upfront
+    if _is_device_or_proc_path(raw_path):
         return tool_error(f"send_file: access denied for device or proc path '{raw_path}'.")
 
     # Obtain the file operations manager for the active task environment
@@ -162,12 +279,16 @@ def send_file_tool(path: str, message: Optional[str] = None, task_id: str = "def
     filename = Path(raw_path).name or "file"
 
     if is_local:
+        # Resolve task path first
         try:
             resolved = str(_resolve_path_for_task(raw_path, task_id))
         except Exception:
             resolved = os.path.abspath(_expand_tilde(raw_path))
 
-        # Check sensitive paths on host
+        # Security checks on host resolved path
+        if _is_device_or_proc_path(resolved):
+            return tool_error(f"send_file: access denied for device or proc path '{raw_path}'.")
+
         sec_err = get_read_block_error(resolved)
         if sec_err:
             return tool_error(f"send_file: access denied for protected path '{raw_path}': {sec_err}")
@@ -179,17 +300,12 @@ def send_file_tool(path: str, message: Optional[str] = None, task_id: str = "def
         cached_host_path = _cache_extracted_bytes(data, filename)
     else:
         # Remote / Sandbox environment
-        remote_path = raw_path
-        if not remote_path.startswith("/") and not remote_path.startswith("~"):
-            cwd = getattr(file_ops, "cwd", "/workspace") or "/workspace"
-            remote_path = posixpath.normpath(posixpath.join(cwd, remote_path))
-
-        # Check sensitive path patterns
-        sec_err = get_read_block_error(remote_path)
+        # Pre-check raw path against remote sensitive patterns
+        sec_err = _check_remote_sensitive_path(raw_path)
         if sec_err:
-            return tool_error(f"send_file: access denied for protected path '{remote_path}': {sec_err}")
+            return tool_error(f"send_file: access denied for protected path '{raw_path}': {sec_err}")
 
-        data, err = _extract_remote_file(file_ops, remote_path, _DEFAULT_MAX_SEND_BYTES)
+        data, err = _extract_remote_file(file_ops, raw_path, _DEFAULT_MAX_SEND_BYTES)
         if err:
             return tool_error(f"send_file: {err}")
 
